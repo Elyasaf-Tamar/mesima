@@ -174,6 +174,25 @@
   .ev .tm .d{font-size:10px;color:var(--muted2)}
   .ev .nt{font-size:12px;color:var(--muted2);margin-top:3px;white-space:pre-wrap}
   .ics{font-size:11.5px;padding:5px 9px;border-radius:7px;background:#241a3d;color:#c4b5fd;font-weight:650}
+  /* ---- תצוגת שבוע ---- */
+  .wday{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+        margin-bottom:8px;overflow:hidden}
+  .wday.today{border-color:var(--cal)}
+  .wday[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .whead{display:flex;align-items:center;gap:10px;padding:11px 14px;width:100%;text-align:start}
+  .whead .dn{font-size:14.5px;font-weight:650}
+  .whead .dd{font-size:12px;color:var(--muted2);font-variant-numeric:tabular-nums}
+  .wday.today .dn{color:var(--cal)}
+  .whead .cn{margin-inline-start:auto;font-size:11px;color:var(--muted2);
+             background:var(--surface2);border:1px solid var(--line);padding:2px 8px;border-radius:999px}
+  .wev{display:flex;gap:9px;align-items:center;padding:8px 14px 8px 0;
+       border-top:1px solid var(--line);font-size:13.5px}
+  .wev .bar{width:3px;align-self:stretch;border-radius:2px;flex:0 0 auto;margin-inline-start:14px}
+  .wev .wt{font-size:11.5px;color:var(--muted2);font-variant-numeric:tabular-nums;
+           margin-inline-start:auto;padding-inline-end:14px;
+           direction:ltr;unicode-bidi:isolate}   /* אחרת המקף הופך את סדר השעות */
+  .catdot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .evbar{width:3px;align-self:stretch;border-radius:2px;flex:0 0 auto}
 
   nav{flex:0 0 auto;display:flex;background:rgba(19,26,34,.94);backdrop-filter:blur(14px);
     -webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);padding-bottom:var(--safe-b)}
@@ -243,6 +262,23 @@
   .nowline .lb{font-size:10px;color:var(--danger);font-weight:700}
 
   /* ---- עץ משימות ---- */
+  .tcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+         overflow:hidden;margin-bottom:10px}
+  .trow{display:flex;align-items:flex-start;gap:12px;padding:14px}
+  .trow .t{font-size:15.5px;font-weight:600}
+  .kid .trow{padding:11px 14px}
+  .kid .trow .t{font-size:14.5px;font-weight:500}
+  .subbar{display:flex;align-items:center;gap:8px;padding:9px 14px;
+          background:var(--surface2);border-top:1px solid var(--line);
+          font-size:12.5px;color:var(--muted);font-weight:600;width:100%;text-align:start}
+  .subbar:active{background:var(--surface3)}
+  .subbar .ch{margin-inline-start:auto;font-size:11px;transition:transform .18s}
+  .subbar[aria-expanded="false"] .ch{transform:rotate(90deg)}
+  .subbar .cnt2{background:var(--surface3);color:var(--muted2);font-weight:800;
+                font-size:11px;padding:1px 7px;border-radius:999px}
+  .kid{border-inline-start:2px solid var(--accent);margin-inline-start:16px;
+       opacity:.96;background:rgba(255,255,255,.012)}
+  .kid .subbar{background:transparent}
   .kid{border-inline-start:2px solid var(--line);margin-inline-start:14px;padding-inline-start:0}
   .tw{flex:0 0 auto;width:26px;height:26px;border-radius:7px;color:var(--muted2);display:grid;
       place-items:center;font-size:11px;margin-top:-1px;transition:.15s}
@@ -383,13 +419,22 @@
 
     <!-- ===================== יומן ===================== -->
     <section class="sec" id="s-cal">
+      <div class="seg" id="calMode" style="margin-bottom:12px">
+        <button data-v="month" aria-selected="true">חודש</button>
+        <button data-v="week">שבוע</button>
+      </div>
+
       <div class="calhead">
         <button class="nav-b" id="calNext">›</button>
         <div class="mn" id="calMonth">—</div>
         <button class="nav-b" id="calPrev">‹</button>
       </div>
-      <div class="dow"><span>א</span><span>ב</span><span>ג</span><span>ד</span><span>ה</span><span>ו</span><span>ש</span></div>
-      <div class="grid" id="calGrid"></div>
+
+      <div id="monthView">
+        <div class="dow"><span>א</span><span>ב</span><span>ג</span><span>ד</span><span>ה</span><span>ו</span><span>ש</span></div>
+        <div class="grid" id="calGrid"></div>
+      </div>
+      <div id="weekView" hidden></div>
 
       <h2 id="dayTitle">—</h2>
       <div class="add">
@@ -399,9 +444,9 @@
         </div>
         <div class="opts">
           <div class="sub on">
-            <div class="f1"><label>שעה</label><input type="time" id="eTime" value="09:00"></div>
-            <div class="f1"><label>אורך (דק׳)</label><input type="number" id="eLen" value="60" min="5" max="1440" step="5" inputmode="numeric"></div>
-            <div class="f1"><label>תזכורת לפני</label>
+            <div class="f1"><label>מ־</label><input type="time" id="eTime" value="09:00"></div>
+            <div class="f1"><label>עד</label><input type="time" id="eEnd" value="10:00"></div>
+            <div class="f1"><label>תזכורת</label>
               <select id="eRemind">
                 <option value="-1">ללא</option>
                 <option value="0">בזמן</option>
@@ -412,6 +457,18 @@
                 <option value="1440">יום</option>
               </select>
             </div>
+          </div>
+          <div class="seg" id="eCat">
+            <button data-c="" aria-selected="true">כללי</button>
+            <button data-c="army">צבא</button>
+            <button data-c="home">בית</button>
+            <button data-c="personal">אישי</button>
+          </div>
+          <div class="sub on" style="align-items:center;gap:10px">
+            <button class="btn s" id="eMulti" aria-pressed="false"
+              style="flex:0 0 auto;padding:9px 13px;font-size:12.5px">כמה ימים</button>
+            <div class="f2" id="eEndDateWrap" hidden><label>עד תאריך</label>
+              <input type="date" id="eEndDate"></div>
           </div>
         </div>
       </div>
@@ -613,6 +670,15 @@ const Store = (() => {
   data.tasks.forEach(t=>{ if(t.parentId===undefined) t.parentId=null;
                           if(t.planned===undefined) t.planned=null; });
   data.places.forEach(p=>{ if(p.parentId===undefined) p.parentId=null; });
+  data.events.forEach(e=>{
+    if (e.cat === undefined) e.cat = '';
+    if (e.endDate === undefined) e.endDate = '';
+    if (!e.end){                       /* גרסאות ישנות שמרו אורך בדקות */
+      const [h,m] = (e.time||'09:00').split(':').map(Number);
+      const t = h*60 + m + (e.mins || 60);
+      e.end = String(Math.floor(t/60) % 24).padStart(2,'0') + ':' + String(t % 60).padStart(2,'0');
+    }
+  });
   data.v = 3;
 
   const subs = [];
@@ -654,6 +720,7 @@ const Store = (() => {
       if (t.parentId){ const p = this.task(t.parentId); if (p) t.mission = p.mission; }
       data.tasks.unshift(t); save(); return t;
     },
+    updateTask(id, patch){ const t=this.task(id); if(t){ Object.assign(t, patch); t.rt = {}; save(); } },
     setPlanned(id, date){ const t=this.task(id); if(t){ t.planned=date; save(); } },
     toggleCollapse(id){ const t=this.task(id); if(t){ t.collapsed=!t.collapsed; save(); } },
     /** משימות שתוכננו ליום מסוים */
@@ -737,13 +804,21 @@ const Store = (() => {
       return out;
     },
 
-    events(date){ return data.events.filter(e=>e.date===date).sort((a,b)=>a.time.localeCompare(b.time)); },
-    eventCount(date){ return data.events.filter(e=>e.date===date).length; },
+    /** אירוע רב-יומי מופיע בכל יום בטווח שלו */
+    onDay(e, date){ return e.endDate ? (date >= e.date && date <= e.endDate) : e.date === date; },
+    events(date){
+      return data.events.filter(e => this.onDay(e, date))
+                        .sort((a,b) => (a.time||'').localeCompare(b.time||''));
+    },
+    eventCount(date){ return data.events.filter(e => this.onDay(e, date)).length; },
+    event(id){ return data.events.find(e=>e.id===id); },
     addEvent(o){
-      data.events.push({ id:uid(), title:o.title, date:o.date, time:o.time,
-        mins:o.mins||60, remindMin:(o.remindMin==null?15:o.remindMin), note:o.note||'', rt:{} });
+      data.events.push({ id:uid(), title:o.title, date:o.date, time:o.time||'09:00',
+        end:o.end||'10:00', endDate:o.endDate||'', cat:o.cat||'',
+        remindMin:(o.remindMin==null?15:o.remindMin), note:o.note||'', rt:{} });
       save();
     },
+    updateEvent(id, patch){ const e=this.event(id); if(e){ Object.assign(e, patch); e.rt={}; save(); } },
     delEvent(id){ data.events = data.events.filter(e=>e.id!==id); save(); },
 
     setPref(k,v){ data.prefs[k]=v; save(); },
@@ -860,22 +935,53 @@ const Geo = (() => {
 })();
 
 /* ------------------------------- Search --------------------------------- */
-/* חיפוש מקום בשם. שני ספקים חינמיים ללא מפתח; אם שניהם נופלים -> נ״צ ידני. */
+/* חיפוש מקום בשם. שלושה ספקים בטור, כולם חינמיים וללא מפתח.
+   Nominatim ראשון כי הוא המנוע עם הכיסוי הטוב ביותר לעסקים, חנויות וכתובות.
+   israelhiking אחרון — הוא מאגר של מפת שבילים, מצוין למעיינות וחורשות
+   ולא רלוונטי לסופר או למשרד. */
 const Search = (() => {
   const norm = (name, city, lat, lng) => ({ name, city:city||'', lat:+lat, lng:+lng });
+  const ok = r => isFinite(r.lat) && isFinite(r.lng) && Math.abs(r.lat)<=90 && Math.abs(r.lng)<=180;
 
-  function pick(o, keys){ for (const k of keys) if (o && o[k] != null) return o[k]; return null; }
+  async function nominatim(q){
+    const url = 'https://nominatim.openstreetmap.org/search'
+      + '?format=jsonv2&addressdetails=1&limit=8&accept-language=he&countrycodes=il&q='
+      + encodeURIComponent(q);
+    const r = await fetch(url, { headers:{ 'Accept':'application/json' } });
+    if (!r.ok) throw new Error('nominatim ' + r.status);
+    const j = await r.json();
+    return (j||[]).map(it => {
+      const a = it.address || {};
+      const city = a.city || a.town || a.village || a.suburb || a.county || '';
+      const first = String(it.display_name||'').split(',')[0].trim();
+      return norm(it.name || first, city, it.lat, it.lon);
+    }).filter(ok);
+  }
 
-  /* israelhiking – נתוני OSM ישראליים, עברית ילידית */
+  async function photon(q){
+    /* הטיה למרכז הארץ כדי שתוצאות מקומיות יעלו קודם */
+    const url = 'https://photon.komoot.io/api/?limit=8&lang=default&lat=31.8&lon=35.0&q='
+      + encodeURIComponent(q);
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('photon ' + r.status);
+    const j = await r.json();
+    return (j.features||[]).map(f => {
+      const c = f.geometry && f.geometry.coordinates; const p = f.properties||{};
+      if (!c) return null;
+      const city = [p.city || p.district, p.state].filter(Boolean).join(', ');
+      return norm(p.name || p.street || q, city, c[1], c[0]);
+    }).filter(Boolean).filter(ok);
+  }
+
   async function israelHiking(q){
     const url = 'https://israelhiking.osm.org.il/api/search/' + encodeURIComponent(q) + '?language=he';
     const r = await fetch(url, { headers:{ 'Accept':'application/json' } });
-    if (!r.ok) throw new Error('ih ' + r.status);
+    if (!r.ok) throw new Error('israelhiking ' + r.status);
     const j = await r.json();
     const arr = Array.isArray(j) ? j : (j.features || j.results || []);
+    const pick = (o, keys) => { for (const k of keys) if (o && o[k] != null) return o[k]; return null; };
     return arr.map(it => {
       const disp = pick(it, ['displayName','DisplayName','name','title']) || '';
-      /* קואורדינטות עלולות להגיע בכמה צורות – מנסים את כולן */
       let lat = pick(it, ['lat','latitude']), lng = pick(it, ['lng','lon','longitude']);
       const loc = pick(it, ['location','Location','coordinates','center']);
       if ((lat==null||lng==null) && loc){
@@ -887,37 +993,32 @@ const Search = (() => {
       if (lat==null || lng==null) return null;
       const parts = String(disp).split(',');
       return norm(parts[0].trim(), parts.slice(1).join(',').trim(), lat, lng);
-    }).filter(Boolean);
+    }).filter(Boolean).filter(ok);
   }
 
-  /* photon – גיבוי עולמי */
-  async function photon(q){
-    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(q) + '&limit=8&lang=default';
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('ph ' + r.status);
-    const j = await r.json();
-    return (j.features||[]).map(f => {
-      const c = f.geometry && f.geometry.coordinates; const p = f.properties||{};
-      if (!c) return null;
-      const city = [p.city, p.state, p.country].filter(Boolean).join(', ');
-      return norm(p.name || p.street || q, city, c[1], c[0]);
-    }).filter(Boolean);
+  /** מסיר כפילויות: אותו שם בתוך 50 מטר */
+  function dedupe(list){
+    const out = [];
+    list.forEach(r => {
+      const near = out.find(o => o.name === r.name &&
+        Math.abs(o.lat-r.lat) < 0.0005 && Math.abs(o.lng-r.lng) < 0.0005);
+      if (!near) out.push(r);
+    });
+    return out;
   }
 
   return {
-    /** מנסה ספק אחרי ספק. מחזיר {results, provider} או זורק. */
     async run(q){
       const errs = [];
-      for (const [nm, fn] of [['israelhiking', israelHiking], ['photon', photon]]){
+      for (const [nm, fn] of [['מפות', nominatim], ['photon', photon], ['שבילים', israelHiking]]){
         try {
-          const res = await fn(q);
+          const res = dedupe(await fn(q));
           if (res.length) return { results: res.slice(0,8), provider: nm };
-          errs.push(nm + ': ריק');
+          errs.push(nm + ': אין תוצאות');
         } catch(e){ errs.push(nm + ': ' + e.message); }
       }
       throw new Error(errs.join(' | '));
     },
-    /** "32.4752, 34.9771" -> {lat,lng} */
     parseCoords(s){
       const m = String(s).match(/(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)/);
       if (!m) return null;
@@ -971,10 +1072,39 @@ const Cal = (() => {
   const key = d => d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate());
   const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
-  function startMs(ev){
-    const [y,m,d] = ev.date.split('-').map(Number);
-    const [hh,mm] = (ev.time||'00:00').split(':').map(Number);
-    return new Date(y, m-1, d, hh, mm, 0, 0).getTime();
+  const CAT = {
+    army:     { label:'צבא',  color:'#3b82f6' },
+    home:     { label:'בית',  color:'#f59e0b' },
+    personal: { label:'אישי', color:'#a78bfa' },
+    ''      : { label:'כללי', color:'#8ba0b6' },
+  };
+  const cat = ev => CAT[ev && ev.cat] || CAT[''];
+
+  function atMs(dateKey, hm){
+    const [y,m,d] = dateKey.split('-').map(Number);
+    const [hh,mi] = (hm||'00:00').split(':').map(Number);
+    return new Date(y, m-1, d, hh, mi, 0, 0).getTime();
+  }
+  function startMs(ev){ return atMs(ev.date, ev.time); }
+  /** סיום האירוע.
+      שעת סיום קטנה משעת ההתחלה = האירוע חוצה חצות (שמירה 22:00–02:00),
+      ואז הסיום הוא למחרת. בלי זה משמרת לילה נספרה כשעה אחת. */
+  function endMs(ev){
+    const s = startMs(ev);
+    let e = atMs(ev.endDate || ev.date, ev.end || ev.time);
+    if (e <= s && !ev.endDate) e += 864e5;
+    if (e <= s) e = s + 60*60000;
+    return e;
+  }
+  function durLabel(ev){
+    const mins = Math.round((endMs(ev) - startMs(ev)) / 60000);
+    if (ev.endDate && ev.endDate !== ev.date){
+      const days = Math.round((atMs(ev.endDate,'00:00') - atMs(ev.date,'00:00')) / 864e5) + 1;
+      return days + ' ימים';
+    }
+    if (mins < 60) return mins + ' דק׳';
+    const h = Math.floor(mins/60), m = mins%60;
+    return h + ' שע׳' + (m ? ' ' + m : '');
   }
   function stamp(ms){
     const d = new Date(ms);
@@ -985,7 +1115,7 @@ const Cal = (() => {
     const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
     const L = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//mesima//HE','CALSCALE:GREGORIAN'];
     events.forEach(ev => {
-      const s = startMs(ev), e = s + (ev.mins||60)*60000;
+      const s = startMs(ev), e = endMs(ev);
       L.push('BEGIN:VEVENT', 'UID:'+ev.id+'@mesima', 'DTSTAMP:'+stamp(Date.now()),
              'DTSTART:'+stamp(s), 'DTEND:'+stamp(e), 'SUMMARY:'+esc(ev.title));
       if (ev.note) L.push('DESCRIPTION:'+esc(ev.note));
@@ -998,7 +1128,7 @@ const Cal = (() => {
     return L.join('\r\n');
   }
   function gcal(ev){
-    const s = startMs(ev), e = s + (ev.mins||60)*60000;
+    const s = startMs(ev), e = endMs(ev);
     const q = new URLSearchParams({ action:'TEMPLATE', text:ev.title,
       dates: stamp(s)+'/'+stamp(e), details: ev.note||'', ctz:'Asia/Jerusalem' });
     return 'https://calendar.google.com/calendar/render?' + q.toString();
@@ -1014,7 +1144,16 @@ const Cal = (() => {
     }
     return cells;
   }
-  return { key, MONTHS, startMs, ics, gcal, monthGrid };
+  /** ראשון עד שבת של השבוע שבו נמצא התאריך */
+  function weekOf(k){
+    const [y,m,d] = k.split('-').map(Number);
+    const dt = new Date(y, m-1, d);
+    dt.setDate(dt.getDate() - dt.getDay());
+    return Array.from({length:7}, (_,i)=>{
+      const x = new Date(dt); x.setDate(dt.getDate()+i); return key(x);
+    });
+  }
+  return { key, MONTHS, CAT, cat, startMs, endMs, durLabel, ics, gcal, monthGrid, weekOf };
 })();
 
 /* -------------------------------- Modal --------------------------------- */
@@ -1024,7 +1163,13 @@ const Modal = (() => {
   let onClose = null;
   function open({ title, body, buttons, close }){
     $('#mTitle').textContent = title || '';
-    $('#mBody').innerHTML = body || '';
+    /* מחליפים את הגוף באלמנט חדש כדי להרוג מאזינים ישנים.
+       בלי זה כל פתיחה מוסיפה מאזין נוסף לאותו אלמנט, וקליק אחד היה מפעיל
+       גם את המאזינים של כל המודאלים הקודמים — כולל מחיקות של משימות אחרות. */
+    const oldBody = $('#mBody');
+    const fresh = oldBody.cloneNode(false);
+    oldBody.replaceWith(fresh);
+    fresh.innerHTML = body || '';
     $('#mFoot').innerHTML = (buttons||[]).map((b,i)=>
       `<button class="btn ${b.kind||'s'}" data-mb="${i}">${b.label}</button>`).join('');
     $('#mFoot').querySelectorAll('[data-mb]').forEach(el=>{
@@ -1165,7 +1310,7 @@ const Native = (() => {
     },
     addEvent(ev){
       if (!A()) return false;
-      const b = Cal.startMs(ev), e = b + (ev.mins||60)*60000;
+      const b = Cal.startMs(ev), e = Cal.endMs(ev);
       try { A().addCalendarEvent(ev.title, b, e, ev.note||'', ''); return true; } catch(x){ return false; }
     },
     /* ה-WebView לא יודע להוריד blob, ולכן שמירה עוברת דרך אנדרואיד */
@@ -1191,6 +1336,9 @@ const UI = (() => {
   const today = new Date();
   let calY = today.getFullYear(), calM = today.getMonth(), selDate = Cal.key(today);
   let planDate = Cal.key(today);       /* היום שמוצג במסך "היום" */
+  let calView = 'month';               /* חודש או שבוע */
+  let evCat = '';                      /* קטגוריית האירוע הבא */
+  let evMulti = false;                 /* אירוע שנמשך כמה ימים */
   let listKind = 'simple';             /* סוג הרשימה החדשה */
   let openList = null;                 /* רשימה פתוחה, null = אינדקס */
 
@@ -1264,26 +1412,34 @@ const UI = (() => {
 
   /* ---------- משימות ---------- */
   /* ------- עץ משימות: קינון ללא הגבלת עומק ------- */
-  function taskRow(t){
-    const kids = Store.children(t.id).filter(x => !x.done);
-    const open = !t.collapsed;
-    return `
-      <div class="row" data-id="${t.id}">
-        <button class="tw ${kids.length ? '' : 'leaf'}" data-act="twist">${open ? '▾' : '◂'}</button>
-        <button class="cb" data-act="toggle" aria-checked="false">✓</button>
-        <div class="rb">
-          <div class="t">${esc(t.title)}</div>
-          <div class="meta">
-            ${kids.length ? `<span class="sub-n">${kids.length} בפנים</span>` : ''}
-            ${remLabel(t.reminder)}${liveTag(t)}
-            ${t.planned ? `<span class="tag">☀ ${esc(Plan.label(t.planned))}</span>` : ''}
-            ${(Native.on && t.reminder && t.reminder.type==='time')
-              ? '<button class="ics" data-act="alarm">⏰ לשעון של הטלפון</button>' : ''}
-          </div>
+  function trow(t){
+    return `<div class="trow" data-id="${t.id}">
+      <button class="cb" data-act="toggle" aria-checked="false">✓</button>
+      <div class="rb">
+        <div class="t">${esc(t.title)}</div>
+        <div class="meta">
+          ${remLabel(t.reminder)}${liveTag(t)}
+          ${t.planned ? `<span class="tag">☀ ${esc(Plan.label(t.planned))}</span>` : ''}
+          ${(Native.on && t.reminder && t.reminder.type==='time')
+            ? '<button class="ics" data-act="alarm">⏰ לשעון</button>' : ''}
         </div>
-        <button class="mini" data-act="menu">⋯</button>
       </div>
-      ${open && kids.length ? `<div class="kid">${kids.map(taskRow).join('')}</div>` : ''}`;
+      <button class="mini" data-act="menu">⋯</button>
+    </div>`;
+  }
+
+  /** ענף בעץ: השורה עצמה, ומתחתיה פס שמקפל את הילדים. */
+  function branch(t){
+    const kids = Store.children(t.id).filter(x => !x.done);
+    if (!kids.length) return trow(t);
+    const open = !t.collapsed;
+    return trow(t) + `
+      <button class="subbar" data-id="${t.id}" data-act="twist" aria-expanded="${open}">
+        <span class="cnt2">${kids.length}</span>
+        <span>${kids.length === 1 ? 'תת-משימה' : 'תת-משימות'}${open ? '' : ' — מוסתרות'}</span>
+        <span class="ch">▾</span>
+      </button>
+      ${open ? `<div class="kid">${kids.map(branch).join('')}</div>` : ''}`;
   }
 
   function renderTasks(){
@@ -1293,7 +1449,8 @@ const UI = (() => {
       el.innerHTML = `<div class="empty"><div class="ico">◎</div><p>אין משימות ב${MISSIONS[mission]}.<br>תוסיף אחת למעלה.</p></div>`;
       return;
     }
-    el.innerHTML = `<div class="card">` + roots.map(taskRow).join('') + `</div>`;
+    /* כל משימה ראשית בכרטיס משלה — כך ההפרדה ביניהן ברורה */
+    el.innerHTML = roots.map(t => `<div class="tcard">${branch(t)}</div>`).join('');
   }
 
   /* ------- "אתה כאן": מה יש לעשות במקום שאתה נמצא בו ------- */
@@ -1375,7 +1532,7 @@ const UI = (() => {
       }
       if (r.kind === 'event'){
         const e = r.ref;
-        const end = new Date(Cal.startMs(e) + (e.mins||60)*60000);
+        const end = new Date(Cal.endMs(e));
         const eh = String(end.getHours()).padStart(2,'0')+':'+String(end.getMinutes()).padStart(2,'0');
         return line + `<div class="tlrow evt" data-ev="${e.id}">
           <div class="when"><div class="h">${esc(e.time)}</div><div class="d">${eh}</div></div>
@@ -1398,42 +1555,77 @@ const UI = (() => {
     }).join('') + `</div>`;
   }
 
+  function evRow(e){
+    const c = Cal.cat(e);
+    const multi = e.endDate && e.endDate !== e.date;
+    return `<div class="ev" data-id="${e.id}">
+      <div class="evbar" style="background:${c.color}"></div>
+      <div class="tm"><div class="h" style="color:${c.color}">${esc(e.time)}</div>
+        <div class="d">${esc(e.end||'')}</div></div>
+      <div class="rb"><div class="t">${esc(e.title)}</div>
+        ${e.note?`<div class="nt">${esc(e.note)}</div>`:''}
+        <div class="meta">
+          <span class="tag" style="color:${c.color}">${c.label}</span>
+          <span class="tag">${esc(Cal.durLabel(e))}</span>
+          ${multi?`<span class="tag">עד ${esc(e.endDate)}</span>`:''}
+          ${e.remindMin>=0?`<span class="tag time">🔔 ${e.remindMin===0?'בזמן':e.remindMin+' דק׳ לפני'}</span>`:''}
+          <button class="ics" data-act="editEvent">✎ ערוך</button>
+          ${Native.on
+            ? '<button class="ics" data-act="nativeCal">▦ ליומן הטלפון</button>'
+            : `<button class="ics" data-act="ics">↓ ליומן הטלפון</button>
+               <a class="ics" href="${esc(Cal.gcal(e))}" target="_blank" rel="noopener">Google</a>`}
+        </div></div>
+      <button class="x" data-act="delEvent">×</button>
+    </div>`;
+  }
+
   function renderCal(){
-    $('#calMonth').textContent = Cal.MONTHS[calM] + ' ' + calY;
     const todayKey = Cal.key(new Date());
-    $('#calGrid').innerHTML = Cal.monthGrid(calY, calM).map(c=>{
-      const n = Store.eventCount(c.key);
-      const pips = n ? `<div class="pips">${'<span class="pip"></span>'.repeat(Math.min(n,3))}</div>`
-                     : `<div class="pips"></div>`;
-      return `<button class="day${c.out?' out':''}${c.key===todayKey?' today':''}"
-        data-d="${c.key}" aria-selected="${c.key===selDate}">
-        <span>${c.date.getDate()}</span>${pips}</button>`;
-    }).join('');
+    $$('#calMode button').forEach(b=>b.setAttribute('aria-selected', b.dataset.v===calView));
+    $('#monthView').hidden = calView !== 'month';
+    $('#weekView').hidden  = calView !== 'week';
+
+    if (calView === 'month'){
+      $('#calMonth').textContent = Cal.MONTHS[calM] + ' ' + calY;
+      $('#calGrid').innerHTML = Cal.monthGrid(calY, calM).map(c=>{
+        const evs = Store.events(c.key);
+        const pips = evs.slice(0,3).map(e =>
+          `<span class="pip" style="background:${Cal.cat(e).color}"></span>`).join('');
+        return `<button class="day${c.out?' out':''}${c.key===todayKey?' today':''}"
+          data-d="${c.key}" aria-selected="${c.key===selDate}">
+          <span>${c.date.getDate()}</span><div class="pips">${pips}</div></button>`;
+      }).join('');
+    } else {
+      const days = Cal.weekOf(selDate);
+      const f = days[0].split('-'), l = days[6].split('-');
+      $('#calMonth').textContent = `${+f[2]} ${Cal.MONTHS[+f[1]-1]} – ${+l[2]} ${Cal.MONTHS[+l[1]-1]}`;
+      $('#weekView').innerHTML = days.map(k=>{
+        const evs = Store.events(k), d = new Date(k+'T00:00:00');
+        const nm = d.toLocaleDateString('he-IL',{weekday:'long'});
+        return `<div class="wday${k===todayKey?' today':''}" aria-selected="${k===selDate}">
+          <button class="whead" data-d="${k}">
+            <span class="dn">${nm}</span><span class="dd">${d.getDate()}/${d.getMonth()+1}</span>
+            <span class="cn">${evs.length||'—'}</span>
+          </button>
+          ${evs.map(e=>{
+            const c = Cal.cat(e);
+            return `<div class="wev" data-d="${k}">
+              <span class="bar" style="background:${c.color}"></span>
+              <span class="catdot" style="background:${c.color}"></span>
+              <span>${esc(e.title)}</span>
+              <span class="wt" dir="ltr">${esc(e.time)}–${esc(e.end||'')}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('');
+    }
 
     $('#dayTitle').textContent = heDate(selDate);
     const evs = Store.events(selDate), el = $('#dayEvents');
-    if (!evs.length){
-      el.innerHTML = `<div class="empty"><div class="ico">▦</div><p>אין אירועים ביום הזה.</p></div>`;
-      return;
-    }
-    el.innerHTML = `<div class="card">` + evs.map(e=>{
-      const end = new Date(Cal.startMs(e) + (e.mins||60)*60000);
-      const eh = String(end.getHours()).padStart(2,'0')+':'+String(end.getMinutes()).padStart(2,'0');
-      return `<div class="ev" data-id="${e.id}">
-        <div class="tm"><div class="h">${esc(e.time)}</div><div class="d">${eh}</div></div>
-        <div class="rb"><div class="t">${esc(e.title)}</div>
-          ${e.note?`<div class="nt">${esc(e.note)}</div>`:''}
-          <div class="meta">
-            ${e.remindMin>=0?`<span class="tag time">🔔 ${e.remindMin===0?'בזמן':e.remindMin+' דק׳ לפני'}</span>`:''}
-            ${Native.on
-              ? '<button class="ics" data-act="nativeCal">▦ ליומן הטלפון</button>'
-              : `<button class="ics" data-act="ics">↓ ליומן הטלפון</button>
-                 <a class="ics" href="${esc(Cal.gcal(e))}" target="_blank" rel="noopener">Google</a>`}
-          </div></div>
-        <button class="x" data-act="delEvent">×</button>
-      </div>`;
-    }).join('') + `</div>
-    <button class="btn-wide" id="icsAll">↓ ייצוא כל אירועי ${esc(Cal.MONTHS[calM])} ליומן הטלפון</button>`;
+    el.innerHTML = !evs.length
+      ? `<div class="empty"><div class="ico">▦</div><p>אין אירועים ביום הזה.</p></div>`
+      : `<div class="card">` + evs.map(evRow).join('') + `</div>
+         <button class="btn-wide" id="icsAll">↓ ייצוא אירועי החודש ליומן הטלפון</button>`;
   }
 
   /* ---------- מקומות ---------- */
@@ -1729,15 +1921,20 @@ const UI = (() => {
       : `<option value="">— אין מקומות —</option>`;
     if (cur) sel.value = cur;
 
-    /* בורר "תת-מקום של" במסך המקומות */
+    /* בורר "תת-מקום של" במסך המקומות.
+       בונים מחדש רק כשהאפשרויות באמת השתנו — אחרת כל רינדור סוגר את
+       התפריט הפתוח, וזה נראה כמו ריצוד. */
     const par = $('#pParent');
     if (par){
-      const c = par.value;
-      par.innerHTML = `<option value="">מקום ראשי (עם גדר)</option>` +
-        tops.map(t=>`<option value="${t.id}">תת-מקום של ${esc(t.name)}</option>`).join('');
-      if (c) par.value = c;
-      const isSub = !!par.value;
-      const rw = $('#pRadWrap'); if (rw) rw.hidden = isSub;
+      const sig = tops.map(t=>t.id+':'+t.name).join('|');
+      if (par.dataset.sig !== sig){
+        const c = par.value;
+        par.innerHTML = `<option value="">מקום ראשי (עם גדר)</option>` +
+          tops.map(t=>`<option value="${t.id}">תת-מקום של ${esc(t.name)}</option>`).join('');
+        par.dataset.sig = sig;
+        if (c && par.querySelector(`option[value="${c}"]`)) par.value = c;
+      }
+      const rw = $('#pRadWrap'); if (rw) rw.hidden = !!par.value;
     }
   }
 
@@ -1764,12 +1961,28 @@ const UI = (() => {
   }
 
   function render(){
+    /* רינדור בונה מחדש חלקים שלמים של המסך. אם המשתמש מקליד בתוכם,
+       השדה מתאפס והפוקוס אובד — וזה נראה כאילו האפליקציה "זורקת אותך החוצה".
+       לכן שומרים את מצב השדה הפעיל ומחזירים אותו אחרי הרינדור. */
+    const a = document.activeElement;
+    const keep = (a && a.id && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))
+      ? { id:a.id, val:a.value, s:a.selectionStart, e:a.selectionEnd } : null;
+
     renderChrome(); renderPlaceSelect();
     if (section==='today')  renderToday();
     if (section==='tasks'){ renderOriginWarn(); renderTasks(); }
     if (section==='cal')    renderCal();
     if (section==='lists')  renderLists();
     if (section==='more'){  renderPlaces(); renderMore(); }
+
+    if (keep){
+      const el = document.getElementById(keep.id);
+      if (el && el !== document.activeElement){
+        if (el.value !== keep.val) el.value = keep.val;
+        el.focus({ preventScroll:true });
+        try { if (keep.s != null) el.setSelectionRange(keep.s, keep.e); } catch(x){}
+      }
+    }
   }
 
   let toastT=null;
@@ -1817,6 +2030,9 @@ const UI = (() => {
            get openList(){ return openList; }, set openList(v){ openList=v; },
            get calY(){ return calY; },  set calY(v){ calY=v; },
            get calM(){ return calM; },  set calM(v){ calM=v; },
+           get calView(){ return calView; }, set calView(v){ calView=v; },
+           get evCat(){ return evCat; },     set evCat(v){ evCat=v; },
+           get evMulti(){ return evMulti; }, set evMulti(v){ evMulti=v; },
            get alertItem(){ return alertItem; }, set alertItem(v){ alertItem=v; },
            originState };
 })();
@@ -1976,6 +2192,7 @@ const Wire = (() => {
       const kids = Store.descendants(id).length;
       Modal.open({ title:t.title,
         body:`<div class="card" style="border:0;background:transparent">
+          <button class="pick" data-m="edit"><span class="pn">✎ ערוך משימה</span></button>
           <button class="pick" data-m="sub"><span class="pn">＋ תת-משימה חדשה</span></button>
           <button class="pick" data-m="today"><span class="pn">☀ תכנן להיום</span></button>
           <button class="pick" data-m="tomorrow"><span class="pn">☀ תכנן למחר</span></button>
@@ -2000,6 +2217,7 @@ const Wire = (() => {
           setTimeout(()=>document.getElementById('subT')?.focus(), 60);
           return;
         }
+        if (k==='edit'){ editTask(id); return; }
         if (k==='today')    Store.setPlanned(id, Plan.today());
         if (k==='tomorrow') Store.setPlanned(id, Plan.shift(Plan.today(),1));
         if (k==='unplan')   Store.setPlanned(id, null);
@@ -2008,15 +2226,92 @@ const Wire = (() => {
       });
     }
 
+    function editTask(id){
+      const t = Store.task(id); if(!t) return;
+      const r = t.reminder || {};
+      const kind = r.type || 'none';
+      const tops = Store.topPlaces();
+      const opts = tops.map(top =>
+        `<option value="${top.id}">${UI.esc(top.name)}</option>` +
+        Store.subPlaces(top.id).map(k=>`<option value="${k.id}">&nbsp;&nbsp;↳ ${UI.esc(k.name)}</option>`).join('')
+      ).join('') || `<option value="">— אין מקומות —</option>`;
+
+      Modal.open({ title:'עריכת משימה', body:`
+        <div class="fl" style="margin-bottom:12px"><label>שם</label>
+          <input type="text" id="etTitle" value="${UI.esc(t.title)}" autocomplete="off"></div>
+        <div class="fl" style="margin-bottom:10px"><label>תזכורת</label>
+          <div class="seg" id="etSeg">
+            <button data-k="none"  aria-selected="${kind==='none'}">ללא</button>
+            <button data-k="time"  aria-selected="${kind==='time'}">שעה</button>
+            <button data-k="place" aria-selected="${kind==='place'}">מיקום</button>
+            <button data-k="trip"  aria-selected="${kind==='trip'}">נסיעה</button>
+          </div></div>
+        <div class="sub ${kind==='time'?'on':''}" id="etTime_"><div class="f1"><label>שעה</label>
+          <input type="time" id="etTime" value="${UI.esc(r.at||'08:00')}"></div></div>
+        <div class="sub ${kind==='place'?'on':''}" id="etPlace_">
+          <div class="f2"><label>מקום</label><select id="etPlace">${opts}</select></div>
+          <div class="f1"><label>+ דקות</label>
+            <input type="number" id="etDelay" value="${r.delayMin||0}" min="0" max="600" inputmode="numeric"></div></div>
+        <div class="sub ${kind==='trip'?'on':''}" id="etTrip_"><div class="f1"><label>ק״מ נסיעה רציפה</label>
+          <input type="number" id="etKm" value="${r.km||4}" min="1" max="500" inputmode="decimal"></div></div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'שמור',kind:'p',act:()=>{
+          const g = x => document.getElementById(x);
+          const title = g('etTitle').value.trim();
+          if (!title){ UI.toast('צריך שם'); return; }
+          const sel = Modal.body.querySelector('#etSeg [aria-selected="true"]');
+          const k = sel ? sel.dataset.k : 'none';
+          let rem = null;
+          if (k==='time')  rem = { type:'time', at:g('etTime').value||'08:00' };
+          if (k==='place'){
+            const pid = g('etPlace').value;
+            if (!pid){ UI.toast('אין מקומות שמורים'); return; }
+            rem = { type:'place', placeId:pid, delayMin:Math.max(0,+g('etDelay').value||0) };
+          }
+          if (k==='trip')  rem = { type:'trip', km:+g('etKm').value||4 };
+          Store.updateTask(id, { title, reminder:rem });
+          Modal.shut(); UI.toast('נשמר');
+        }}]});
+
+      if (r.type==='place' && r.placeId){
+        const sel = document.getElementById('etPlace');
+        if (sel && sel.querySelector(`option[value="${r.placeId}"]`)) sel.value = r.placeId;
+      }
+      Modal.body.addEventListener('click', e=>{
+        const b = e.target.closest('#etSeg button'); if(!b) return;
+        Modal.body.querySelectorAll('#etSeg button').forEach(x=>x.setAttribute('aria-selected', x===b));
+        ['time','place','trip'].forEach(k=>{
+          const el = document.getElementById('et'+k[0].toUpperCase()+k.slice(1)+'_');
+          if (el) el.classList.toggle('on', b.dataset.k===k);
+        });
+      });
+    }
+
     $('#tasksList').addEventListener('click', taskActions);
     $('#histList').addEventListener('click', taskActions);
 
     /* ---------------- יומן ---------------- */
-    $('#calPrev').addEventListener('click', ()=>{
-      let m=UI.calM-1, y=UI.calY; if(m<0){ m=11; y--; } UI.calM=m; UI.calY=y; UI.render();
+    const calStep = dir => {
+      if (UI.calView === 'week'){
+        UI.selDate = Plan.shift(UI.selDate, 7*dir);
+        const [y,m] = UI.selDate.split('-').map(Number);
+        UI.calY = y; UI.calM = m-1;
+      } else {
+        let m=UI.calM+dir, y=UI.calY;
+        if (m<0){ m=11; y--; } if (m>11){ m=0; y++; }
+        UI.calM=m; UI.calY=y;
+      }
+      UI.render();
+    };
+    $('#calPrev').addEventListener('click', ()=>calStep(-1));
+    $('#calNext').addEventListener('click', ()=>calStep(1));
+    $('#calMode').addEventListener('click', e=>{
+      const b=e.target.closest('button'); if(!b) return;
+      UI.calView = b.dataset.v; UI.render();
     });
-    $('#calNext').addEventListener('click', ()=>{
-      let m=UI.calM+1, y=UI.calY; if(m>11){ m=0; y++; } UI.calM=m; UI.calY=y; UI.render();
+    $('#weekView').addEventListener('click', e=>{
+      const b=e.target.closest('[data-d]'); if(!b) return;
+      UI.selDate = b.dataset.d; UI.render();
     });
     $('#calGrid').addEventListener('click', e=>{
       const b=e.target.closest('.day'); if(!b) return;
@@ -2025,11 +2320,36 @@ const Wire = (() => {
       UI.calY=y; UI.calM=m-1;
       UI.render();
     });
+    $('#eCat').addEventListener('click', e=>{
+      const b=e.target.closest('button'); if(!b) return;
+      UI.evCat = b.dataset.c;
+      $$('#eCat button').forEach(x=>x.setAttribute('aria-selected', x===b));
+    });
+    $('#eMulti').addEventListener('click', ()=>{
+      UI.evMulti = !UI.evMulti;
+      $('#eMulti').setAttribute('aria-pressed', UI.evMulti);
+      $('#eMulti').classList.toggle('p', UI.evMulti);
+      $('#eEndDateWrap').hidden = !UI.evMulti;
+      if (UI.evMulti && !$('#eEndDate').value) $('#eEndDate').value = UI.selDate;
+    });
+    /* שעת סיום נגררת אחרי שעת ההתחלה כל עוד לא נגעת בה */
+    $('#eTime').addEventListener('change', ()=>{
+      const en=$('#eEnd');
+      if (en.dataset.touched) return;
+      const [h,m]=($('#eTime').value||'09:00').split(':').map(Number);
+      const t=(h*60+m+60)%1440;
+      en.value = String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+    });
+    $('#eEnd').addEventListener('input', e=>{ e.target.dataset.touched='1'; });
+
     const addEvent = () => {
       const i=$('#eTitle'), title=i.value.trim();
       if(!title){ i.focus(); return; }
-      Store.addEvent({ title, date:UI.selDate, time:$('#eTime').value||'09:00',
-        mins:+$('#eLen').value||60, remindMin:+$('#eRemind').value });
+      const endDate = UI.evMulti ? ($('#eEndDate').value || UI.selDate) : '';
+      if (endDate && endDate < UI.selDate){ UI.toast('תאריך הסיום לפני ההתחלה'); return; }
+      Store.addEvent({ title, date:UI.selDate,
+        time:$('#eTime').value||'09:00', end:$('#eEnd').value||'10:00',
+        endDate, cat:UI.evCat, remindMin:+$('#eRemind').value });
       i.value=''; i.blur(); UI.toast('נוסף ליומן');
     };
     $('#eAdd').addEventListener('click', addEvent);
@@ -2047,6 +2367,7 @@ const Wire = (() => {
       const id=b.closest('[data-id]').dataset.id;
       const ev=Store.all.events.find(x=>x.id===id); if(!ev) return;
       if (b.dataset.act==='delEvent') Store.delEvent(id);
+      if (b.dataset.act==='editEvent'){ editEvent(ev); return; }
       if (b.dataset.act==='nativeCal'){
         if (Native.addEvent(ev)) UI.toast('נפתח ביומן — לחץ שמירה');
       }
@@ -2055,6 +2376,51 @@ const Wire = (() => {
         UI.toast('פתח את הקובץ — הטלפון יציע להוסיף ליומן');
       }
     });
+
+    function editEvent(ev){
+      const cats = Object.entries(Cal.CAT).map(([k,v])=>
+        `<button data-c="${k}" aria-selected="${(ev.cat||'')===k}">${v.label}</button>`).join('');
+      Modal.open({ title:'עריכת אירוע', body:`
+        <div class="fl" style="margin-bottom:12px"><label>שם</label>
+          <input type="text" id="evT" value="${UI.esc(ev.title)}" autocomplete="off"></div>
+        <div class="sub on" style="margin-bottom:12px">
+          <div class="f1"><label>מ־</label><input type="time" id="evS" value="${UI.esc(ev.time)}"></div>
+          <div class="f1"><label>עד</label><input type="time" id="evE" value="${UI.esc(ev.end||'')}"></div>
+        </div>
+        <div class="fl" style="margin-bottom:12px"><label>סוג</label>
+          <div class="seg" id="evC">${cats}</div></div>
+        <div class="sub on" style="margin-bottom:12px">
+          <div class="f1"><label>תאריך התחלה</label><input type="date" id="evD" value="${UI.esc(ev.date)}"></div>
+          <div class="f1"><label>עד תאריך (ריק = יום אחד)</label>
+            <input type="date" id="evED" value="${UI.esc(ev.endDate||'')}"></div>
+        </div>
+        <div class="fl" style="margin-bottom:12px"><label>תזכורת לפני</label>
+          <select id="evR">
+            ${[[-1,'ללא'],[0,'בזמן'],[10,'10 דק׳'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[1440,'יום']]
+              .map(([v,l])=>`<option value="${v}" ${ev.remindMin===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+        <div class="fl"><label>הערה</label>
+          <input type="text" id="evN" value="${UI.esc(ev.note||'')}" autocomplete="off"></div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'שמור',kind:'p',act:()=>{
+          const g = x => document.getElementById(x);
+          const title = g('evT').value.trim(); if(!title){ UI.toast('צריך שם'); return; }
+          const date = g('evD').value || ev.date;
+          let endDate = g('evED').value || '';
+          if (endDate && endDate < date){ UI.toast('תאריך הסיום לפני ההתחלה'); return; }
+          if (endDate === date) endDate = '';
+          const c = Modal.body.querySelector('#evC [aria-selected="true"]');
+          Store.updateEvent(ev.id, { title, date, endDate,
+            time:g('evS').value||ev.time, end:g('evE').value||ev.end,
+            cat: c ? c.dataset.c : (ev.cat||''),
+            remindMin:+g('evR').value, note:g('evN').value.trim() });
+          UI.selDate = date; Modal.shut(); UI.toast('נשמר');
+        }}]});
+      Modal.body.addEventListener('click', e=>{
+        const b=e.target.closest('#evC button'); if(!b) return;
+        Modal.body.querySelectorAll('#evC button').forEach(x=>x.setAttribute('aria-selected', x===b));
+      });
+    }
 
     /* ---------------- מקומות ---------------- */
     $('#pSeg').addEventListener('click', e=>{
@@ -2083,8 +2449,12 @@ const Wire = (() => {
           <div class="note" style="padding:8px 2px 0">מקור: ${provider} · בחר תוצאה כדי לשמור אותה</div>`;
       } catch(err){
         lastResults = [];
-        box.innerHTML = `<div class="hint">החיפוש לא זמין כרגע (${UI.esc(String(err.message).slice(0,70))}).<br>
-          אפשר תמיד להוסיף ידנית: בגוגל מפות לחיצה ארוכה על המקום → העתקת הנ״צ → לשונית <b>נ״צ ידני</b>.</div>`;
+        box.innerHTML = `<div class="hint">לא נמצא כלום.<br>
+          החיפוש עובד מול מאגר מפות פתוח, ולכן <b>בסיסים ומתקנים צבאיים בדרך כלל לא מופיעים בו</b>,
+          וגם עסקים קטנים לפעמים חסרים.<br><br>
+          במקרה כזה: <b>כאן עכשיו</b> אם אתה במקום, או <b>נ״צ ידני</b> —
+          בגוגל מפות לחיצה ארוכה על הנקודה, העתקה, והדבקה בשדה השם.
+          <br><br><span style="color:var(--muted2);font-size:11px">${UI.esc(String(err.message).slice(0,110))}</span></div>`;
       }
       btn.textContent='חפש';
     };
@@ -2131,7 +2501,9 @@ const Wire = (() => {
       $('#mName').value=''; $('#mLat').value=''; $('#mLng').value='';
       UI.toast('נשמר: '+name);
     });
-    $('#pParent').addEventListener('change', ()=>UI.render());
+    $('#pParent').addEventListener('change', e=>{
+      const rw = $('#pRadWrap'); if (rw) rw.hidden = !!e.target.value;
+    });
     $('#placesList').addEventListener('click', e=>{
       const b=e.target.closest('[data-act="delPlace"]'); if(!b) return;
       Store.delPlace(b.closest('[data-id]').dataset.id);
