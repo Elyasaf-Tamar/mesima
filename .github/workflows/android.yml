@@ -14,22 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: unpack android sources
+      - name: unpack sources
         run: |
-          if [ ! -f android-src.zip ]; then
-            echo "::error::android-src.zip not found in repo root"
-            exit 1
-          fi
           rm -rf android
           unzip -q android-src.zip
-          if [ ! -f android/settings.gradle ]; then
-            echo "::error::zip unpacked but android/settings.gradle missing"
-            exit 1
-          fi
           mkdir -p android/app/src/main/assets
-
-      - name: put app into apk
-        run: cp index.html android/app/src/main/assets/index.html
+          cp index.html android/app/src/main/assets/index.html
 
       - uses: actions/setup-java@v4
         with:
@@ -38,26 +28,52 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - working-directory: android
-        run: gradle assembleDebug assembleRelease --no-daemon --stacktrace
+      - name: build
+        id: build
+        continue-on-error: true
+        working-directory: android
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --warning-mode=none 2>&1 | tee ../build.log
 
-      - run: |
+      - name: report
+        if: always()
+        run: |
+          {
+            echo "## תוצאה: ${{ steps.build.outcome }}"
+            if [ -f build.log ]; then
+              echo "### מה נשבר"
+              echo '```'
+              grep -E "^e: |error: |^FAILURE|^\* What went wrong|^> |Caused by|Unresolved reference|not found" build.log | head -40
+              echo '```'
+              echo "### 60 השורות האחרונות"
+              echo '```'
+              tail -60 build.log
+              echo '```'
+            fi
+          } >> $GITHUB_STEP_SUMMARY
+          [ "${{ steps.build.outcome }}" = "success" ]
+
+      - name: collect apk
+        if: steps.build.outcome == 'success'
+        run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk     out/mesima-debug.apk
-          cp android/app/build/outputs/apk/release/app-release.apk out/mesima.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/mesima.apk
 
       - uses: actions/upload-artifact@v4
+        if: steps.build.outcome == 'success'
         with:
           name: mesima-apk
           path: out/*.apk
 
       - uses: softprops/action-gh-release@v2
+        if: steps.build.outcome == 'success'
         with:
           tag_name: build-${{ github.run_number }}
           name: mesima build ${{ github.run_number }}
