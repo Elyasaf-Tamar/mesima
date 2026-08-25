@@ -326,6 +326,7 @@
     <!-- ===================== היום / תכנון ===================== -->
     <section class="sec on" id="s-today">
       <div id="originWarn2"></div>
+      <div id="hereBox"></div>
       <div class="calhead">
         <button class="nav-b" id="dayNext">›</button>
         <div class="mn"><div id="dayLabel">—</div><div id="daySub" class="daysub">—</div></div>
@@ -485,9 +486,17 @@
           </div>
         </div>
 
-        <div style="display:flex;gap:8px;margin-top:9px">
-          <div class="f1"><label style="font-size:12px;color:var(--muted2);display:block;margin-bottom:5px">רדיוס לכל מקום חדש (מטר)</label>
-            <input type="number" id="pRad" value="200" min="50" max="5000" step="10" inputmode="numeric"></div>
+        <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+          <div class="f1" style="min-width:100%"><label style="font-size:12px;color:var(--muted2);display:block;margin-bottom:5px">סוג המקום</label>
+            <select id="pParent"></select></div>
+          <div class="f1" id="pRadWrap" style="min-width:100%"><label style="font-size:12px;color:var(--muted2);display:block;margin-bottom:5px">רדיוס הגדר (מטר) — 200 ומעלה</label>
+            <input type="number" id="pRad" value="300" min="100" max="5000" step="10" inputmode="numeric"></div>
+        </div>
+        <div class="note" style="padding:8px 2px 0">
+          <b>מקום ראשי</b> — בסיס, בית, קניון. עליו יושבת הגדר שמעירה את הטלפון.<br>
+          <b>תת-מקום</b> — חד״א, משרד, חדר. נקודה מדויקת בתוך הראשי, בלי גדר משלה.
+          GPS לא מדויק מספיק כדי לירות על נקודות במרחק עשרות מטרים, אבל כן מספיק
+          כדי לכוון אותך אליהן כשהאפליקציה פתוחה.
         </div>
       </div>
       <div id="placesList"></div>
@@ -603,6 +612,7 @@ const Store = (() => {
   delete data.shop;
   data.tasks.forEach(t=>{ if(t.parentId===undefined) t.parentId=null;
                           if(t.planned===undefined) t.planned=null; });
+  data.places.forEach(p=>{ if(p.parentId===undefined) p.parentId=null; });
   data.v = 3;
 
   const subs = [];
@@ -668,17 +678,28 @@ const Store = (() => {
       save();
     },
 
-    addPlace(name, lat, lng, radius){
-      const p = { id:uid(), name, lat, lng, radius: radius||200 };
+    addPlace(name, lat, lng, radius, parentId){
+      const p = { id:uid(), name, lat, lng, radius: radius||200, parentId: parentId||null };
       data.places.push(p); save(); return p;
     },
     delPlace(id){
-      data.places = data.places.filter(p=>p.id!==id);
-      data.tasks.forEach(t=>{ if(t.reminder && t.reminder.placeId===id) t.reminder = null; });
+      /* מחיקת מקום ראשי מוחקת גם את תת-המקומות שלו */
+      const kill = new Set([id, ...data.places.filter(p=>p.parentId===id).map(p=>p.id)]);
+      data.places = data.places.filter(p => !kill.has(p.id));
+      data.tasks.forEach(t=>{ if(t.reminder && kill.has(t.reminder.placeId)) t.reminder = null; });
       save();
     },
     place(id){ return data.places.find(p=>p.id===id); },
     placeByName(n){ return data.places.find(p=>p.name===n); },
+    /** מקומות ראשיים — רק להם יש גדר אמיתית במערכת ההפעלה */
+    topPlaces(){ return data.places.filter(p => !p.parentId); },
+    subPlaces(id){ return data.places.filter(p => p.parentId === id); },
+    /** מטפס עד המקום הראשי. תת-מקום לעולם לא נרשם כגדר בפני עצמו. */
+    placeRoot(id){
+      let p = this.place(id), guard = 0;
+      while (p && p.parentId && guard++ < 8) p = this.place(p.parentId);
+      return p || null;
+    },
 
     /* ---------- רשימות ---------- */
     list(id){ return data.lists.find(l => l.id === id); },
@@ -1085,16 +1106,40 @@ const Native = (() => {
   const A = () => window.MesimaNative;
   let syncT = null;
 
+  /**
+   * גדר אחת לכל (מקום ראשי × עיכוב), לא אחת לכל משימה.
+   *
+   * הסיבה: GPS של טלפון מדויק ל-20–50 מטר ליד מבנים, ואנדרואיד עצמו לא מתחייב
+   * מתחת ל-100 מטר. גדר על "משרד" בתוך בסיס פשוט לא יכולה לירות אמין.
+   * לכן הגדר יושבת על המקום הראשי ברדיוס גדול, ותת-המקומות משמשים רק
+   * לניווט בתוך האפליקציה. בונוס: התראה אחת בכניסה במקום שש בזמן הליכה.
+   */
   function fenceList(){
-    return Store.all.tasks
+    const groups = new Map();
+    Store.all.tasks
       .filter(t => !t.done && t.reminder && t.reminder.type === 'place')
-      .map(t => {
-        const p = Store.place(t.reminder.placeId); if (!p) return null;
-        return { id:t.id, lat:p.lat, lng:p.lng, radius:p.radius,
-                 delayMin:t.reminder.delayMin||0, title:t.title, place:p.name };
-      })
-      .filter(Boolean)
-      .slice(0, 95);   /* מגבלת מערכת: 100 גדרים לאפליקציה */
+      .forEach(t => {
+        const sub  = Store.place(t.reminder.placeId); if (!sub) return;
+        const root = Store.placeRoot(sub.id);         if (!root) return;
+        const delay = t.reminder.delayMin || 0;
+        const key = root.id + '|' + delay;
+        if (!groups.has(key)) groups.set(key, { root, delay, items: [] });
+        groups.get(key).items.push({ t, sub });
+      });
+
+    return [...groups.entries()].map(([key, g]) => {
+      const n = g.items.length;
+      let title;
+      if (n === 1){
+        const { t, sub } = g.items[0];
+        title = t.title + (sub.id !== g.root.id ? ' · ' + sub.name : '');
+      } else {
+        const spots = [...new Set(g.items.map(x => x.sub.name))].filter(x => x !== g.root.name);
+        title = n + ' משימות ב' + g.root.name + (spots.length ? ' · ' + spots.slice(0,3).join(', ') : '');
+      }
+      return { id:'g_'+key, lat:g.root.lat, lng:g.root.lng, radius:g.root.radius,
+               delayMin:g.delay, title, place:g.root.name };
+    }).slice(0, 95);   /* מגבלת מערכת: 100 גדרים לאפליקציה */
   }
 
   return {
@@ -1189,8 +1234,10 @@ const UI = (() => {
     if (r.type==='time') return `<span class="tag time">◷ ${esc(r.at)}</span>`;
     if (r.type==='trip') return `<span class="tag trip">➟ ${r.km} ק״מ נסיעה</span>`;
     const p = Store.place(r.placeId);
-    const nm = p ? esc(p.name) : 'מקום נמחק';
-    return `<span class="tag geo">⌖ ${nm}${r.delayMin>0?' +'+r.delayMin+'′':''}</span>`;
+    if (!p) return `<span class="tag geo">⌖ מקום נמחק</span>`;
+    const root = Store.placeRoot(p.id);
+    const path = (root && root.id !== p.id) ? esc(root.name) + ' · ' + esc(p.name) : esc(p.name);
+    return `<span class="tag geo">⌖ ${path}${r.delayMin>0?' +'+r.delayMin+'′':''}</span>`;
   }
   function liveTag(t){
     const r = t.reminder; if (!r) return '';
@@ -1200,16 +1247,19 @@ const UI = (() => {
       return `<span class="tag ${km>=r.km?'hot':''}">נסעת ${km.toFixed(1)} מתוך ${r.km} ק״מ</span>`;
     }
     if (r.type!=='place' || !Geo.last) return '';
-    const p = Store.place(r.placeId); if (!p) return '';
-    const d = Geo.dist(Geo.last, p);
-    if (d <= p.radius){
+    const sub = Store.place(r.placeId); if (!sub) return '';
+    const root = Store.placeRoot(sub.id) || sub;
+    /* השהייה נקבעת לפי המקום הראשי — שם יושבת הגדר */
+    if (Geo.dist(Geo.last, root) <= root.radius){
+      /* בפנים: המרחק לתת-המקום הוא מה שמעניין, גם אם הוא לא מדויק לחלוטין */
+      const near = sub.id !== root.id ? ' · ' + esc(sub.name) + ' ' + fmtM(Geo.dist(Geo.last, sub)) : '';
       if (t.rt && t.rt.arrivedAt){
         const left = Math.max(0, r.delayMin - Math.floor((Date.now()-t.rt.arrivedAt)/60000));
-        return `<span class="tag hot">● במקום · ${left>0?'עוד '+left+'′':'עכשיו'}</span>`;
+        return `<span class="tag hot">● ב${esc(root.name)}${near} · ${left>0?'עוד '+left+'′':'עכשיו'}</span>`;
       }
-      return `<span class="tag hot">● במקום</span>`;
+      return `<span class="tag hot">● ב${esc(root.name)}${near}</span>`;
     }
-    return `<span class="tag">${fmtM(d)} מ${esc(p.name)}</span>`;
+    return `<span class="tag">${fmtM(Geo.dist(Geo.last, root))} מ${esc(root.name)}</span>`;
   }
 
   /* ---------- משימות ---------- */
@@ -1246,6 +1296,53 @@ const UI = (() => {
     el.innerHTML = `<div class="card">` + roots.map(taskRow).join('') + `</div>`;
   }
 
+  /* ------- "אתה כאן": מה יש לעשות במקום שאתה נמצא בו ------- */
+  /* זה הפיצוי על כך שאי אפשר לשים גדר על חדר בודד. הגדר מעירה אותך
+     בכניסה לשטח; המסך הזה מסדר לך את מה שיש לעשות בו, לפי קרבה. */
+  function renderHere(){
+    const box = $('#hereBox');
+    if (!Geo.last){ box.innerHTML = ''; return; }
+
+    const at = Store.topPlaces().find(p => Geo.dist(Geo.last, p) <= p.radius);
+    if (!at){ box.innerHTML = ''; return; }
+
+    const ids = new Set([at.id, ...Store.subPlaces(at.id).map(p => p.id)]);
+    const items = Store.all.tasks
+      .filter(t => !t.done && t.reminder && t.reminder.type === 'place' && ids.has(t.reminder.placeId))
+      .map(t => {
+        const sub = Store.place(t.reminder.placeId);
+        return { t, sub, d: Geo.dist(Geo.last, sub) };
+      })
+      .sort((a, b) => a.d - b.d);
+
+    if (!items.length){
+      box.innerHTML = `<div class="hint" style="border-style:solid">
+        אתה ב<b>${esc(at.name)}</b>. אין כאן משימות פתוחות.</div>`;
+      return;
+    }
+
+    /* קיבוץ לפי תת-מקום, כשהקרוב ביותר ראשון */
+    const groups = [];
+    items.forEach(it => {
+      const g = groups.find(x => x.sub.id === it.sub.id);
+      if (g) g.list.push(it.t); else groups.push({ sub: it.sub, d: it.d, list: [it.t] });
+    });
+
+    box.innerHTML = `<div class="route" style="background:linear-gradient(135deg,#0d2a24,#131a22);border-color:#12503c">
+      <div class="rh"><span class="n" style="color:#6ee7b7">● אתה ב${esc(at.name)}</span>
+        <span class="c" style="margin-inline-start:auto;font-size:11px;color:var(--muted2)">${items.length} משימות</span></div>
+      ${groups.map(g => `
+        <div class="step" style="border-color:#12503c;align-items:flex-start">
+          <span class="num" style="background:#6ee7b7;color:#07231a">${g.list.length}</span>
+          <span class="sn">
+            <b>${esc(g.sub.name)}</b>${g.sub.id !== at.id ? ` <span class="sd">${fmtM(g.d)}</span>` : ''}
+            ${g.list.map(t => `<div style="font-size:13.5px;color:var(--muted);margin-top:4px"
+                data-here="${t.id}">□ ${esc(t.title)}</div>`).join('')}
+          </span>
+        </div>`).join('')}
+    </div>`;
+  }
+
   /* ------- מסך היום / תכנון ------- */
   function renderToday(){
     $('#dayLabel').textContent = Plan.label(planDate);
@@ -1257,6 +1354,7 @@ const UI = (() => {
       b.setAttribute('aria-selected', match);
     });
     renderOriginWarn('#originWarn2');
+    renderHere();
 
     const rows = Plan.agenda(planDate), el = $('#todayList');
     if (!rows.length){
@@ -1345,17 +1443,26 @@ const UI = (() => {
       el.innerHTML = `<div class="empty"><div class="ico">⌖</div><p>אין מקומות שמורים.<br>חפש בשם, או שמור את המקום שאתה נמצא בו.</p></div>`;
       return;
     }
-    el.innerHTML = `<div class="card">` + ps.map(p=>{
+    const row = (p, isSub) => {
       const d = Geo.last ? Geo.dist(Geo.last,p) : null;
       const used = Store.all.tasks.filter(t=>!t.done && t.reminder && t.reminder.placeId===p.id).length;
+      const meta = (isSub ? 'נקודה בלבד' : 'גדר ' + p.radius + ' מ׳')
+        + (d!==null ? ' · '+fmtM(d)+' מכאן' : '') + (used ? ' · '+used+' משימות' : '');
       return `<div class="pl" data-id="${p.id}">
-        <div class="pin">⌖</div>
-        <div class="rb"><div class="t">${esc(p.name)}</div>
-          <div class="sm">רדיוס ${p.radius} מ׳${d!==null?' · '+fmtM(d)+' מכאן':''}${used?' · '+used+' משימות':''}</div></div>
+        <div class="pin"${isSub?' style="background:#1a232e;color:#8ba0b6;font-size:13px"':''}>${isSub?'·':'⌖'}</div>
+        <div class="rb"><div class="t">${esc(p.name)}</div><div class="sm">${meta}</div></div>
         <a class="waze" href="https://waze.com/ul?ll=${p.lat},${p.lng}&navigate=yes" target="_blank" rel="noopener">▲</a>
         <button class="x" data-act="delPlace">×</button>
       </div>`;
-    }).join('') + `</div>`;
+    };
+    el.innerHTML = Store.topPlaces().map(top=>{
+      const kids = Store.subPlaces(top.id);
+      return `<div class="card" style="margin-bottom:10px">
+        ${row(top, false)}
+        ${kids.length ? `<div class="kid">${kids.map(k=>row(k,true)).join('')}</div>` : ''}
+      </div>`;
+    }).join('') + `<div class="note">רק למקום ראשי יש גדר שמערכת ההפעלה שומרת.
+      תת-מקומות הם נקודות בתוך הגדר — הם מכוונים אותך בתוך השטח, ולא יורים תזכורת בעצמם.</div>`;
   }
 
   /* ---------- קניות ---------- */
@@ -1612,10 +1719,26 @@ const UI = (() => {
   }
 
   function renderPlaceSelect(){
-    const sel = $('#tPlace'), ps = Store.all.places, cur = sel.value;
-    sel.innerHTML = ps.length ? ps.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')
-                              : `<option value="">— אין מקומות —</option>`;
+    const sel = $('#tPlace'), cur = sel.value, tops = Store.topPlaces();
+    sel.innerHTML = tops.length
+      ? tops.map(t => {
+          const kids = Store.subPlaces(t.id);
+          return `<option value="${t.id}">${esc(t.name)}</option>` +
+                 kids.map(k=>`<option value="${k.id}">&nbsp;&nbsp;↳ ${esc(k.name)}</option>`).join('');
+        }).join('')
+      : `<option value="">— אין מקומות —</option>`;
     if (cur) sel.value = cur;
+
+    /* בורר "תת-מקום של" במסך המקומות */
+    const par = $('#pParent');
+    if (par){
+      const c = par.value;
+      par.innerHTML = `<option value="">מקום ראשי (עם גדר)</option>` +
+        tops.map(t=>`<option value="${t.id}">תת-מקום של ${esc(t.name)}</option>`).join('');
+      if (c) par.value = c;
+      const isSub = !!par.value;
+      const rw = $('#pRadWrap'); if (rw) rw.hidden = isSub;
+    }
   }
 
   function renderChrome(){
@@ -1776,6 +1899,12 @@ const Wire = (() => {
       const row=b.closest('[data-id]'); if(!row) return;
       if (b.dataset.act==='toggle'){ Store.toggleTask(row.dataset.id); UI.toast('בוצע ✓'); }
       if (b.dataset.act==='unplan'){ Store.setPlanned(row.dataset.id, null); UI.toast('הוסר מהיום'); }
+    });
+
+    /* בכרטיס "אתה כאן" — נגיעה במשימה מסמנת אותה כבוצעה */
+    $('#hereBox').addEventListener('click', e=>{
+      const b = e.target.closest('[data-here]'); if(!b) return;
+      Store.toggleTask(b.dataset.here); UI.toast('בוצע ✓');
     });
 
     /* משימות-על */
@@ -1964,7 +2093,7 @@ const Wire = (() => {
     $('#qResults').addEventListener('click', e=>{
       const b=e.target.closest('button[data-i]'); if(!b) return;
       const r=lastResults[+b.dataset.i]; if(!r) return;
-      Store.addPlace(r.name, r.lat, r.lng, +$('#pRad').value||200);
+      Store.addPlace(r.name, r.lat, r.lng, +$('#pRad').value||300, $('#pParent').value||null);
       $('#qResults').innerHTML=''; $('#qName').value='';
       UI.toast('נשמר: '+r.name);
     });
@@ -1976,7 +2105,7 @@ const Wire = (() => {
       const btn=$('#pAdd'); btn.textContent='…';
       try {
         const p=await Geo.now();
-        Store.addPlace(name, p.lat, p.lng, +$('#pRad').value||200);
+        Store.addPlace(name, p.lat, p.lng, +$('#pRad').value||300, $('#pParent').value||null);
         i.value=''; i.blur();
         UI.toast('נשמר: '+name+' (±'+Math.round(p.acc)+' מ׳)');
       } catch(err){
@@ -1998,10 +2127,11 @@ const Wire = (() => {
       const name=$('#mName').value.trim(), lat=parseFloat($('#mLat').value), lng=parseFloat($('#mLng').value);
       if(!name){ $('#mName').focus(); UI.toast('צריך שם'); return; }
       if(!isFinite(lat)||!isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180){ UI.toast('נ״צ לא תקין'); return; }
-      Store.addPlace(name, lat, lng, +$('#pRad').value||200);
+      Store.addPlace(name, lat, lng, +$('#pRad').value||300, $('#pParent').value||null);
       $('#mName').value=''; $('#mLat').value=''; $('#mLng').value='';
       UI.toast('נשמר: '+name);
     });
+    $('#pParent').addEventListener('change', ()=>UI.render());
     $('#placesList').addEventListener('click', e=>{
       const b=e.target.closest('[data-act="delPlace"]'); if(!b) return;
       Store.delPlace(b.closest('[data-id]').dataset.id);
