@@ -174,24 +174,61 @@
   .ev .tm .d{font-size:10px;color:var(--muted2)}
   .ev .nt{font-size:12px;color:var(--muted2);margin-top:3px;white-space:pre-wrap}
   .ics{font-size:11.5px;padding:5px 9px;border-radius:7px;background:#241a3d;color:#c4b5fd;font-weight:650}
+  /* ---- יומן מרווח ---- */
+  #calMode{margin-bottom:16px}
+  .calhead{margin-bottom:16px}
+  .calhead .mn{font-size:17px}
+  .dow{margin-bottom:8px}
+  .dow span{font-size:11.5px}
+  .grid{gap:6px}
+  .day{border-radius:12px;gap:5px;font-size:15px}
+  .day .pip{width:5px;height:5px}
+  .day .pips{height:5px;gap:3px}
+
+  .dayhead{display:flex;align-items:center;gap:12px;margin:26px 2px 12px}
+  .dh-t{flex:1;font-size:15px;font-weight:650}
+  .add-b{flex:0 0 auto;padding:9px 15px;border-radius:999px;background:var(--accent);
+         color:#fff;font-size:13px;font-weight:650}
+  .add-b:active{transform:scale(.96)}
+
+  /* אירוע ביום הנבחר — כרטיס נפרד ומרווח */
+  .ecard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+         margin-bottom:10px;overflow:hidden;display:flex}
+  .ecard .stripe{width:4px;flex:0 0 auto}
+  .ecard .body{flex:1;padding:14px 15px;min-width:0}
+  .ecard .top{display:flex;align-items:baseline;gap:10px}
+  .ecard .ttl{flex:1;font-size:15.5px;font-weight:650}
+  .ecard .hrs{font-size:12.5px;color:var(--muted2);font-variant-numeric:tabular-nums;
+              direction:ltr;unicode-bidi:isolate;white-space:nowrap}
+  .ecard .desc{font-size:13px;color:var(--muted);margin-top:7px;white-space:pre-wrap;line-height:1.6}
+  .ecard .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .ecard .acts{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+  .linked{display:flex;align-items:center;gap:9px;margin-top:10px;padding:9px 11px;
+          background:var(--surface2);border-radius:var(--r2);font-size:13px}
+  .linked .cb{width:19px;height:19px;border-radius:6px}
+
   /* ---- תצוגת שבוע ---- */
-  .wday{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-        margin-bottom:8px;overflow:hidden}
-  .wday.today{border-color:var(--cal)}
-  .wday[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-  .whead{display:flex;align-items:center;gap:10px;padding:11px 14px;width:100%;text-align:start}
-  .whead .dn{font-size:14.5px;font-weight:650}
-  .whead .dd{font-size:12px;color:var(--muted2);font-variant-numeric:tabular-nums}
+  .wday{margin-bottom:18px}
+  .whead{display:flex;align-items:baseline;gap:10px;width:100%;text-align:start;padding:0 2px 9px}
+  .whead .dn{font-size:15.5px;font-weight:700}
+  .whead .dd{font-size:12.5px;color:var(--muted2);font-variant-numeric:tabular-nums}
   .wday.today .dn{color:var(--cal)}
-  .whead .cn{margin-inline-start:auto;font-size:11px;color:var(--muted2);
-             background:var(--surface2);border:1px solid var(--line);padding:2px 8px;border-radius:999px}
-  .wev{display:flex;gap:9px;align-items:center;padding:8px 14px 8px 0;
-       border-top:1px solid var(--line);font-size:13.5px}
-  .wev .bar{width:3px;align-self:stretch;border-radius:2px;flex:0 0 auto;margin-inline-start:14px}
-  .wev .wt{font-size:11.5px;color:var(--muted2);font-variant-numeric:tabular-nums;
-           margin-inline-start:auto;padding-inline-end:14px;
-           direction:ltr;unicode-bidi:isolate}   /* אחרת המקף הופך את סדר השעות */
+  .wday.today .dd{color:var(--cal)}
+  .whead .sel{margin-inline-start:auto;font-size:10.5px;color:var(--accent);font-weight:700}
+  .wday.empty-d{margin-bottom:10px;opacity:.4}
+  .wday.empty-d .whead{padding-bottom:0}
+  .wempty{font-size:12px;color:var(--muted2);padding:0 2px 4px}
+  .wev{display:flex;gap:11px;align-items:center;background:var(--surface);
+       border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:7px}
+  .wev .bar{width:4px;align-self:stretch;border-radius:2px;flex:0 0 auto}
+  .wev .wn{flex:1;font-size:14px;font-weight:500;min-width:0}
+  .wev .wt{font-size:12px;color:var(--muted2);font-variant-numeric:tabular-nums;
+           direction:ltr;unicode-bidi:isolate;white-space:nowrap}
   .catdot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .more-t{display:flex;align-items:center;gap:6px;width:100%;padding:8px 2px 2px;
+          font-size:12px;color:var(--muted2);font-weight:600}
+  .more-t .ch{font-size:10px;transition:transform .18s}
+  .more-t[aria-expanded="false"] .ch{transform:rotate(90deg)}
   .evbar{width:3px;align-self:stretch;border-radius:2px;flex:0 0 auto}
 
   nav{flex:0 0 auto;display:flex;background:rgba(19,26,34,.94);backdrop-filter:blur(14px);
@@ -419,7 +456,7 @@
 
     <!-- ===================== יומן ===================== -->
     <section class="sec" id="s-cal">
-      <div class="seg" id="calMode" style="margin-bottom:12px">
+      <div class="seg" id="calMode">
         <button data-v="month" aria-selected="true">חודש</button>
         <button data-v="week">שבוע</button>
       </div>
@@ -436,41 +473,9 @@
       </div>
       <div id="weekView" hidden></div>
 
-      <h2 id="dayTitle">—</h2>
-      <div class="add">
-        <div class="top">
-          <input type="text" id="eTitle" placeholder="שם האירוע" autocomplete="off">
-          <button class="go" id="eAdd">+</button>
-        </div>
-        <div class="opts">
-          <div class="sub on">
-            <div class="f1"><label>מ־</label><input type="time" id="eTime" value="09:00"></div>
-            <div class="f1"><label>עד</label><input type="time" id="eEnd" value="10:00"></div>
-            <div class="f1"><label>תזכורת</label>
-              <select id="eRemind">
-                <option value="-1">ללא</option>
-                <option value="0">בזמן</option>
-                <option value="10">10 דק׳</option>
-                <option value="15" selected>15 דק׳</option>
-                <option value="30">30 דק׳</option>
-                <option value="60">שעה</option>
-                <option value="1440">יום</option>
-              </select>
-            </div>
-          </div>
-          <div class="seg" id="eCat">
-            <button data-c="" aria-selected="true">כללי</button>
-            <button data-c="army">צבא</button>
-            <button data-c="home">בית</button>
-            <button data-c="personal">אישי</button>
-          </div>
-          <div class="sub on" style="align-items:center;gap:10px">
-            <button class="btn s" id="eMulti" aria-pressed="false"
-              style="flex:0 0 auto;padding:9px 13px;font-size:12.5px">כמה ימים</button>
-            <div class="f2" id="eEndDateWrap" hidden><label>עד תאריך</label>
-              <input type="date" id="eEndDate"></div>
-          </div>
-        </div>
+      <div class="dayhead">
+        <div class="dh-t" id="dayTitle">—</div>
+        <button class="add-b" id="eNew">+ אירוע</button>
       </div>
       <div id="dayEvents"></div>
     </section>
@@ -603,8 +608,8 @@
     <button data-s="today" aria-selected="true"><span class="i">☀</span>היום</button>
     <button data-s="tasks" aria-selected="false"><span class="i">◉</span>משימות</button>
     <button data-s="cal" aria-selected="false"><span class="i">▦</span>יומן</button>
-    <button data-s="lists" aria-selected="false"><span class="i">▤</span>רשימות</button>
-    <button data-s="more" aria-selected="false"><span class="i">⚙</span>עוד</button>
+    <button data-s="lists" aria-selected="false"><span class="i">▤</span>קניות</button>
+    <button data-s="more" aria-selected="false"><span class="i">⚙</span>הגדרות</button>
   </nav>
 </div>
 
@@ -668,10 +673,13 @@ const Store = (() => {
   }
   delete data.shop;
   data.tasks.forEach(t=>{ if(t.parentId===undefined) t.parentId=null;
-                          if(t.planned===undefined) t.planned=null; });
+                          if(t.planned===undefined) t.planned=null;
+                          if(t.eventId===undefined) t.eventId=null; });
   data.places.forEach(p=>{ if(p.parentId===undefined) p.parentId=null; });
   data.events.forEach(e=>{
-    if (e.cat === undefined) e.cat = '';
+    if (!['army','home','personal'].includes(e.cat)) e.cat = 'personal';
+    if (e.note === undefined) e.note = '';
+    if (e.taskIds !== undefined) delete e.taskIds;
     if (e.endDate === undefined) e.endDate = '';
     if (!e.end){                       /* גרסאות ישנות שמרו אורך בדקות */
       const [h,m] = (e.time||'09:00').split(':').map(Number);
@@ -715,7 +723,7 @@ const Store = (() => {
     addTask(o){
       const t = { id:uid(), mission:o.mission, title:o.title, done:false,
         createdAt:Date.now(), doneAt:null, reminder:o.reminder||null, rt:o.rt||{},
-        parentId:o.parentId||null, planned:o.planned||null, collapsed:false };
+        parentId:o.parentId||null, planned:o.planned||null, eventId:o.eventId||null, collapsed:false };
       /* תת-משימה יורשת את המשימה-על של ההורה, אחרת היא נעלמת מהתצוגה */
       if (t.parentId){ const p = this.task(t.parentId); if (p) t.mission = p.mission; }
       data.tasks.unshift(t); save(); return t;
@@ -725,6 +733,15 @@ const Store = (() => {
     toggleCollapse(id){ const t=this.task(id); if(t){ t.collapsed=!t.collapsed; save(); } },
     /** משימות שתוכננו ליום מסוים */
     plannedFor(date){ return data.tasks.filter(t => t.planned === date && !t.done); },
+    /** משימות שקושרו לאירוע */
+    tasksForEvent(eventId){ return data.tasks.filter(t => t.eventId === eventId && !t.done); },
+    linkTask(taskId, eventId){
+      const t = this.task(taskId); if(!t) return;
+      t.eventId = eventId || null;
+      const ev = eventId ? this.event(eventId) : null;
+      if (ev && !t.planned) t.planned = ev.date;   /* נוח: המשימה נוחתת ביום האירוע */
+      save();
+    },
     toggleTask(id){
       const t = data.tasks.find(x=>x.id===id); if(!t) return;
       t.done = !t.done; t.doneAt = t.done ? Date.now() : null;
@@ -814,12 +831,16 @@ const Store = (() => {
     event(id){ return data.events.find(e=>e.id===id); },
     addEvent(o){
       data.events.push({ id:uid(), title:o.title, date:o.date, time:o.time||'09:00',
-        end:o.end||'10:00', endDate:o.endDate||'', cat:o.cat||'',
+        end:o.end||'10:00', endDate:o.endDate||'', cat:o.cat||'personal',
         remindMin:(o.remindMin==null?15:o.remindMin), note:o.note||'', rt:{} });
       save();
     },
     updateEvent(id, patch){ const e=this.event(id); if(e){ Object.assign(e, patch); e.rt={}; save(); } },
-    delEvent(id){ data.events = data.events.filter(e=>e.id!==id); save(); },
+    delEvent(id){
+      data.events = data.events.filter(e=>e.id!==id);
+      data.tasks.forEach(t=>{ if(t.eventId===id) t.eventId=null; });
+      save();
+    },
 
     setPref(k,v){ data.prefs[k]=v; save(); },
     export(){ return JSON.stringify(data, null, 2); },
@@ -1072,13 +1093,13 @@ const Cal = (() => {
   const key = d => d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate());
   const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
+  /* שלושה סוגים בלבד, מקבילים למשימות-העל. "כללי" היה סתם ברירת מחדל ריקה. */
   const CAT = {
     army:     { label:'צבא',  color:'#3b82f6' },
     home:     { label:'בית',  color:'#f59e0b' },
     personal: { label:'אישי', color:'#a78bfa' },
-    ''      : { label:'כללי', color:'#8ba0b6' },
   };
-  const cat = ev => CAT[ev && ev.cat] || CAT[''];
+  const cat = ev => CAT[(ev && ev.cat)] || CAT.personal;
 
   function atMs(dateKey, hm){
     const [y,m,d] = dateKey.split('-').map(Number);
@@ -1337,8 +1358,8 @@ const UI = (() => {
   let calY = today.getFullYear(), calM = today.getMonth(), selDate = Cal.key(today);
   let planDate = Cal.key(today);       /* היום שמוצג במסך "היום" */
   let calView = 'month';               /* חודש או שבוע */
-  let evCat = '';                      /* קטגוריית האירוע הבא */
-  let evMulti = false;                 /* אירוע שנמשך כמה ימים */
+  let deferred = false;                /* רינדור שנדחה כי מקלידים */
+  let itemMore = false;                /* קישור/תמונה פתוחים בטופס הפריט */
   let listKind = 'simple';             /* סוג הרשימה החדשה */
   let openList = null;                 /* רשימה פתוחה, null = אינדקס */
 
@@ -1371,7 +1392,7 @@ const UI = (() => {
       <b>המיקום חסום — וזה לא באפליקציה.</b><br>
       פתחת את הקובץ מהכתובת <b>${esc(st.protocol)}//</b>, וכרום אוסר גישה למיקום מכתובת כזאת.
       אין למי לבקש הרשאה, ולכן גם ההגדרות של הטלפון לא יעזרו.<br><br>
-      הפתרון: להעלות את הקובץ לכתובת <b>https</b> (דקה עבודה, מדריך בטאב "עוד").
+      הפתרון: להעלות את הקובץ לכתובת <b>https</b> (דקה עבודה, מדריך בטאב "הגדרות").
       בינתיים כל השאר — משימות, יומן, קניות — עובד רגיל.
     </div>`;
   }
@@ -1411,6 +1432,16 @@ const UI = (() => {
   }
 
   /* ---------- משימות ---------- */
+  /** תגית האירוע שהמשימה קשורה אליו — לחיצה קופצת ליומן באותו יום */
+  function evTag(t){
+    if (!t.eventId) return '';
+    const ev = Store.event(t.eventId);
+    if (!ev) return '';
+    const c = Cal.cat(ev);
+    return `<button class="tag" data-act="goEvent"
+      style="color:${c.color};background:${c.color}1f">▦ ${esc(ev.title)}</button>`;
+  }
+
   /* ------- עץ משימות: קינון ללא הגבלת עומק ------- */
   function trow(t){
     return `<div class="trow" data-id="${t.id}">
@@ -1420,6 +1451,7 @@ const UI = (() => {
         <div class="meta">
           ${remLabel(t.reminder)}${liveTag(t)}
           ${t.planned ? `<span class="tag">☀ ${esc(Plan.label(t.planned))}</span>` : ''}
+          ${evTag(t)}
           ${(Native.on && t.reminder && t.reminder.type==='time')
             ? '<button class="ics" data-act="alarm">⏰ לשעון</button>' : ''}
         </div>
@@ -1558,24 +1590,35 @@ const UI = (() => {
   function evRow(e){
     const c = Cal.cat(e);
     const multi = e.endDate && e.endDate !== e.date;
-    return `<div class="ev" data-id="${e.id}">
-      <div class="evbar" style="background:${c.color}"></div>
-      <div class="tm"><div class="h" style="color:${c.color}">${esc(e.time)}</div>
-        <div class="d">${esc(e.end||'')}</div></div>
-      <div class="rb"><div class="t">${esc(e.title)}</div>
-        ${e.note?`<div class="nt">${esc(e.note)}</div>`:''}
-        <div class="meta">
+    const linked = Store.tasksForEvent(e.id);
+    return `<div class="ecard" data-id="${e.id}">
+      <div class="stripe" style="background:${c.color}"></div>
+      <div class="body">
+        <div class="top">
+          <span class="ttl">${esc(e.title)}</span>
+          <span class="hrs">${esc(e.time)}–${esc(e.end||'')}</span>
+        </div>
+        ${e.note ? `<div class="desc">${esc(e.note)}</div>` : ''}
+        <div class="chips">
           <span class="tag" style="color:${c.color}">${c.label}</span>
           <span class="tag">${esc(Cal.durLabel(e))}</span>
-          ${multi?`<span class="tag">עד ${esc(e.endDate)}</span>`:''}
-          ${e.remindMin>=0?`<span class="tag time">🔔 ${e.remindMin===0?'בזמן':e.remindMin+' דק׳ לפני'}</span>`:''}
+          ${multi ? `<span class="tag">עד ${esc(e.endDate)}</span>` : ''}
+          ${e.remindMin>=0 ? `<span class="tag time">🔔 ${e.remindMin===0?'בזמן':e.remindMin+' דק׳ לפני'}</span>` : ''}
+        </div>
+        ${linked.map(t => `<div class="linked">
+            <button class="cb" data-act="doneTask" data-t="${t.id}" aria-checked="false">✓</button>
+            <span style="flex:1">${esc(t.title)}</span>
+            <span class="tag">${MISSIONS[t.mission]}</span>
+          </div>`).join('')}
+        <div class="acts">
           <button class="ics" data-act="editEvent">✎ ערוך</button>
+          <button class="ics" data-act="linkTask">⛓ קשר משימה</button>
           ${Native.on
             ? '<button class="ics" data-act="nativeCal">▦ ליומן הטלפון</button>'
             : `<button class="ics" data-act="ics">↓ ליומן הטלפון</button>
                <a class="ics" href="${esc(Cal.gcal(e))}" target="_blank" rel="noopener">Google</a>`}
-        </div></div>
-      <button class="x" data-act="delEvent">×</button>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -1602,21 +1645,22 @@ const UI = (() => {
       $('#weekView').innerHTML = days.map(k=>{
         const evs = Store.events(k), d = new Date(k+'T00:00:00');
         const nm = d.toLocaleDateString('he-IL',{weekday:'long'});
-        return `<div class="wday${k===todayKey?' today':''}" aria-selected="${k===selDate}">
-          <button class="whead" data-d="${k}">
-            <span class="dn">${nm}</span><span class="dd">${d.getDate()}/${d.getMonth()+1}</span>
-            <span class="cn">${evs.length||'—'}</span>
-          </button>
-          ${evs.map(e=>{
-            const c = Cal.cat(e);
-            return `<div class="wev" data-d="${k}">
-              <span class="bar" style="background:${c.color}"></span>
-              <span class="catdot" style="background:${c.color}"></span>
-              <span>${esc(e.title)}</span>
-              <span class="wt" dir="ltr">${esc(e.time)}–${esc(e.end||'')}</span>
-            </div>`;
-          }).join('')}
-        </div>`;
+        const head = `<button class="whead" data-d="${k}">
+            <span class="dn">${nm}</span>
+            <span class="dd">${d.getDate()}/${d.getMonth()+1}</span>
+            ${k===selDate ? '<span class="sel">● נבחר</span>' : ''}
+          </button>`;
+        /* יום ריק מצטמצם לשורה דהויה כדי שהעין תדלג עליו */
+        if (!evs.length) return `<div class="wday empty-d${k===todayKey?' today':''}">
+          ${head}<div class="wempty">פנוי</div></div>`;
+        return `<div class="wday${k===todayKey?' today':''}">${head}` + evs.map(e=>{
+          const c = Cal.cat(e);
+          return `<div class="wev" data-d="${k}">
+            <span class="bar" style="background:${c.color}"></span>
+            <span class="wn">${esc(e.title)}</span>
+            <span class="wt">${esc(e.time)}–${esc(e.end||'')}</span>
+          </div>`;
+        }).join('') + `</div>`;
       }).join('');
     }
 
@@ -1624,8 +1668,8 @@ const UI = (() => {
     const evs = Store.events(selDate), el = $('#dayEvents');
     el.innerHTML = !evs.length
       ? `<div class="empty"><div class="ico">▦</div><p>אין אירועים ביום הזה.</p></div>`
-      : `<div class="card">` + evs.map(evRow).join('') + `</div>
-         <button class="btn-wide" id="icsAll">↓ ייצוא אירועי החודש ליומן הטלפון</button>`;
+      : evs.map(evRow).join('') +
+        `<button class="btn-wide" id="icsAll">↓ ייצוא אירועי החודש ליומן הטלפון</button>`;
   }
 
   /* ---------- מקומות ---------- */
@@ -1760,7 +1804,9 @@ const UI = (() => {
                 <input type="text" id="iWhere" placeholder="שם החנות" list="storeList" autocomplete="off">
                 <datalist id="storeList"></datalist></div>
             </div>`}
-          <div class="sub on">
+          <button class="more-t" id="iMore" aria-expanded="${itemMore}">
+            <span>קישור או תמונה</span><span class="ch">▾</span></button>
+          <div class="sub ${itemMore ? 'on' : ''}" id="iExtra">
             <div class="f2"><label>קישור</label><input type="text" id="iLink" placeholder="https://…" inputmode="url"></div>
             <div class="f1"><label>תמונה</label>
               <button class="btn-wide" id="iPic" style="margin:0;padding:11px">📷</button>
@@ -1790,7 +1836,7 @@ const UI = (() => {
     if (names.length >= 2 && pts.length < 2){
       const missing = names.filter(n => !Store.placeByName(n));
       box.innerHTML = `<div class="hint">רוצה <b>מסלול מומלץ</b> בין החנויות? צריך שהאפליקציה תדע איפה הן.
-        לך ל<b>עוד → מקומות</b>, חפש את החנות בשם ושמור אותה — באותו שם בדיוק.
+        לך ל<b>הגדרות → מקומות</b>, חפש את החנות בשם ושמור אותה — באותו שם בדיוק.
         ${missing.length ? '<br>עוד לא שמורות: ' + missing.slice(0,4).map(esc).join(' · ') : ''}</div>`;
       return;
     }
@@ -1960,13 +2006,21 @@ const UI = (() => {
                b.textContent = left>99?'99':left; nb.appendChild(b); }
   }
 
-  function render(){
-    /* רינדור בונה מחדש חלקים שלמים של המסך. אם המשתמש מקליד בתוכם,
-       השדה מתאפס והפוקוס אובד — וזה נראה כאילו האפליקציה "זורקת אותך החוצה".
-       לכן שומרים את מצב השדה הפעיל ומחזירים אותו אחרי הרינדור. */
+  /** האם המשתמש מקליד עכשיו בשדה טקסט? */
+  function typing(){
     const a = document.activeElement;
-    const keep = (a && a.id && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))
-      ? { id:a.id, val:a.value, s:a.selectionStart, e:a.selectionEnd } : null;
+    if (!a) return false;
+    if (a.tagName === 'TEXTAREA') return true;
+    if (a.tagName !== 'INPUT') return false;
+    return ['text','number','url','search','tel','email',''].includes((a.type||'').toLowerCase());
+  }
+
+  function render(){
+    /* אם מקלידים — לא נוגעים בכלום מתחת לאצבע.
+       שחזור טקסט אחרי בנייה מחדש עובד במחשב אבל לא בטלפון: הריסת השדה
+       סוגרת את המקלדת ובולעת תווים באמצע הקלדה. לכן דוחים את הרינדור. */
+    if (typing()){ deferred = true; renderChrome(); return; }
+    deferred = false;
 
     renderChrome(); renderPlaceSelect();
     if (section==='today')  renderToday();
@@ -1974,15 +2028,6 @@ const UI = (() => {
     if (section==='cal')    renderCal();
     if (section==='lists')  renderLists();
     if (section==='more'){  renderPlaces(); renderMore(); }
-
-    if (keep){
-      const el = document.getElementById(keep.id);
-      if (el && el !== document.activeElement){
-        if (el.value !== keep.val) el.value = keep.val;
-        el.focus({ preventScroll:true });
-        try { if (keep.s != null) el.setSelectionRange(keep.s, keep.e); } catch(x){}
-      }
-    }
   }
 
   let toastT=null;
@@ -2028,13 +2073,12 @@ const UI = (() => {
            get planDate(){ return planDate; }, set planDate(v){ planDate=v; },
            get listKind(){ return listKind; }, set listKind(v){ listKind=v; },
            get openList(){ return openList; }, set openList(v){ openList=v; },
+           get itemMore(){ return itemMore; }, set itemMore(v){ itemMore=v; },
            get calY(){ return calY; },  set calY(v){ calY=v; },
            get calM(){ return calM; },  set calM(v){ calM=v; },
            get calView(){ return calView; }, set calView(v){ calView=v; },
-           get evCat(){ return evCat; },     set evCat(v){ evCat=v; },
-           get evMulti(){ return evMulti; }, set evMulti(v){ evMulti=v; },
            get alertItem(){ return alertItem; }, set alertItem(v){ alertItem=v; },
-           originState };
+           originState, typing, get deferred(){ return deferred; } };
 })();
 
 /* -------------------------------- Wire ---------------------------------- */
@@ -2179,6 +2223,15 @@ const Wire = (() => {
       const id=b.closest('[data-id]').dataset.id;
       if (b.dataset.act==='twist'){ Store.toggleCollapse(id); return; }
       if (b.dataset.act==='menu'){ taskMenu(id); return; }
+      if (b.dataset.act==='goEvent'){
+        const t = Store.task(id), ev = t && t.eventId ? Store.event(t.eventId) : null;
+        if (!ev) return;
+        UI.selDate = ev.date;
+        const [y,m] = ev.date.split('-').map(Number);
+        UI.calY = y; UI.calM = m-1;
+        document.querySelector('#nav button[data-s="cal"]').click();
+        return;
+      }
       if (b.dataset.act==='toggle'){ Store.toggleTask(id); UI.toast('בוצע ✓'); }
       if (b.dataset.act==='del') Store.delTask(id);
       if (b.dataset.act==='alarm'){
@@ -2194,6 +2247,9 @@ const Wire = (() => {
         body:`<div class="card" style="border:0;background:transparent">
           <button class="pick" data-m="edit"><span class="pn">✎ ערוך משימה</span></button>
           <button class="pick" data-m="sub"><span class="pn">＋ תת-משימה חדשה</span></button>
+          ${t.eventId && Store.event(t.eventId)
+            ? `<button class="pick" data-m="unlink"><span class="pn">⛓ נתק מ"${UI.esc(Store.event(t.eventId).title)}"</span></button>`
+            : `<button class="pick" data-m="link"><span class="pn">⛓ קשר לאירוע ביומן</span></button>`}
           <button class="pick" data-m="today"><span class="pn">☀ תכנן להיום</span></button>
           <button class="pick" data-m="tomorrow"><span class="pn">☀ תכנן למחר</span></button>
           ${t.planned?`<button class="pick" data-m="unplan"><span class="pn">↩ הסר מהתכנון (${UI.esc(Plan.label(t.planned))})</span></button>`:''}
@@ -2218,11 +2274,38 @@ const Wire = (() => {
           return;
         }
         if (k==='edit'){ editTask(id); return; }
+        if (k==='link'){ pickEventFor(id); return; }
+        if (k==='unlink'){ Store.linkTask(id, null); Modal.shut(); UI.toast('נותק'); return; }
         if (k==='today')    Store.setPlanned(id, Plan.today());
         if (k==='tomorrow') Store.setPlanned(id, Plan.shift(Plan.today(),1));
         if (k==='unplan')   Store.setPlanned(id, null);
         if (k==='del')      Store.delTask(id);
         Modal.shut();
+      });
+    }
+
+    /** בוחר אירוע עבור משימה — רק מהיום והלאה, ממוין לפי תאריך */
+    function pickEventFor(taskId){
+      const from = Plan.today();
+      const evs = Store.all.events
+        .filter(e => (e.endDate || e.date) >= from)
+        .sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time))
+        .slice(0, 40);
+      if (!evs.length){ UI.toast('אין אירועים עתידיים ביומן'); return; }
+      Modal.open({ title:'קשר לאירוע',
+        body: evs.map(e=>{
+          const c = Cal.cat(e);
+          return `<button class="pick" data-e="${e.id}">
+            <span class="catdot" style="background:${c.color}"></span>
+            <span class="pn">${UI.esc(e.title)}</span>
+            <span class="pm">${UI.esc(Plan.label(e.date))} ${UI.esc(e.time)}</span>
+          </button>`;
+        }).join(''),
+        buttons:[{label:'ביטול',act:()=>Modal.shut()}]});
+      Modal.body.addEventListener('click', e2=>{
+        const b = e2.target.closest('[data-e]'); if(!b) return;
+        Store.linkTask(taskId, b.dataset.e);
+        Modal.shut(); UI.toast('קושר');
       });
     }
 
@@ -2320,40 +2403,114 @@ const Wire = (() => {
       UI.calY=y; UI.calM=m-1;
       UI.render();
     });
-    $('#eCat').addEventListener('click', e=>{
-      const b=e.target.closest('button'); if(!b) return;
-      UI.evCat = b.dataset.c;
-      $$('#eCat button').forEach(x=>x.setAttribute('aria-selected', x===b));
-    });
-    $('#eMulti').addEventListener('click', ()=>{
-      UI.evMulti = !UI.evMulti;
-      $('#eMulti').setAttribute('aria-pressed', UI.evMulti);
-      $('#eMulti').classList.toggle('p', UI.evMulti);
-      $('#eEndDateWrap').hidden = !UI.evMulti;
-      if (UI.evMulti && !$('#eEndDate').value) $('#eEndDate').value = UI.selDate;
-    });
-    /* שעת סיום נגררת אחרי שעת ההתחלה כל עוד לא נגעת בה */
-    $('#eTime').addEventListener('change', ()=>{
-      const en=$('#eEnd');
-      if (en.dataset.touched) return;
-      const [h,m]=($('#eTime').value||'09:00').split(':').map(Number);
-      const t=(h*60+m+60)%1440;
-      en.value = String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
-    });
-    $('#eEnd').addEventListener('input', e=>{ e.target.dataset.touched='1'; });
+    /* ---- טופס האירוע חי במודאל, לא על המסך. זה מה שפינה את הצפיפות. ---- */
+    function eventModal(ev){
+      const isNew = !ev;
+      const e = ev || { title:'', date:UI.selDate, time:'09:00', end:'10:00',
+                        endDate:'', cat:'personal', remindMin:15, note:'' };
+      const cats = Object.entries(Cal.CAT).map(([k,v])=>
+        `<button data-c="${k}" aria-selected="${e.cat===k}"
+           style="${e.cat===k?'background:'+v.color+';color:#0b0f14':''}">${v.label}</button>`).join('');
 
-    const addEvent = () => {
-      const i=$('#eTitle'), title=i.value.trim();
-      if(!title){ i.focus(); return; }
-      const endDate = UI.evMulti ? ($('#eEndDate').value || UI.selDate) : '';
-      if (endDate && endDate < UI.selDate){ UI.toast('תאריך הסיום לפני ההתחלה'); return; }
-      Store.addEvent({ title, date:UI.selDate,
-        time:$('#eTime').value||'09:00', end:$('#eEnd').value||'10:00',
-        endDate, cat:UI.evCat, remindMin:+$('#eRemind').value });
-      i.value=''; i.blur(); UI.toast('נוסף ליומן');
-    };
-    $('#eAdd').addEventListener('click', addEvent);
-    $('#eTitle').addEventListener('keydown', e=>{ if(e.key==='Enter') addEvent(); });
+      Modal.open({ title: isNew ? 'אירוע חדש' : 'עריכת אירוע', body:`
+        <div class="fl" style="margin-bottom:14px"><label>מה קורה</label>
+          <input type="text" id="evT" value="${UI.esc(e.title)}" placeholder="שם האירוע" autocomplete="off"></div>
+
+        <div class="fl" style="margin-bottom:14px"><label>סוג</label>
+          <div class="seg" id="evC">${cats}</div></div>
+
+        <div class="sub on" style="margin-bottom:14px">
+          <div class="f1"><label>מ־</label><input type="time" id="evS" value="${UI.esc(e.time)}"></div>
+          <div class="f1"><label>עד</label><input type="time" id="evE" value="${UI.esc(e.end||'10:00')}"></div>
+        </div>
+
+        <div class="sub on" style="margin-bottom:14px">
+          <div class="f1"><label>תאריך</label><input type="date" id="evD" value="${UI.esc(e.date)}"></div>
+          <div class="f1"><label>עד תאריך</label>
+            <input type="date" id="evED" value="${UI.esc(e.endDate||'')}" placeholder="יום אחד"></div>
+        </div>
+
+        <div class="fl" style="margin-bottom:14px"><label>תזכורת לפני</label>
+          <select id="evR">
+            ${[[-1,'ללא'],[0,'בזמן'],[10,'10 דק׳'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[1440,'יום']]
+              .map(([v,l])=>`<option value="${v}" ${e.remindMin===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+
+        <div class="fl"><label>תיאור</label>
+          <textarea id="evN" rows="3" placeholder="פרטים, מה להביא, מי מגיע…"
+            style="resize:vertical">${UI.esc(e.note||'')}</textarea></div>`,
+        buttons:[ ...(isNew ? [{label:'ביטול',act:()=>Modal.shut()}]
+                             : [{label:'מחק',act:()=>{ Store.delEvent(e.id); Modal.shut(); UI.toast('נמחק'); }}]),
+                 {label: isNew ? 'הוסף' : 'שמור', kind:'p', act:()=>{
+          const g = x => document.getElementById(x);
+          const title = g('evT').value.trim();
+          if (!title){ UI.toast('צריך שם'); g('evT').focus(); return; }
+          const date = g('evD').value || e.date;
+          let endDate = g('evED').value || '';
+          if (endDate && endDate < date){ UI.toast('תאריך הסיום לפני ההתחלה'); return; }
+          if (endDate === date) endDate = '';
+          const c = Modal.body.querySelector('#evC [aria-selected="true"]');
+          const patch = { title, date, endDate,
+            time:g('evS').value||'09:00', end:g('evE').value||'10:00',
+            cat: c ? c.dataset.c : 'personal',
+            remindMin:+g('evR').value, note:g('evN').value.trim() };
+          if (isNew) Store.addEvent(patch); else Store.updateEvent(e.id, patch);
+          UI.selDate = date; Modal.shut(); UI.toast(isNew ? 'נוסף ליומן' : 'נשמר');
+        }}]});
+
+      Modal.body.addEventListener('click', ee=>{
+        const b = ee.target.closest('#evC button'); if(!b) return;
+        Modal.body.querySelectorAll('#evC button').forEach(x=>{
+          const on = x===b;
+          x.setAttribute('aria-selected', on);
+          x.style.background = on ? Cal.CAT[x.dataset.c].color : '';
+          x.style.color = on ? '#0b0f14' : '';
+        });
+      });
+      /* שעת סיום נגררת אחרי ההתחלה עד שנוגעים בה */
+      Modal.body.addEventListener('change', ee=>{
+        if (ee.target.id !== 'evS') return;
+        const en = document.getElementById('evE');
+        if (en.dataset.touched) return;
+        const [h,m] = (ee.target.value||'09:00').split(':').map(Number);
+        const t = (h*60+m+60) % 1440;
+        en.value = String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+      });
+      Modal.body.addEventListener('input', ee=>{
+        if (ee.target.id === 'evE') ee.target.dataset.touched = '1';
+      });
+      if (isNew) setTimeout(()=>document.getElementById('evT')?.focus(), 80);
+    }
+
+    $('#eNew').addEventListener('click', ()=>eventModal(null));
+
+    /* ---- קישור משימה לאירוע ---- */
+    function linkTaskModal(ev){
+      const already = new Set(Store.tasksForEvent(ev.id).map(t=>t.id));
+      const avail = Store.all.tasks.filter(t => !t.done && !already.has(t.id));
+      if (!avail.length){ UI.toast('אין משימות פנויות לקשר'); return; }
+      const chosen = new Set();
+      Modal.open({ title:'קשר משימה ל"'+ev.title+'"',
+        body:`<div class="note" style="padding:0 0 10px">המשימות שתבחר יופיעו בתוך האירוע,
+              והאירוע יופיע עליהן. הן גם ייקבעו ליום האירוע.</div>` +
+          avail.map(t=>`<button class="pick" data-t="${t.id}" aria-checked="false">
+            <span class="bx">✓</span>
+            <span class="pn">${UI.esc(t.title)}</span>
+            <span class="pm">${({army:'צבא',home:'בית',free:'חופשי'})[t.mission]}</span>
+          </button>`).join(''),
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'קשר',kind:'p',act:()=>{
+                    chosen.forEach(id => Store.linkTask(id, ev.id));
+                    Modal.shut(); UI.toast(chosen.size ? chosen.size+' קושרו' : 'לא נבחר כלום');
+                 }}]});
+      Modal.body.addEventListener('click', e2=>{
+        const b = e2.target.closest('[data-t]'); if(!b) return;
+        const id = b.dataset.t;
+        if (chosen.has(id)){ chosen.delete(id); b.setAttribute('aria-checked','false'); }
+        else { chosen.add(id); b.setAttribute('aria-checked','true'); }
+      });
+    }
+
     $('#dayEvents').addEventListener('click', e=>{
       if (e.target.id==='icsAll'){
         const pre = UI.selDate.slice(0,7);
@@ -2363,64 +2520,20 @@ const Wire = (() => {
         UI.toast('פתח את הקובץ — הטלפון יציע להוסיף ליומן');
         return;
       }
-      const b=e.target.closest('[data-act]'); if(!b) return;
-      const id=b.closest('[data-id]').dataset.id;
-      const ev=Store.all.events.find(x=>x.id===id); if(!ev) return;
-      if (b.dataset.act==='delEvent') Store.delEvent(id);
-      if (b.dataset.act==='editEvent'){ editEvent(ev); return; }
-      if (b.dataset.act==='nativeCal'){
-        if (Native.addEvent(ev)) UI.toast('נפתח ביומן — לחץ שמירה');
-      }
-      if (b.dataset.act==='ics'){
-        UI.download('mesima-'+id+'.ics', Cal.ics([ev]), 'text/calendar;charset=utf-8');
+      const b = e.target.closest('[data-act]'); if(!b) return;
+      const card = b.closest('[data-id]'); if(!card) return;
+      const ev = Store.event(card.dataset.id); if(!ev) return;
+      const act = b.dataset.act;
+      if (act==='delEvent')  Store.delEvent(ev.id);
+      if (act==='editEvent') eventModal(ev);
+      if (act==='linkTask')  linkTaskModal(ev);
+      if (act==='doneTask'){ Store.toggleTask(b.dataset.t); UI.toast('בוצע ✓'); }
+      if (act==='nativeCal'){ if (Native.addEvent(ev)) UI.toast('נפתח ביומן — לחץ שמירה'); }
+      if (act==='ics'){
+        UI.download('mesima-'+ev.id+'.ics', Cal.ics([ev]), 'text/calendar;charset=utf-8');
         UI.toast('פתח את הקובץ — הטלפון יציע להוסיף ליומן');
       }
     });
-
-    function editEvent(ev){
-      const cats = Object.entries(Cal.CAT).map(([k,v])=>
-        `<button data-c="${k}" aria-selected="${(ev.cat||'')===k}">${v.label}</button>`).join('');
-      Modal.open({ title:'עריכת אירוע', body:`
-        <div class="fl" style="margin-bottom:12px"><label>שם</label>
-          <input type="text" id="evT" value="${UI.esc(ev.title)}" autocomplete="off"></div>
-        <div class="sub on" style="margin-bottom:12px">
-          <div class="f1"><label>מ־</label><input type="time" id="evS" value="${UI.esc(ev.time)}"></div>
-          <div class="f1"><label>עד</label><input type="time" id="evE" value="${UI.esc(ev.end||'')}"></div>
-        </div>
-        <div class="fl" style="margin-bottom:12px"><label>סוג</label>
-          <div class="seg" id="evC">${cats}</div></div>
-        <div class="sub on" style="margin-bottom:12px">
-          <div class="f1"><label>תאריך התחלה</label><input type="date" id="evD" value="${UI.esc(ev.date)}"></div>
-          <div class="f1"><label>עד תאריך (ריק = יום אחד)</label>
-            <input type="date" id="evED" value="${UI.esc(ev.endDate||'')}"></div>
-        </div>
-        <div class="fl" style="margin-bottom:12px"><label>תזכורת לפני</label>
-          <select id="evR">
-            ${[[-1,'ללא'],[0,'בזמן'],[10,'10 דק׳'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[1440,'יום']]
-              .map(([v,l])=>`<option value="${v}" ${ev.remindMin===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-        <div class="fl"><label>הערה</label>
-          <input type="text" id="evN" value="${UI.esc(ev.note||'')}" autocomplete="off"></div>`,
-        buttons:[{label:'ביטול',act:()=>Modal.shut()},
-                 {label:'שמור',kind:'p',act:()=>{
-          const g = x => document.getElementById(x);
-          const title = g('evT').value.trim(); if(!title){ UI.toast('צריך שם'); return; }
-          const date = g('evD').value || ev.date;
-          let endDate = g('evED').value || '';
-          if (endDate && endDate < date){ UI.toast('תאריך הסיום לפני ההתחלה'); return; }
-          if (endDate === date) endDate = '';
-          const c = Modal.body.querySelector('#evC [aria-selected="true"]');
-          Store.updateEvent(ev.id, { title, date, endDate,
-            time:g('evS').value||ev.time, end:g('evE').value||ev.end,
-            cat: c ? c.dataset.c : (ev.cat||''),
-            remindMin:+g('evR').value, note:g('evN').value.trim() });
-          UI.selDate = date; Modal.shut(); UI.toast('נשמר');
-        }}]});
-      Modal.body.addEventListener('click', e=>{
-        const b=e.target.closest('#evC button'); if(!b) return;
-        Modal.body.querySelectorAll('#evC button').forEach(x=>x.setAttribute('aria-selected', x===b));
-      });
-    }
 
     /* ---------------- מקומות ---------------- */
     $('#pSeg').addEventListener('click', e=>{
@@ -2535,6 +2648,12 @@ const Wire = (() => {
       const l = Store.list(UI.openList); if(!l) return;
 
       if (e.target.closest('#lBack')){ UI.openList=null; pendingImg=''; UI.render(); return; }
+      if (e.target.closest('#iMore')){
+        UI.itemMore = !UI.itemMore;
+        $('#iExtra').classList.toggle('on', UI.itemMore);
+        $('#iMore').setAttribute('aria-expanded', UI.itemMore);
+        return;
+      }
       if (e.target.closest('#iPic')){ $('#iFile').click(); return; }
       if (e.target.closest('#iAdd')){ addItem(); return; }
 
@@ -2563,7 +2682,10 @@ const Wire = (() => {
         link:  $('#iLink')  ? $('#iLink').value.trim()  : '',
         releaseDate: $('#iRel') ? $('#iRel').value : '',
         img: pendingImg });
-      pendingImg=''; UI.toast('נוסף');
+      i.value = '';
+      if ($('#iLink')) $('#iLink').value = '';
+      if ($('#iPrev')) $('#iPrev').innerHTML = '';
+      pendingImg=''; i.focus(); UI.toast('נוסף');
     }
     $('#listDetail').addEventListener('keydown', e=>{
       if (e.key==='Enter' && ['iTitle','iLink','iWhere'].includes(e.target.id)) addItem();
@@ -2791,6 +2913,11 @@ ${r.date?'תאריך פרסום: <b>'+UI.esc(r.date)+'</b>':'אין תאריך �
     $('#alert').addEventListener('click', e=>{
       if (e.target.id!=='alert') return;
       UI.closeAlert();
+    });
+
+    /* יצאנו משדה טקסט — אם רינדור נדחה בינתיים, מריצים אותו עכשיו */
+    document.addEventListener('focusout', ()=>{
+      setTimeout(()=>{ if (UI.deferred && !UI.typing()) UI.render(); }, 60);
     });
 
     Store.onChange(()=>{ Native.sync(); UI.render(); });
