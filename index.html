@@ -31,7 +31,7 @@
     --home-bg:#241f18;   --home-line:#3a3122;  --home-ink:#e0b57a;
     --free-bg:#18231f;   --free-line:#25382f;  --free-ink:#8bcaa8;
 
-    --r:12px; --r2:9px;
+    --r:10px; --r2:8px;
     --safe-b:env(safe-area-inset-bottom,0px);
     --safe-t:env(safe-area-inset-top,0px);
   }
@@ -141,6 +141,7 @@
   .tcard.army{background:var(--army-bg);border-color:var(--army-line)}
   .tcard.home{background:var(--home-bg);border-color:var(--home-line)}
   .tcard.free{background:var(--free-bg);border-color:var(--free-line)}
+  .tcard.gap{margin-top:20px}   /* רווח טבעי בין קבוצות צבע — בלי קו ובלי כותרת */
   .tcard .catname{font-size:11px;font-weight:600;letter-spacing:.3px}
   .tcard.army .catname{color:var(--army-ink)}
   .tcard.home .catname{color:var(--home-ink)}
@@ -171,16 +172,20 @@
   .twist .ar{font-size:10px;transition:transform .18s}
   .twist[aria-expanded="true"] .ar{transform:rotate(90deg)}
 
-  /* מסננים */
-  .filters{display:flex;gap:6px;margin:2px 0 18px;overflow-x:auto;scrollbar-width:none}
-  .filters::-webkit-scrollbar{display:none}
-  .filters button{
-    flex:0 0 auto;padding:7px 13px;border-radius:999px;font-size:13px;
-    color:var(--muted);border:1px solid var(--line);transition:.15s;
+  /* מסננים — לשוניות טקסט שקטות, לא קפסולות */
+  .tabrow{display:flex;align-items:center;gap:8px;margin:2px 0 16px}
+  .tabs{display:flex;gap:16px;flex:1;overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{
+    flex:0 0 auto;padding:7px 0 8px;font-size:14px;color:var(--muted2);
+    border-bottom:1.5px solid transparent;transition:.15s;
   }
-  .filters button[aria-selected="true"]{
-    background:var(--surface3);color:var(--text);border-color:var(--line2);
-  }
+  .tabs button[aria-selected="true"]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
+  .hbtn.sm{width:30px;height:30px;font-size:16px}
+  .searchbar{display:flex;align-items:center;gap:6px;margin:-4px 0 16px}
+  .searchbar input{flex:1;background:transparent;border:0;border-bottom:1px solid var(--line2);
+    border-radius:0;padding:8px 2px}
+  .searchbar input:focus{border-bottom-color:var(--accent)}
 
   /* מצבי תצוגה ב"היום" */
   .modes{display:flex;gap:2px;margin:2px 0 14px}
@@ -197,11 +202,8 @@
   .edot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-inline-end:5px;vertical-align:middle}
 
   /* ---------------- "עכשיו" ו"עבר הזמן" ---------------- */
-  .nowbox{
-    border:1px solid var(--line2);border-radius:var(--r);padding:13px 15px;
-    margin-bottom:18px;background:var(--surface);
-  }
-  .nowbox .lb{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--accent);margin-bottom:7px}
+  .nowbox{margin:2px 0 20px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .nowbox .lb{font-size:12px;font-weight:700;letter-spacing:.4px;color:var(--accent);margin-bottom:8px}
   .nowline{display:flex;align-items:center;gap:9px;margin:4px 0 2px}
   .nowline .lbl{font-size:11px;color:var(--accent);font-variant-numeric:tabular-nums;direction:ltr}
   .nowline .ln{flex:1;height:1px;background:var(--accent);opacity:.45}
@@ -214,7 +216,7 @@
   /* ---------------- כפתורים ---------------- */
   .btn{
     padding:11px 16px;border-radius:var(--r2);font-size:14px;font-weight:600;
-    border:1px solid var(--line2);color:var(--text);transition:.15s;
+    border:1px solid var(--line);color:var(--text);transition:.15s;
   }
   .btn.p{background:var(--accent);border-color:var(--accent);color:#0d1117}
   .btn.d{color:var(--danger);border-color:transparent}
@@ -225,11 +227,13 @@
 
   /* כפתור הוספה צף */
   .fab{
-    position:absolute;inset-inline-end:18px;bottom:calc(16px + var(--safe-b));
-    width:50px;height:50px;border-radius:16px;background:var(--accent);color:#0d1117;
-    font-size:26px;font-weight:300;display:grid;place-items:center;
-    box-shadow:0 4px 16px rgba(0,0,0,.35);z-index:20;
+    position:absolute;inset-inline-end:16px;bottom:calc(14px + var(--safe-b));
+    width:46px;height:46px;border-radius:50%;
+    background:var(--surface2);border:1px solid var(--line2);color:var(--accent);
+    font-size:24px;font-weight:300;display:grid;place-items:center;z-index:20;
+    transition:.15s;
   }
+  .fab:active{background:var(--surface3)}
   .fabwrap{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
 
   /* ---------------- מודאל ---------------- */
@@ -280,6 +284,7 @@
 
   /* בורר קטגוריה / סוג */
   .seg{display:flex;gap:6px}
+  .seg{gap:4px}
   .seg button{
     flex:1;padding:10px 6px;border-radius:var(--r2);font-size:13.5px;
     border:1px solid var(--line);color:var(--muted);transition:.15s;
@@ -353,16 +358,17 @@
   .msum{white-space:pre-wrap;font-size:13.5px;line-height:1.7;background:var(--surface2);
         border:1px solid var(--line);border-radius:var(--r2);padding:12px 14px}
   .item{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+  .msum{border:0;background:transparent;padding:10px 12px;
+        border-inline-start:2px solid var(--line2)}
   .item:last-child{border-bottom:0}
   .item .rb{flex:1;font-size:14px}
 
   /* ---------------- הודעות מערכת ---------------- */
   .notice{
-    border:1px solid var(--line);border-inline-start:2px solid var(--accent);
-    border-radius:var(--r2);padding:12px 14px;font-size:13px;color:var(--muted);
-    line-height:1.6;margin-bottom:14px;background:var(--surface);
+    border-inline-start:2px solid var(--line2);padding:2px 12px;
+    font-size:13px;color:var(--muted2);line-height:1.65;margin:10px 0 14px;
   }
-  .notice.warn{border-inline-start-color:var(--danger)}
+  .notice.warn{border-inline-start-color:var(--danger);color:var(--muted)}
   .notice b{color:var(--text)}
 
   /* ---------------- הערות (עורך) ---------------- */
@@ -375,25 +381,31 @@
   .ncard .thumb{width:42px;height:42px;border-radius:8px;object-fit:cover;flex:0 0 auto}
   #noteEdit{display:flex;flex-direction:column}
   .ntop{display:flex;gap:8px;align-items:center;margin-bottom:10px}
-  .ntop input{flex:1;font-size:16px;font-weight:600}
-  .ntools{background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);
-    padding:6px;margin-bottom:10px;position:sticky;top:0;z-index:5}
+  .ntop input{flex:1;font-size:17px;font-weight:650;background:transparent;border:0;padding:8px 2px}
+  .ntools{padding:0 0 8px;margin-bottom:8px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:5;background:var(--bg)}
   .trow2{display:flex;gap:3px;flex-wrap:wrap}
   .trow2+.trow2{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
-  .trow2 button{flex:0 0 auto;min-width:33px;height:31px;padding:0 8px;border-radius:8px;
-    background:var(--surface2);border:1px solid var(--line);font-size:12.5px;
+  .trow2 button{flex:0 0 auto;min-width:36px;height:34px;padding:0 10px;border-radius:var(--r2);
+    color:var(--muted);font-size:13px;
     display:inline-flex;align-items:center;justify-content:center;gap:4px}
+  .trow2 button:active{background:var(--surface2);color:var(--text)}
   .trow2 button[aria-pressed="true"]{background:var(--accent);color:#0d1117;border-color:var(--accent)}
   .trow2 .tsep{flex:0 0 auto;width:1px;background:var(--line);margin:4px 3px}
   .trow2 .swatch{width:11px;height:11px;border-radius:3px;border:1px solid #0006;background:#e7ebf0}
+  .sheetgrid{display:flex;flex-wrap:wrap;gap:7px}
+  .sbtn{padding:9px 13px;border-radius:var(--r2);border:1px solid var(--line);
+        font-size:13.5px;color:var(--text);transition:.15s}
+  .sbtn:active{background:var(--surface3)}
+  .sbtn[aria-pressed="true"]{background:var(--surface3);border-color:var(--accent);color:var(--accent)}
   .palette{display:flex;flex-wrap:wrap;gap:6px;padding:8px 2px 2px}
   .palette button{width:27px;height:27px;border-radius:8px;border:1px solid var(--line)}
   .palette button.clear{width:auto;padding:0 10px;font-size:12px;color:var(--muted)}
-  .nbody{flex:1;min-height:52vh;background:var(--surface);border:1px solid var(--line);
-    border-radius:var(--r);padding:16px 15px;overflow-y:auto;
+  .nbody{flex:1;min-height:56vh;background:transparent;border:0;
+    padding:6px 2px;overflow-y:auto;
     font-size:calc(16px * var(--nz,1));line-height:1.75;outline:none;
     -webkit-user-select:text;user-select:text}
-  .nbody:focus{border-color:var(--accent)}
+  .nbody:focus{outline:none}
   .nbody:empty:before{content:attr(data-ph);color:var(--muted2)}
   .nbody h1{font-size:1.4em;font-weight:750;margin:.9em 0 .35em;line-height:1.3}
   .nbody h2{font-size:1.16em;font-weight:700;margin:.85em 0 .3em;line-height:1.35}
@@ -479,14 +491,20 @@
 
     <!-- ======================= משימות ======================= -->
     <section class="sec" id="s-tasks">
-      <div class="filters" id="tFilters">
-        <button data-f="all" aria-selected="true">הכול</button>
-        <button data-f="army">צבא</button>
-        <button data-f="home">בית</button>
-        <button data-f="free">אישי</button>
+      <div class="tabrow">
+        <div class="tabs" id="tFilters">
+          <button data-f="all" aria-selected="true">הכול</button>
+          <button data-f="army">צבא</button>
+          <button data-f="home">בית</button>
+          <button data-f="free">אישי</button>
+        </div>
+        <button class="hbtn sm" id="tSearchOpen" aria-label="חיפוש במשימות">⌕</button>
       </div>
-      <input type="search" id="tSearch" placeholder="חיפוש במשימות" autocomplete="off"
-             style="margin-bottom:16px">
+      <div class="searchbar" id="tSearchBar" hidden>
+        <input type="search" id="tSearch" placeholder="חיפוש במשימות"
+               autocomplete="off" aria-label="חיפוש במשימות">
+        <button class="hbtn sm" id="tSearchClose" aria-label="סגור חיפוש">×</button>
+      </div>
       <div id="tasksBody"></div>
     </section>
 
@@ -520,34 +538,11 @@
         </div>
         <div class="ntools" id="nTools">
           <div class="trow2">
-            <button data-c="undo" title="בטל">↶</button>
-            <button data-c="redo" title="חזור">↷</button>
-            <span class="tsep"></span>
-            <button data-c="bold"><b>B</b></button>
-            <button data-c="italic"><i>I</i></button>
-            <button data-c="underline"><u>U</u></button>
-            <button data-c="strikeThrough"><s>S</s></button>
-            <span class="tsep"></span>
-            <button data-b="h1">כותרת</button>
-            <button data-b="h2">משנה</button>
-            <button data-b="p">רגיל</button>
-            <button data-b="blockquote">❝</button>
-          </div>
-          <div class="trow2">
-            <button data-c="insertUnorderedList">• רשימה</button>
-            <button data-c="insertOrderedList">1. ממוספר</button>
-            <span class="tsep"></span>
-            <button data-pal="fore">A<span class="swatch" id="nFore"></span></button>
-            <button data-pal="back">▨<span class="swatch" id="nBack2"></span></button>
-            <span class="tsep"></span>
-            <button data-c="link">קישור</button>
-            <button data-c="image">תמונה</button>
-            <button data-c="hr">―</button>
-            <button data-c="dir">⇄</button>
-            <span class="tsep"></span>
-            <button data-c="zoomOut"><span dir="ltr">A−</span></button>
-            <button id="nZoomLbl" data-c="zoomReset">100%</button>
-            <button data-c="zoomIn"><span dir="ltr">A+</span></button>
+            <button data-sheet="style" aria-label="סגנון טקסט">סגנון</button>
+            <button data-c="bold" aria-label="מודגש"><b>B</b></button>
+            <button data-c="insertUnorderedList" aria-label="רשימה">רשימה</button>
+            <button data-c="link" aria-label="קישור">קישור</button>
+            <button data-sheet="more" aria-label="עוד כלים">עוד…</button>
           </div>
           <div class="palette" id="nPalette" hidden></div>
         </div>
@@ -616,7 +611,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.0 · 2026-08-26';
+const BUILD = '2.0.1 · 2026-08-26';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -704,6 +699,24 @@ const Store = (() => {
       t.archived = false; t.archivedAt = null; t.done = false; t.doneAt = null;
     }
   });
+  /* ---------- v4 -> v5: פריט ארוך-טווח לא יכול להיות הרגל בעצמו ----------
+     אם נשמר לו לוח חזרות, מעבירים אותו לתת-משימה קצרת-טווח אחת ומסמנים
+     שהטיפול בוצע, כדי שטעינה חוזרת לא תיצור כפילויות. */
+  data.tasks.slice().forEach(t => {
+    if (t.kind !== 'long' || !t.repeat || !t.repeat.times || !t.repeat.times.length) return;
+    if (!t.repeatMovedTo || !data.tasks.some(x => x.id === t.repeatMovedTo)){
+      const child = {
+        id: (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
+        mission: t.mission, title: t.title, done:false, createdAt: Date.now(), doneAt:null,
+        reminder:null, rt:{}, parentId: t.id, planned:null, eventId:null, note:'',
+        repeat: t.repeat, log: t.log || {}, collapsed:true, kind:'short',
+        archived:false, archivedAt:null, autoArch:false,
+      };
+      data.tasks.push(child);
+      t.repeatMovedTo = child.id;
+    }
+    t.repeat = null; t.log = {};
+  });
   data.v = 4;
 
   const subs = [];
@@ -774,7 +787,10 @@ const Store = (() => {
     /* ---------- הרגל יומי ----------
        t.repeat = { days:[0..6], times:['08:00','16:00'] }
        t.log    = { '2026-08-26': 1 }  — קיום המפתח = היום סומן */
-    isHabit(t){ return !!(t && t.repeat && t.repeat.times && t.repeat.times.length); },
+    /* פריט ארוך-טווח לעולם אינו הרגל בעצמו — ההרגל הוא תת-משימה שלו.
+       הבדיקה מגנה גם על נתונים ישנים שנשמרו לפני התיקון. */
+    isHabit(t){ return !!(t && t.kind !== 'long' &&
+                          t.repeat && t.repeat.times && t.repeat.times.length); },
     habitDay(t, date){
       const d = new Date(date + 'T00:00:00').getDay();
       return (t.repeat.days || []).includes(d);
@@ -847,8 +863,15 @@ const Store = (() => {
       });
       save();
     },
-    /** סגירה מפורשת של פרויקט ארוך-טווח */
+    /** סגירה מפורשת של פריט ארוך-טווח */
     closeProject(id){ this.finishTask(id); },
+    /** מעבר לארוך-טווח: המיכל לא נושא זמן, מיקום, נסיעה, תאריך או חזרה */
+    makeLong(id){
+      const t = this.task(id); if(!t) return;
+      t.kind = 'long'; t.reminder = null; t.repeat = null; t.planned = null;
+      t.log = {}; t.rt = {};
+      save();
+    },
 
     /** החזרה מהארכיון — המשימה וכל מה שאורכב יחד איתה */
     restoreTask(id){
@@ -1746,7 +1769,7 @@ const UI = (() => {
     opts = opts || {};
     const out = [];
     if (!opts.noCat) out.push(CAT[t.mission]);
-    if (t.kind === 'long') out.push('פרויקט');
+    if (t.kind === 'long') out.push('ארוך טווח');
     const r = t.reminder;
     if (r && r.type === 'time' && !opts.noTime) out.push('עד ' + r.at);
     if (r && r.type === 'place') out.push(whereLabel(r));
@@ -2015,12 +2038,21 @@ const UI = (() => {
     if (onlyUnplanned) roots = roots.filter(t => !t.planned && !Store.isHabit(t));
     if (!roots.length){ box.innerHTML = emptyTasks(); return; }
 
-    const longs  = roots.filter(t => t.kind === 'long');
-    const shorts = roots.filter(t => t.kind !== 'long');
-    let out = '';
-    if (longs.length)  out += `<h2 class="sh">פרויקטים</h2>`  + longs.map(card).join('');
-    if (shorts.length) out += `<h2 class="sh">${longs.length ? 'משימות' : ''}</h2>` +
-                              shorts.map(card).join('');
+    /* קיבוץ לפי צבע הקטגוריה — דרך סדר בלבד, בלי כותרות ובלי קווים מפרידים.
+       צבעים מתחלפים לאורך הרשימה מסיחים את העין. בתוך כל קטגוריה,
+       פריטים ארוכי-טווח קודמים. */
+    const ORDER = ['army','home','free'];
+    roots.sort((a,b) => {
+      const c = ORDER.indexOf(a.mission) - ORDER.indexOf(b.mission);
+      if (c) return c;
+      const k = (a.kind === 'long' ? 0 : 1) - (b.kind === 'long' ? 0 : 1);
+      if (k) return k;
+      return (b.createdAt||0) - (a.createdAt||0);
+    });
+    let out = roots.map((t, i) => {
+      const gap = i > 0 && roots[i-1].mission !== t.mission;
+      return card(t, gap);
+    }).join('');
 
     const un = Store.active(filter).filter(t => !t.planned && !t.parentId && !Store.isHabit(t)).length;
     if (un) out += `<button class="txtbtn" id="unschd">${
@@ -2042,13 +2074,13 @@ const UI = (() => {
   }
 
   /** כרטיס משימה — הקטגוריה צובעת את כל המשטח, בגוון טונלי (סעיפים 22–23) */
-  function card(t){
+  function card(t, gap){
     const kids = Store.children(t.id);
     const open = !t.collapsed;
     const hab  = Store.isHabit(t);
     const doneToday = hab && Store.habitFull(t, Plan.today());
     const meta = taskMeta(t, { noCat:true, noKids:true });
-    return `<div class="tcard ${t.mission}" data-id="${t.id}">
+    return `<div class="tcard ${t.mission}${gap ? ' gap' : ''}" data-id="${t.id}">
       <div class="thead">
         ${t.kind === 'long'
           ? '<span class="cb" style="border-style:dotted;border-color:currentColor;opacity:.45"></span>'
@@ -2116,7 +2148,7 @@ const UI = (() => {
         return `<div class="arow" data-id="${t.id}">
           <div class="ab2">
             <div class="at">${esc(t.title)}</div>
-            <div class="am">${CAT[t.mission]}${t.kind==='long'?' · פרויקט':''}${
+            <div class="am">${CAT[t.mission]}${t.kind==='long'?' · ארוך טווח':''}${
               kids ? ' · ' + kids + ' תת-משימות' : ''}${
               t.archivedAt ? ' · ' + esc(fmtDate(t.archivedAt)) : ''}</div>
           </div>
@@ -2671,11 +2703,32 @@ const Wire = (() => {
       const b = e.target.closest('button'); if(!b) return;
       UI.filter = b.dataset.f; UI.render();
     });
+    /* חיפוש מוסתר כברירת מחדל, נחשף בפעולה קטנה ליד המסננים */
+    const openSearch = () => {
+      $('#tSearchBar').hidden = false;
+      $('#tSearchOpen').hidden = true;
+      $('#tSearch').focus();
+    };
+    const closeSearch = () => {
+      $('#tSearch').value = '';
+      UI.taskQ = '';
+      $('#tSearchBar').hidden = true;
+      $('#tSearchOpen').hidden = false;
+      UI.renderTasks();
+    };
+    $('#tSearchOpen').addEventListener('click', openSearch);
+    $('#tSearchClose').addEventListener('click', closeSearch);
     /* מרנדר רק את הרשימה — שדה החיפוש עצמו לא נבנה מחדש תוך כדי הקלדה */
     $('#tSearch').addEventListener('input', e => {
       UI.taskQ = e.target.value;
       UI.renderTasks();
     });
+    $('#tSearch').addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeSearch();
+      /* ניקוי שדה שכבר ריק סוגר את החיפוש */
+      if (e.key === 'Backspace' && !e.target.value) closeSearch();
+    });
+    UI.closeSearch = closeSearch;
 
     $('#tasksBody').addEventListener('click', e => {
       if (e.target.closest('[data-act="add"]')){ taskModal({}); return; }
@@ -2702,7 +2755,7 @@ const Wire = (() => {
         if (p.collapsed) p.collapsed = false;
         p = p.parentId ? Store.task(p.parentId) : null;
       }
-      UI.taskQ = ''; $('#tSearch').value = '';
+      if (UI.closeSearch) UI.closeSearch(); else { UI.taskQ = ''; $('#tSearch').value = ''; }
       Store.commit();
       setTimeout(() => {
         const el = $('#tasksBody [data-id="'+id+'"]');
@@ -2719,7 +2772,7 @@ const Wire = (() => {
         UI.toast(was ? 'הסימון בוטל' : 'סומן להיום');
         return;
       }
-      if (t.kind === 'long'){ UI.toast('פרויקט נסגר מהתפריט'); return; }
+      if (t.kind === 'long'){ UI.toast('פריט ארוך-טווח נסגר מהתפריט'); return; }
       Store.finishTask(id);
       UI.toast('הועבר לארכיון');
     }
@@ -2746,7 +2799,7 @@ const Wire = (() => {
       Modal.open({ title:t.title,
         body:`<button class="pick" data-m="edit"><span class="pn">ערוך</span></button>
           <button class="pick" data-m="sub"><span class="pn">תת-משימה חדשה</span></button>
-          ${isLong ? `<button class="pick" data-m="habit"><span class="pn">הוסף הרגל לפרויקט</span></button>` : ''}
+          ${isLong ? `<button class="pick" data-m="habit"><span class="pn">הוסף הרגל לפריט הזה</span></button>` : ''}
           ${!isLong ? `<button class="pick" data-m="today"><span class="pn">תכנן להיום</span></button>
             <button class="pick" data-m="tomorrow"><span class="pn">תכנן למחר</span></button>
             ${t.planned ? `<button class="pick" data-m="unplan"><span class="pn">הסר מהתכנון</span>
@@ -2765,7 +2818,7 @@ const Wire = (() => {
         const k = b.dataset.m;
         if (k==='edit'){ taskModal({ id }); return; }
         if (k==='sub'){  taskModal({ parentId:t.id, mission:t.mission }); return; }
-        if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true }); return; }
+        if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true, kind:'short' }); return; }
         if (k==='link'){ pickEventFor(id); return; }
         if (k==='unlink'){ Store.linkTask(id, null); Modal.shut(); UI.toast('נותק'); return; }
         if (k==='today')    Store.setPlanned(id, Plan.today());
@@ -2801,7 +2854,7 @@ const Wire = (() => {
       const isNew = !t;
       const parent = o.parentId ? Store.task(o.parentId) : (t && t.parentId ? Store.task(t.parentId) : null);
 
-      let kind = t ? t.kind : 'short';
+      let kind = t ? t.kind : (o.kind === 'long' ? 'long' : 'short');
       let cat  = t ? t.mission : (o.mission || (parent && parent.mission) || 'army');
       const r  = (t && t.reminder) || {};
       let rem  = r.type || 'none';
@@ -2853,7 +2906,7 @@ const Wire = (() => {
         <div style="margin-bottom:14px"><label>סוג המשימה</label>
           <div class="seg" id="etKind">
             <button data-k="short" aria-selected="${kind==='short'}">קצרת טווח</button>
-            <button data-k="long"  aria-selected="${kind==='long'}">פרויקט</button>
+            <button data-k="long"  aria-selected="${kind==='long'}">ארוך טווח</button>
           </div>
           <div class="note" style="margin-top:7px" id="etKindNote"></div></div>
 
@@ -2918,13 +2971,14 @@ const Wire = (() => {
 
       function kindNote(){
         g('etKindNote').textContent = kind === 'long'
-          ? 'פרויקט לא נגמר מעצמו. הוא נשאר עד שתסגור אותו ידנית, ואין לו שעה או מיקום — אלה שייכים לתת-המשימות שלו.'
+          ? 'תחום או פרויקט שנמשך. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אין לו שעה, מיקום או חזרה — אלה שייכים לתת-המשימות שלו.'
           : 'משימה שיש לה סוף. ברגע שתסמן אותה — היא עוברת לארכיון.';
       }
       function applyKind(){
-        /* פרויקט הוא מיכל, לא פעולה מתוזמנת (סעיף 27) */
-        B.querySelector('[data-acc="time"]').hidden  = kind === 'long';
-        B.querySelector('[data-acc="place"]').hidden = kind === 'long';
+        /* פריט ארוך-טווח הוא מיכל, לא פעולה מתוזמנת (סעיף 27) */
+        B.querySelector('[data-acc="time"]').hidden   = kind === 'long';
+        B.querySelector('[data-acc="place"]').hidden  = kind === 'long';
+        B.querySelector('[data-acc="repeat"]').hidden = kind === 'long';
         kindNote();
       }
       function sum(id, txt){ const el = B.querySelector(`[data-sum="${id}"]`); if (el) el.textContent = txt || 'לא נקבע'; }
@@ -3020,12 +3074,15 @@ const Wire = (() => {
           if (due.length) rt.firedKey = day + '@' + due[due.length-1];
         }
 
+        /* מיכל ארוך-טווח לא נושא חזרה, זמן, מיקום או תאריך */
+        if (kind === 'long'){ rep = null; reminder = null; plannedOut = null; }
+
         if (isNew){
           Store.addTask({ mission:cat, title, note, reminder, repeat:rep, rt, kind,
                           parentId:o.parentId||null, planned:plannedOut });
           if (o.parentId){ const p = Store.task(o.parentId); if (p && p.collapsed) Store.toggleCollapse(p.id); }
         } else {
-          Store.updateTask(t.id, { title, note, reminder, repeat:rep, rt, kind, mission:cat });
+          Store.updateTask(t.id, { title, note, reminder, repeat:rep, rt, kind, mission:cat, log: kind==='long' ? {} : (t.log||{}) });
           Store.setPlanned(t.id, plannedOut);
         }
         Modal.shut(); UI.toast(isNew ? 'נוסף' : 'נשמר');
@@ -3225,7 +3282,8 @@ const Wire = (() => {
     function applyZoom(){
       const z = Store.all.prefs.noteZoom || 1;
       NB().style.setProperty('--nz', z);
-      $('#nZoomLbl').textContent = Math.round(z*100) + '%';
+      const lbl = document.getElementById('nZoomLbl');
+      if (lbl) lbl.textContent = Math.round(z*100) + '%';
     }
     function setZoom(z){
       const v = Math.min(2.4, Math.max(0.7, Math.round(z*20)/20));
@@ -3329,7 +3387,8 @@ const Wire = (() => {
       NB().focus();
       if (kind==='fore') document.execCommand('foreColor', false, c==='none' ? '#e7ebf0' : c);
       else document.execCommand('hiliteColor', false, c==='none' ? 'transparent' : c);
-      if (c!=='none') $(kind==='fore' ? '#nFore' : '#nBack2').style.background = c;
+      const sw = document.getElementById(kind==='fore' ? 'nFore' : 'nBack2');
+      if (c!=='none' && sw) sw.style.background = c;
       $('#nPalette').hidden = true;
       noteSave();
     });
@@ -3381,12 +3440,61 @@ const Wire = (() => {
       if (el.setAttribute) el.setAttribute('dir', cur === 'ltr' ? 'rtl' : 'ltr');
       noteSave();
     }
-    $('#nTools').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
-    $('#nTools').addEventListener('click', e => {
-      const b = e.target.closest('button'); if(!b) return;
-      if (b.dataset.b){ block(b.dataset.b === 'p' ? 'P' : b.dataset.b.toUpperCase()); return; }
-      if (b.dataset.pal){ palette(b.dataset.pal); return; }
-      const c = b.dataset.c; if (!c) return;
+    /* חשיפה הדרגתית: סרגל קצר קבוע, וכל השאר בשני גיליונות מקובצים.
+       שום יכולת לא הוסרה — היא רק לא תופסת מקום כשלא משתמשים בה. */
+    const SHEETS = {
+      style: { title:'סגנון טקסט', groups:[
+        { label:'פסקה', items:[['b:p','טקסט רגיל'],['b:h1','כותרת'],['b:h2','כותרת משנה'],
+                               ['b:blockquote','ציטוט']] },
+        { label:'עיצוב', items:[['c:bold','מודגש'],['c:italic','נטוי'],
+                                ['c:underline','קו תחתון'],['c:strikeThrough','קו חוצה']] },
+        { label:'רשימות', items:[['c:insertUnorderedList','רשימה'],
+                                 ['c:insertOrderedList','רשימה ממוספרת']] },
+      ]},
+      more: { title:'עוד כלים', groups:[
+        { label:'הוספה', items:[['c:link','קישור'],['c:image','תמונה'],['c:hr','קו מפריד']] },
+        { label:'צבע', items:[['pal:fore','צבע טקסט'],['pal:back','הדגשה']] },
+        { label:'פסקה', items:[['c:dir','הפוך כיוון פסקה']] },
+        { label:'תצוגה', items:[['c:zoomOut','הקטן טקסט'],['c:zoomReset','גודל רגיל'],
+                                ['c:zoomIn','הגדל טקסט']] },
+        { label:'היסטוריה', items:[['c:undo','בטל'],['c:redo','חזור']] },
+      ]},
+    };
+    /* הבחירה נשמרת לפני פתיחת הגיליון, כי פתיחת מודאל מאבדת אותה */
+    let savedRange = null;
+    const saveSel = () => {
+      const s = document.getSelection();
+      savedRange = (s && s.rangeCount && NB().contains(s.anchorNode)) ? s.getRangeAt(0).cloneRange() : null;
+    };
+    const restoreSel = () => {
+      NB().focus();
+      if (!savedRange) return;
+      const s = document.getSelection();
+      s.removeAllRanges(); s.addRange(savedRange);
+    };
+    function openSheet(which){
+      const sh = SHEETS[which]; if(!sh) return;
+      saveSel();
+      Modal.open({ title:sh.title,
+        body: sh.groups.map(g => `
+          <label style="margin-top:12px">${g.label}</label>
+          <div class="sheetgrid">${g.items.map(([k,lbl]) =>
+            `<button class="sbtn" data-do="${k}">${lbl}</button>`).join('')}</div>`).join('') +
+          `<div class="note" style="margin-top:14px">גודל טקסט נוכחי:
+             <span id="nZoomLbl" dir="ltr">${Math.round((Store.all.prefs.noteZoom||1)*100)}%</span></div>`,
+        buttons:[{label:'סגור',act:()=>Modal.shut()}]});
+      Modal.body.addEventListener('click', e => {
+        const b = e.target.closest('[data-do]'); if(!b) return;
+        const [kind, val] = b.dataset.do.split(':');
+        if (kind === 'pal'){ Modal.shut(); restoreSel(); palette(val); return; }
+        restoreSel();
+        if (kind === 'b'){ block(val === 'p' ? 'P' : val.toUpperCase()); Modal.shut(); return; }
+        runCmd(val);
+        if (!['zoomIn','zoomOut','zoomReset'].includes(val)) Modal.shut();
+      });
+    }
+
+    function runCmd(c){
       if (c==='link')  return insertLink();
       if (c==='image') return insertImage();
       if (c==='hr'){ NB().focus(); document.execCommand('insertHorizontalRule'); return noteSave(); }
@@ -3395,6 +3503,16 @@ const Wire = (() => {
       if (c==='zoomOut') return setZoom((Store.all.prefs.noteZoom||1) - 0.1);
       if (c==='zoomReset') return setZoom(1);
       NB().focus(); document.execCommand(c); noteSave();
+    }
+
+    $('#nTools').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+    $('#nTools').addEventListener('click', e => {
+      const b = e.target.closest('button'); if(!b) return;
+      if (b.dataset.sheet){ openSheet(b.dataset.sheet); return; }
+      if (b.dataset.b){ block(b.dataset.b === 'p' ? 'P' : b.dataset.b.toUpperCase()); return; }
+      if (b.dataset.pal){ palette(b.dataset.pal); return; }
+      const c = b.dataset.c; if (!c) return;
+      runCmd(c);
     });
     let pinch = 0, zoom0 = 1;
     NB().addEventListener('touchstart', e => {
@@ -3416,6 +3534,10 @@ const Wire = (() => {
       if (UI.screen !== 'notes' || !UI.openNote) return;
       ['bold','italic','underline','strikeThrough','insertUnorderedList','insertOrderedList']
         .forEach(c => { const b = $('#nTools button[data-c="'+c+'"]');
+                        if (b) try { b.setAttribute('aria-pressed', String(document.queryCommandState(c))); } catch(e){} });
+      /* גם בתוך הגיליון, כשהוא פתוח */
+      ['bold','italic','underline','strikeThrough','insertUnorderedList','insertOrderedList']
+        .forEach(c => { const b = document.querySelector('#mBody [data-do="c:'+c+'"]');
                         if (b) try { b.setAttribute('aria-pressed', String(document.queryCommandState(c))); } catch(e){} });
     });
 
