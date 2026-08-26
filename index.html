@@ -169,6 +169,8 @@
     border-bottom:1px solid var(--line);
   }
   .kids .krow:last-child{border-bottom:0;padding-bottom:2px}
+  /* מקטע חדש מביא איתו קו — אין צורך בשניים */
+  .kids .krow:has(+ .seclbl){border-bottom:0}
   .kids .krow .kt{flex:1;font-size:14px;line-height:1.4}
   .kids .krow .km{font-size:11.5px;color:var(--muted2);margin-top:2px}
   .twist{
@@ -350,6 +352,8 @@
     font-size:13.5px;opacity:0;pointer-events:none;transition:.22s;z-index:70;max-width:88vw;
   }
   #toast.on{opacity:1;transform:translateX(-50%)}
+  #toast.act{pointer-events:auto}
+  #toast .un{margin-inline-start:16px;color:var(--accent);font-weight:600}
 
   /* ---- תת-משימות בתוך העורך: שורות פשוטות, לא כרטיסים ---- */
   .subrow{display:flex;gap:10px;align-items:center;padding:11px 2px;
@@ -358,6 +362,23 @@
   .subrow .st2{font-size:14.5px}
   .subrow .sm2{font-size:11.5px;color:var(--muted2);margin-top:2px}
   .subempty{font-size:13px;color:var(--muted2);padding:10px 2px}
+
+  /* ---- שלושת המקטעים: הבדל דרך טיפוגרפיה וקו דק, לא כרטיסים ולא צבע ---- */
+  .seclbl{
+    font-size:11px;font-weight:600;letter-spacing:.4px;color:var(--muted2);
+    margin:13px 0 5px;padding-top:10px;border-top:1px solid var(--line);
+  }
+  .seclbl:first-child{margin-top:0;padding-top:0;border-top:0}
+  /* ---- פריט ברשימה: ישות קלה — שם, סימון, ואולי הערה ---- */
+  .clrow{display:flex;gap:10px;align-items:flex-start;padding:7px 0}
+  .clrow .ct{flex:1;min-width:0;font-size:14px;line-height:1.4;text-align:start}
+  .clrow.ck .ct{color:var(--muted2);text-decoration:line-through}
+  .clrow .cn{font-size:11.5px;color:var(--muted2);margin-top:2px;
+             text-decoration:none;display:block}
+  .ord{display:flex;gap:4px;flex:0 0 auto}
+  .ord button{width:27px;height:27px;border:1px solid var(--line2);border-radius:7px;
+              color:var(--muted2);font-size:12px}
+  .ord button[disabled]{opacity:.28}
   .alrow{display:flex;gap:10px;align-items:center;padding:12px 2px;
          border-bottom:1px solid var(--line)}
   .alrow .at2{flex:1;font-size:14.5px}
@@ -631,12 +652,12 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.2 · 2026-08-26';
+const BUILD = '2.3 · 2026-08-26';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
   const KEY = 'mesima.v1';
-  const seed = () => ({ v:4, tasks:[], places:[], lists:[], events:[], notes:[],
+  const seed = () => ({ v:5, tasks:[], places:[], lists:[], events:[], notes:[],
                         eventTypes:[],
                         prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1 } });
 
@@ -737,7 +758,17 @@ const Store = (() => {
     }
     t.repeat = null; t.log = {};
   });
-  data.v = 4;
+  /* ---------- v4 -> v5: פריט ברשימה הוא ישות קלה, וסדר מפורש לכל ילד ----------
+     פריט אינו משימה: אין לו קטגוריה, תאריך, תזכורת, ארכיון או נוכחות ב"היום".
+     תת-משימות קיימות נשארות תת-משימות — אפשר להמיר אותן ידנית לפריטים. */
+  data.tasks.forEach((t, i) => {
+    if (!Array.isArray(t.checklist)) t.checklist = [];
+    t.checklist = t.checklist.filter(c => c && c.title).map(c => ({
+      id: c.id || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
+      title: String(c.title), note: c.note || '', checked: !!c.checked }));
+    if (typeof t.sortIndex !== 'number') t.sortIndex = i;
+  });
+  data.v = 5;
 
   const subs = [];
   const save = () => {
@@ -779,7 +810,8 @@ const Store = (() => {
         createdAt:Date.now(), doneAt:null, reminder:o.reminder||null, rt:o.rt||{},
         parentId:o.parentId||null, planned:o.planned||null, eventId:o.eventId||null,
         note:o.note||'', repeat:o.repeat||null, log:{}, collapsed:true,
-        kind:(o.kind==='long'?'long':'short'), archived:false, archivedAt:null, autoArch:false };
+        kind:(o.kind==='long'?'long':'short'), archived:false, archivedAt:null, autoArch:false,
+        checklist:[], sortIndex:(typeof o.sortIndex === 'number' ? o.sortIndex : Date.now()) };
       /* תת-משימה יורשת את המשימה-על של ההורה, אחרת היא נעלמת מהתצוגה */
       if (t.parentId){ const p = this.task(t.parentId); if (p) t.mission = p.mission; }
       data.tasks.unshift(t); save(); return t;
@@ -914,12 +946,13 @@ const Store = (() => {
        הפונקציה טהורה ומקבלת מזהה בלבד, כך שאיפוס אוטומטי בעתיד
        (כל יום ראשון, כל שבוע) יוכל לקרוא לה בלי שינוי נוסף. */
 
-    /** כמה פריטים בעץ הזה יחזרו לפעילים */
+    /** כמה פריטים ברשימה ובעץ יחזרו למצב פעיל */
     resettableCount(id){
-      return this.descendants(id).filter(c => c.archived || c.done).length;
+      return this.checklist(id).filter(x => x.checked).length +
+             this.descendants(id).filter(c => c.archived || c.done).length;
     },
-    /** האם בכלל יש כאן רשימה — כלומר תת-משימות כלשהן */
-    hasChecklist(id){ return this.descendants(id).length > 0; },
+    /** האם בכלל יש כאן רשימה — פריטים או תת-משימות */
+    hasChecklist(id){ return this.checklist(id).length > 0 || this.descendants(id).length > 0; },
 
     /**
      * מחזיר את כל צאצאי המשימה למצב פעיל, לכל עומק.
@@ -929,6 +962,8 @@ const Store = (() => {
     resetChecklist(id){
       const t = this.task(id); if(!t) return 0;
       let n = 0;
+      /* פריטי הרשימה חוזרים ללא-מסומן. שם, הערה וסדר נשמרים בדיוק. */
+      this.checklist(id).forEach(it => { if (it.checked){ it.checked = false; n++; } });
       this.descendants(id).forEach(c => {
         if (!c.archived && !c.done) return;
         c.archived = false; c.archivedAt = null; c.autoArch = false;
@@ -944,6 +979,92 @@ const Store = (() => {
       t.lastResetAt = Date.now();
       save();
       return n;
+    },
+
+    /* ================= פריטי רשימה =================
+       פריט חי בתוך המשימה עצמה: { id, title, note, checked }.
+       הוא לא משימה: אין לו סוג, קטגוריה, תאריך, תזכורת, מיקום, נסיעה,
+       חזרה, תת-פריטים, רשומת ארכיון או נוכחות במסך "היום".
+       פריט מסומן נשאר גלוי — הערך שלו הוא לראות מה כבר נארז. */
+    checklist(id){
+      const t = this.task(id); if(!t) return [];
+      if (!Array.isArray(t.checklist)) t.checklist = [];
+      return t.checklist;
+    },
+    checklistStats(id){
+      const l = this.checklist(id);
+      return { total:l.length, checked:l.filter(x => x.checked).length };
+    },
+    addChecklistItem(id, title, note){
+      const t = this.task(id); if(!t) return null;
+      const ttl = String(title || '').trim(); if (!ttl) return null;
+      if (!Array.isArray(t.checklist)) t.checklist = [];
+      const it = { id:uid(), title:ttl, note:note || '', checked:false };
+      t.checklist.push(it); save(); return it;
+    },
+    updateChecklistItem(id, itemId, patch){
+      const it = this.checklist(id).find(x => x.id === itemId); if(!it) return;
+      if (patch.title !== undefined){
+        const ttl = String(patch.title).trim(); if (!ttl) return;
+        it.title = ttl;
+      }
+      if (patch.note !== undefined) it.note = patch.note || '';
+      if (patch.checked !== undefined) it.checked = !!patch.checked;
+      save();
+    },
+    toggleChecklistItem(id, itemId){
+      const it = this.checklist(id).find(x => x.id === itemId); if(!it) return null;
+      it.checked = !it.checked; save(); return it.checked;
+    },
+    /** מחיקה מחזירה את הפריט ואת מקומו, כדי שאפשר יהיה לבטל */
+    delChecklistItem(id, itemId){
+      const l = this.checklist(id), i = l.findIndex(x => x.id === itemId);
+      if (i < 0) return null;
+      const gone = l.splice(i, 1)[0]; save();
+      return { item:gone, at:i };
+    },
+    insertChecklistItem(id, item, at){
+      const l = this.checklist(id); if(!l) return;
+      l.splice(Math.max(0, Math.min(at == null ? l.length : at, l.length)), 0, item); save();
+    },
+    moveChecklistItem(id, itemId, dir){
+      const l = this.checklist(id), i = l.findIndex(x => x.id === itemId), j = i + dir;
+      if (i < 0 || j < 0 || j >= l.length) return false;
+      l.splice(j, 0, l.splice(i, 1)[0]); save(); return true;
+    },
+
+    /* ================= תת-משימות והרגלים =================
+       שני מקטעים נפרדים תחת אותה משימה, כל אחד עם סדר משלו. */
+    ordered(list){
+      return list.slice().sort((a,b) =>
+        (a.sortIndex || 0) - (b.sortIndex || 0) || (a.createdAt || 0) - (b.createdAt || 0));
+    },
+    subtasksOf(id){ return this.ordered(this.children(id).filter(c => !this.isHabit(c))); },
+    habitsOf(id){   return this.ordered(this.children(id).filter(c =>  this.isHabit(c))); },
+    /** הזזה בתוך המקטע שאליו הפריט שייך בלבד */
+    moveChild(id, dir){
+      const t = this.task(id); if(!t) return false;
+      const sec = this.isHabit(t) ? this.habitsOf(t.parentId) : this.subtasksOf(t.parentId);
+      const i = sec.findIndex(x => x.id === id), j = i + dir;
+      if (i < 0 || j < 0 || j >= sec.length) return false;
+      sec.splice(j, 0, sec.splice(i, 1)[0]);
+      sec.forEach((x,k) => { x.sortIndex = k; });
+      save(); return true;
+    },
+    /** תת-משימה מתכווצת לפריט קל ברשימה של ההורה */
+    toChecklistItem(id){
+      const t = this.task(id); if(!t || !t.parentId) return null;
+      const p = this.task(t.parentId); if(!p) return null;
+      const it = this.addChecklistItem(p.id, t.title, t.note || '');
+      if (it && (t.archived || t.done)) it.checked = true;
+      this.delTask(id);
+      return it;
+    },
+    /** תת-משימה נגמלת מההורה ועומדת בפני עצמה */
+    toIndependent(id){
+      const t = this.task(id); if(!t || !t.parentId) return false;
+      t.parentId = null; t.autoArch = false; t.sortIndex = Date.now();
+      save(); return true;
     },
 
     /** שורשי הארכיון: פריט שההורה שלו אינו מאורכב — כדי לא לכפול עצים */
@@ -2134,9 +2255,38 @@ const UI = (() => {
       <button class="btn" data-act="add">+ משימה חדשה</button></div>`;
   }
 
+  /** תווית מקטע — מופיעה רק כשיש יותר ממקטע אחד, אחרת היא רעש */
+  function secLbl(name, on, many){ return (on && many) ? `<div class="seclbl">${name}</div>` : ''; }
+
+  /** שורת פריט ברשימה. שם וסימון — ותו לא. */
+  function clRow(ownerId, x){
+    return `<div class="clrow${x.checked ? ' ck' : ''}" data-cl="${x.id}" data-clp="${ownerId}">
+      <button class="cb${x.checked ? ' on' : ''}" data-act="ckl"
+              style="width:18px;height:18px;font-size:10px;flex:0 0 auto">✓</button>
+      <button class="ct" data-act="ckopen"><span>${esc(x.title)}</span>
+        ${x.note ? `<span class="cn">${esc(x.note)}</span>` : ''}</button>
+    </div>`;
+  }
+
+  /** שלושת המקטעים שמתחת למשימה — רשימה, תת-משימות, הרגלים. לעולם לא עץ אחד מעורבב. */
+  function sections(id){
+    const cl = Store.checklist(id), subs = Store.subtasksOf(id), habs = Store.habitsOf(id);
+    const st = Store.checklistStats(id);
+    const bits = [];
+    if (cl.length)   bits.push('רשימה ' + st.checked + '/' + st.total);
+    if (subs.length) bits.push(subs.length + (subs.length === 1 ? ' תת-משימה' : ' תת-משימות'));
+    if (habs.length) bits.push(habs.length + (habs.length === 1 ? ' הרגל' : ' הרגלים'));
+    const many = bits.length > 1;
+    const html = () =>
+      secLbl('רשימה', cl.length, many) + cl.map(x => clRow(id, x)).join('') +
+      secLbl('תת-משימות', subs.length, many) + subs.map(kidRow).join('') +
+      secLbl('הרגלים', habs.length, many) + habs.map(kidRow).join('');
+    return { bits, html, any: bits.length > 0 };
+  }
+
   /** כרטיס משימה — הקטגוריה צובעת את כל המשטח, בגוון טונלי (סעיפים 22–23) */
   function card(t, gap){
-    const kids = Store.children(t.id);
+    const sec  = sections(t.id);
     const open = !t.collapsed;
     const hab  = Store.isHabit(t);
     const doneToday = hab && Store.habitFull(t, Plan.today());
@@ -2153,18 +2303,18 @@ const UI = (() => {
         </div>
         <button class="hbtn" data-act="menu" style="width:28px;height:28px;font-size:15px">⋯</button>
       </div>
-      ${kids.length ? `
+      ${sec.any ? `
         <button class="twist" data-act="twist" aria-expanded="${open}">
           <span class="ar">‹</span>
-          <span>${kids.length} ${kids.length===1?'תת-משימה':'תת-משימות'}</span>
+          <span>${sec.bits.join(' · ')}</span>
         </button>
-        ${open ? `<div class="kids">${kids.map(kidRow).join('')}</div>` : ''}` : ''}
+        ${open ? `<div class="kids">${sec.html()}</div>` : ''}` : ''}
     </div>`;
   }
 
   /** תת-משימה: כותרת בלבד. ההערה נחשפת רק כשפותחים אותה (סעיף 35) */
   function kidRow(t){
-    const kids = Store.children(t.id);
+    const sec = sections(t.id);
     const hab  = Store.isHabit(t);
     const doneToday = hab && Store.habitFull(t, Plan.today());
     const meta = taskMeta(t, { noCat:true, noKids:true });
@@ -2173,9 +2323,9 @@ const UI = (() => {
               style="width:18px;height:18px;font-size:10px">✓</button>
       <div class="kt">${esc(t.title)}
         ${meta ? `<div class="km">${esc(meta)}</div>` : ''}
-        ${kids.length ? `<button class="km" data-act="twist" style="text-align:start">
-            ${t.collapsed ? '‹ ' : '⌄ '}${kids.length} בפנים</button>
-          ${!t.collapsed ? `<div class="kids">${kids.map(kidRow).join('')}</div>` : ''}` : ''}
+        ${sec.any ? `<button class="km" data-act="twist" style="text-align:start">
+            ${t.collapsed ? '‹ ' : '⌄ '}${sec.bits.join(' · ')}</button>
+          ${!t.collapsed ? `<div class="kids">${sec.html()}</div>` : ''}` : ''}
       </div>
       <button class="hbtn" data-act="menu" style="width:24px;height:24px;font-size:14px">⋯</button>
     </div>`;
@@ -2613,8 +2763,19 @@ const UI = (() => {
 
   let toastT = null;
   function toast(msg){
-    const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+    const t = $('#toast');
+    t.onclick = null; t.classList.remove('act');
+    t.textContent = msg; t.classList.add('on');
     clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600);
+  }
+  /** טוסט עם ביטול — מחיקה שקטה של פריט ברשימה חייבת דרך חזרה */
+  function undo(msg, fn){
+    const t = $('#toast');
+    t.innerHTML = esc(msg) + '<button class="un">ביטול</button>';
+    t.classList.add('on','act');
+    const off = () => { t.classList.remove('on','act'); t.onclick = null; };
+    t.onclick = e => { if (e.target.closest('.un')){ off(); fn(); toast('הוחזר'); } };
+    clearTimeout(toastT); toastT = setTimeout(off, 5400);
   }
 
   /* ---- תור התראות ---- */
@@ -2646,7 +2807,7 @@ const UI = (() => {
 
   return {
     init:()=>Wire.init(), render, renderNotes, renderTasks, renderChrome,
-    toast, showAlert, closeAlert, download, esc, fmtM, fmtDate, longDate,
+    toast, undo, showAlert, closeAlert, download, esc, fmtM, fmtDate, longDate,
     CAT, DAYL, PALETTE, KIND, whereLabel, taskMeta, repeatLabel, path, monthDayList,
     originState, typing, cleanSrc, bustSrc, noteText,
     get section(){ return section; }, set section(v){ section=v; },
@@ -2796,6 +2957,15 @@ const Wire = (() => {
       if (e.target.closest('#unschd')){
         UI.onlyUnplanned = !UI.onlyUnplanned; UI.renderTasks(); return;
       }
+      /* פריט ברשימה נתפס לפני שורת המשימה — הוא לא משימה ולא נפתח כמוה */
+      const cli = e.target.closest('[data-cl]');
+      if (cli){
+        const a2 = e.target.closest('[data-act]');
+        if (a2 && a2.dataset.act === 'ckl'){
+          Store.toggleChecklistItem(cli.dataset.clp, cli.dataset.cl); return;
+        }
+        itemModal(cli.dataset.clp, cli.dataset.cl); return;   /* נגיעה בשורה = עריכה מיד */
+      }
       const row = e.target.closest('[data-id]'); if(!row) return;
       const id = row.dataset.id;
       const actEl = e.target.closest('[data-act]');
@@ -2859,8 +3029,14 @@ const Wire = (() => {
       const isLong = t.kind === 'long';
       Modal.open({ title:t.title,
         body:`<button class="pick" data-m="edit"><span class="pn">ערוך</span></button>
+          <button class="pick" data-m="item"><span class="pn">פריט חדש לרשימה</span>
+            <span class="pm">${(() => { const st = Store.checklistStats(id);
+              return st.total ? st.checked + '/' + st.total : 'הרשימה ריקה'; })()}</span></button>
           <button class="pick" data-m="sub"><span class="pn">תת-משימה חדשה</span></button>
-          ${isLong ? `<button class="pick" data-m="habit"><span class="pn">הוסף הרגל לפריט הזה</span></button>` : ''}
+          <button class="pick" data-m="habit"><span class="pn">הרגל חדש</span></button>
+          ${t.parentId ? `<button class="pick" data-m="indep"><span class="pn">הפוך למשימה עצמאית</span></button>
+            ${!kids ? `<button class="pick" data-m="toitem"><span class="pn">הפוך לפריט ברשימה</span>
+              <span class="pm">${esc((Store.task(t.parentId)||{}).title || '')}</span></button>` : ''}` : ''}
           ${Store.hasChecklist(id) ? `<button class="pick" data-m="reset">
               <span class="pn">אפס רשימה</span>
               <span class="pm">${Store.resettableCount(id) || 'הכול פעיל'}</span></button>` : ''}
@@ -2883,6 +3059,14 @@ const Wire = (() => {
         if (k==='edit'){ taskModal({ id }); return; }
         if (k==='sub'){  taskModal({ parentId:t.id, mission:t.mission }); return; }
         if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true, kind:'short' }); return; }
+        if (k==='item'){ newItemModal(id); return; }
+        if (k==='indep'){ Store.toIndependent(id); Modal.shut(); UI.toast('עומדת בפני עצמה'); return; }
+        if (k==='toitem'){
+          const it = Store.toChecklistItem(id);
+          Modal.shut();
+          UI.toast(it ? 'הפך לפריט ברשימה' : 'לא הצלחתי להמיר');
+          return;
+        }
         if (k==='reset'){ resetChecklist(id); return; }
         if (k==='link'){ pickEventFor(id); return; }
         if (k==='unlink'){ Store.linkTask(id, null); Modal.shut(); UI.toast('נותק'); return; }
@@ -2890,9 +3074,122 @@ const Wire = (() => {
         if (k==='tomorrow') Store.setPlanned(id, Plan.shift(Plan.today(),1));
         if (k==='unplan')   Store.setPlanned(id, null);
         if (k==='close'){   Store.finishTask(id); UI.toast('הועבר לארכיון'); }
-        if (k==='del'){     Store.delTask(id); UI.toast('נמחק'); }
+        if (k==='del'){     confirmDelete(id); return; }
         Modal.shut();
       });
+    }
+
+    /* ================= פריט ברשימה =================
+       נגיעה בשורה פותחת עריכה מיד. אין תפריט ביניים, ואין כאן
+       תאריך, תזכורת, מיקום, קטגוריה או תת-פריטים — כי אלה לא שייכים לפריט. */
+    function itemModal(taskId, itemId){
+      const l = Store.checklist(taskId);
+      const i = l.findIndex(x => x.id === itemId); if (i < 0) return;
+      const it = l[i];
+      Modal.open({ title:'פריט ברשימה', body:`
+        <div style="margin-bottom:14px"><label>שם הפריט</label>
+          <input type="text" id="ciT" value="${esc(it.title)}" autocomplete="off"></div>
+        <div style="margin-bottom:14px"><label>הערה</label>
+          <textarea id="ciN" rows="2" placeholder="כמה, איזה, איפה…"
+            style="resize:vertical">${esc(it.note||'')}</textarea></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span class="note" style="flex:1">מקום ברשימה — ${i+1} מתוך ${l.length}</span>
+          <span class="ord">
+            <button data-mv="-1" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
+            <button data-mv="1" ${i===l.length-1?'disabled':''} aria-label="הזז למטה">↓</button></span></div>
+        <button class="pick" data-ck style="border-bottom:0">
+          <span class="pn">${it.checked ? 'החזר ללא מסומן' : 'סמן כמסודר'}</span></button>
+        <div class="note" style="margin-top:10px">פריט ברשימה הוא שם וסימון בלבד.
+          פריט מסומן נשאר גלוי, כדי שתראה מה כבר סידרת.</div>`,
+        buttons:[
+          {label:'מחק', act:()=>{
+            const gone = Store.delChecklistItem(taskId, itemId);
+            Modal.shut();
+            if (gone) UI.undo('הפריט נמחק',
+              () => Store.insertChecklistItem(taskId, gone.item, gone.at));
+          }},
+          {label:'שמור', kind:'p', act:()=>{
+            const ttl = document.getElementById('ciT').value.trim();
+            if (!ttl){ UI.toast('צריך שם'); return; }
+            Store.updateChecklistItem(taskId, itemId,
+              { title:ttl, note:document.getElementById('ciN').value.trim() });
+            Modal.shut();
+          }}]});
+      Modal.body.addEventListener('click', e => {
+        if (e.target.closest('[data-ck]')){
+          Store.toggleChecklistItem(taskId, itemId); Modal.shut(); return;
+        }
+        const b = e.target.closest('[data-mv]'); if(!b) return;
+        if (Store.moveChecklistItem(taskId, itemId, +b.dataset.mv)){
+          Modal.shut(); itemModal(taskId, itemId);
+        }
+      });
+    }
+
+    /** הוספה מהירה של פריטים — נשארים במסך אחד ומקלידים ברצף */
+    function newItemModal(taskId){
+      const t = Store.task(taskId); if(!t) return;
+      const rows = () => {
+        const l = Store.checklist(taskId);
+        if (!l.length) return `<div class="subempty">אין עדיין פריטים</div>`;
+        return l.map(x => `<div class="subrow">
+          <div class="sb2"><div class="st2">${esc(x.title)}</div>
+            ${x.note ? `<div class="sm2">${esc(x.note)}</div>` : ''}</div>
+          <button class="x" data-rm="${x.id}" aria-label="הסר">×</button></div>`).join('');
+      };
+      Modal.open({ title:'רשימה — ' + t.title, body:`
+        <div id="niList">${rows()}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <input type="text" id="niT" placeholder="הוסף פריט…" autocomplete="off" style="flex:1">
+          <button class="btn" id="niAdd" style="flex:0 0 auto">הוסף</button></div>
+        <div class="note" style="margin-top:8px">אפשר להמשיך להקליד — כל אנטר מוסיף פריט.</div>`,
+        buttons:[{label:'סיום',act:()=>Modal.shut()}]});
+      const add = () => {
+        const inp = document.getElementById('niT'), v = inp.value.trim();
+        if (!v) return;
+        Store.addChecklistItem(taskId, v, '');
+        inp.value = '';
+        document.getElementById('niList').innerHTML = rows();
+        inp.focus();
+      };
+      Modal.body.addEventListener('click', e => {
+        if (e.target.closest('#niAdd')){ add(); return; }
+        const rm = e.target.closest('[data-rm]');
+        if (rm){ Store.delChecklistItem(taskId, rm.dataset.rm);
+                 document.getElementById('niList').innerHTML = rows(); }
+      });
+      Modal.body.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.id === 'niT'){ e.preventDefault(); add(); }
+      });
+      setTimeout(() => document.getElementById('niT')?.focus(), 80);
+    }
+
+    /* ================= מחיקה — כלל לכל סוג (סעיף 27) ================= */
+    function confirmDelete(id){
+      const t = Store.task(id); if(!t) return;
+      const desc  = Store.descendants(id);
+      const habs  = desc.filter(c => Store.isHabit(c)).length;
+      const subs  = desc.length - habs;
+      const items = Store.checklist(id).length;
+      let body;
+      if (Store.isHabit(t)){
+        const days = Object.keys(t.log || {}).length;
+        body = `למחוק את ההרגל "${esc(t.title)}"?<br>` +
+          (days ? 'ההיסטוריה של ' + days + (days===1?' יום':' ימים') + ' והרצף יימחקו יחד איתו.'
+                : 'עוד לא נרשמה לו היסטוריה.');
+      } else {
+        const parts = [];
+        if (items) parts.push(items + (items===1 ? ' פריט ברשימה' : ' פריטים ברשימה'));
+        if (subs)  parts.push(subs  + (subs===1  ? ' תת-משימה'    : ' תת-משימות'));
+        if (habs)  parts.push(habs  + (habs===1  ? ' הרגל'        : ' הרגלים'));
+        body = `למחוק את "${esc(t.title)}" לצמיתות?<br>` +
+          (parts.length ? 'יימחקו איתה גם ' + parts.join(', ') + '.'
+                        : 'סיום רגיל שומר בארכיון. מחיקה היא לצמיתות.');
+      }
+      Modal.open({ title:'מחיקה', body:`<div class="note">${body}</div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'מחק',kind:'p',act:()=>{
+                    Store.delTask(id); Modal.shut(); UI.toast('נמחק'); }}]});
     }
 
     /** איפוס רשימה — פעולה רגילה וחוזרת, בלי אזהרה כבדה */
@@ -2905,14 +3202,14 @@ const Wire = (() => {
         return;
       }
       Modal.open({ title:t.title,
-        body:`<div class="note">לאפס את כל הפריטים שסומנו ברשימה?<br>
-                ${n} ${n===1?'פריט יחזור':'פריטים יחזרו'} להיות פעילים.
-                השמות, ההערות והמבנה נשארים בדיוק כפי שהם.</div>`,
+        body:`<div class="note">לאפס את הרשימה?<br>
+                ${n} ${n===1?'פריט יחזור':'פריטים יחזרו'} להיות לא מסומנים.
+                השמות, ההערות והסדר נשארים בדיוק כפי שהם.</div>`,
         buttons:[{label:'ביטול',act:()=>Modal.shut()},
                  {label:'אפס',kind:'p',act:()=>{
                     const done = Store.resetChecklist(id);
                     Modal.shut();
-                    UI.toast(done + (done===1?' פריט חזר לרשימה':' פריטים חזרו לרשימה'));
+                    UI.toast(done + (done===1?' פריט אופס':' פריטים אופסו'));
                  }}]});
     }
 
@@ -2998,8 +3295,10 @@ const Wire = (() => {
                : (t && Store.isHabit(t) ? { days:t.repeat.days.slice(), times:t.repeat.times.slice() }
                                         : (o.habit ? { days:[0,1,2,3,4], times:['20:00'] } : null));
       let planned = d ? d.date : (t ? t.planned : (o.planned || null));
-      /* ילדים שטרם נשמרו — קיימים רק בזיכרון עד שההורה נשמר */
-      let pending = d ? d.pending.slice() : [];
+      /* מה שטרם נשמר — קיים רק בזיכרון עד שההורה נשמר.
+         pending = תת-משימות והרגלים · pendItems = פריטי רשימה */
+      let pending   = d ? d.pending.slice()   : [];
+      let pendItems = d ? d.pendItems.slice() : [];
 
       const tops = Store.topPlaces();
       const placeOpts = tops.map(top =>
@@ -3010,7 +3309,7 @@ const Wire = (() => {
       const underName = o.pendingUnder || (parent && parent.title) || '';
       const heading = isNew
         ? (underName ? 'תת-משימה תחת "' + esc(underName) + '"' : 'משימה חדשה')
-        : 'עריכת משימה';
+        : (isChild ? 'עריכת תת-משימה' : 'עריכת משימה');
 
       const streakBlock = () => {
         if (!t || !Store.isHabit(t)) return '';
@@ -3033,21 +3332,51 @@ const Wire = (() => {
             <span class="as" data-sum="${id}">—</span><span class="ar">‹</span></button>
           <div class="ab">${body}</div></div>`;
 
-      /* ---- רשימת תת-המשימות: ממתינות (חדש) או קיימות (עריכה) ---- */
+      /* ---- רשימת הפריטים: ממתינים (חדש) או שמורים (עריכה) ---- */
+      function items(){ return isNew ? pendItems : Store.checklist(t.id); }
+      function itemRows(){
+        const l = items();
+        if (!l.length) return `<div class="subempty">אין עדיין פריטים</div>`;
+        return l.map((x,i) => `<div class="subrow">
+          <button class="cb${x.checked?' on':''}" data-ick="${i}"
+                  style="width:18px;height:18px;font-size:10px;flex:0 0 auto">✓</button>
+          <button class="sb2" data-iedit="${i}"><div class="st2">${esc(x.title)}</div>
+            ${x.note ? `<div class="sm2">${esc(x.note)}</div>` : ''}</button>
+          <span class="ord">
+            <button data-imv="${i}|-1" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
+            <button data-imv="${i}|1" ${i===l.length-1?'disabled':''} aria-label="הזז למטה">↓</button></span>
+          <button class="x" data-irm="${i}" aria-label="הסר">×</button></div>`).join('');
+      }
+
+      /* ---- תת-משימות והרגלים: שני מקטעים נפרדים, לעולם לא עץ מעורבב ---- */
       function childRows(){
-        const list = isNew
-          ? pending.map((c,i) => ({ key:i, title:c.title, meta:pendingMeta(c) }))
-          : Store.children(t.id).map(c => ({ key:c.id, title:c.title,
-              meta: UI.taskMeta(c, { noCat:true, noKids:true }) }));
-        if (!list.length) return `<div class="subempty">אין עדיין תת-משימות</div>`;
-        return list.map(x => `<div class="subrow">
-          <button class="sb2" data-open="${x.key}">
-            <div class="st2">${esc(x.title)}</div>
-            ${x.meta ? `<div class="sm2">${esc(x.meta)}</div>` : ''}</button>
-          <button class="x" data-rm="${x.key}" aria-label="הסר">×</button></div>`).join('');
+        const mk = (c, key, hab) => ({ key:String(key), title:c.title, hab,
+          meta: isNew ? pendingMeta(c) : UI.taskMeta(c, { noCat:true, noKids:true }) });
+        let subs, habs;
+        if (isNew){
+          subs = pending.map((c,i) => mk(c, i, !!c.repeat)).filter(x => !x.hab);
+          habs = pending.map((c,i) => mk(c, i, !!c.repeat)).filter(x =>  x.hab);
+        } else {
+          subs = Store.subtasksOf(t.id).map(c => mk(c, c.id, false));
+          habs = Store.habitsOf(t.id).map(c => mk(c, c.id, true));
+        }
+        if (!subs.length && !habs.length) return `<div class="subempty">אין עדיין תת-משימות</div>`;
+        const many = subs.length && habs.length;
+        const sec = (name, l) => !l.length ? '' :
+          (many ? `<div class="seclbl">${name}</div>` : '') +
+          l.map((x,i) => `<div class="subrow">
+            <button class="sb2" data-open="${x.key}">
+              <div class="st2">${esc(x.title)}</div>
+              ${x.meta ? `<div class="sm2">${esc(x.meta)}</div>` : ''}</button>
+            ${isNew ? '' : `<span class="ord">
+              <button data-cmv="${x.key}|-1" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
+              <button data-cmv="${x.key}|1" ${i===l.length-1?'disabled':''} aria-label="הזז למטה">↓</button></span>`}
+            <button class="x" data-rm="${x.key}" aria-label="הסר">×</button></div>`).join('');
+        return sec('תת-משימות', subs) + sec('הרגלים', habs);
       }
       function pendingMeta(c){
         const out = [];
+        if (c.pendItems && c.pendItems.length) out.push(c.pendItems.length + ' פריטים');
         if (c.kind === 'long') out.push('ארוך טווח');
         if (c.reminder && c.reminder.type === 'time') out.push('עד ' + c.reminder.at);
         if (c.reminder && c.reminder.type === 'place') out.push(UI.whereLabel(c.reminder));
@@ -3065,12 +3394,13 @@ const Wire = (() => {
           <textarea id="etNote" rows="2" placeholder="פרטים, מה להביא, לינק…"
             style="resize:vertical">${esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea></div>
 
+        ${isChild ? '' : `
         <div style="margin-bottom:14px"><label>סוג המשימה</label>
           <div class="seg" id="etKind">
             <button data-k="short" aria-selected="${kind==='short'}">קצרת טווח</button>
             <button data-k="long"  aria-selected="${kind==='long'}">ארוך טווח</button>
           </div>
-          <div class="note" style="margin-top:7px" id="etKindNote"></div></div>
+          <div class="note" style="margin-top:7px" id="etKindNote"></div></div>`}
 
         ${isChild ? '' : `
         <div style="margin-bottom:6px"><label>קטגוריה</label>
@@ -3094,7 +3424,7 @@ const Wire = (() => {
             <div class="note" style="margin-top:7px">אחרי השמירה אפשר לפתוח את שעון הטלפון
               וליצור גם התראה אמיתית.</div>`)}
 
-          ${acc('place','מיקום', `
+          ${isChild ? '' : acc('place','מיקום', `
             <div class="fgrid">
               <div style="flex:2"><label>מקום</label><select id="etPlace">${placeOpts}</select></div>
               <div><label>+ דקות</label>
@@ -3104,7 +3434,7 @@ const Wire = (() => {
             <button class="txtbtn" id="etPlaceOff">בלי תזכורת מיקום</button>
             <div class="note">תזכורת מיקום היא היחידה שעובדת כשהאפליקציה סגורה.</div>`)}
 
-          ${acc('trip','נסיעה', `
+          ${isChild ? '' : acc('trip','נסיעה', `
             <div class="fgrid" style="align-items:flex-end">
               <div><label>ק״מ רצוף</label>
                 <input type="number" id="etKm" value="${esc(d ? d.km : (r.type==='trip'?r.km:''))}"
@@ -3126,12 +3456,25 @@ const Wire = (() => {
             <button class="txtbtn" id="etRepOff">לא חוזר</button>`)}
         </div>
 
-        <div style="margin-top:18px"><label>תת-משימות</label>
+        <div style="margin-top:18px"><label>רשימה</label>
+          <div id="etItems">${itemRows()}</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="text" id="etNewItem" placeholder="הוסף פריט…" autocomplete="off" style="flex:1">
+            <button class="btn" id="etAddItem" style="flex:0 0 auto">הוסף</button></div>
+          <div class="note" style="margin-top:7px">פריט הוא שם וסימון בלבד — בלי תאריך, תזכורת,
+            מקום או ארכיון. פריט מסומן נשאר ברשימה.</div></div>
+
+        <div style="margin-top:18px"><label>תת-משימות והרגלים</label>
           <div id="etKids">${childRows()}</div>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             <button class="btn" id="etAddKid">+ תת-משימה</button>
-            <button class="btn" id="etAddHabit" ${kind==='long'?'':'hidden'}>+ הרגל לפריט הזה</button>
-          </div></div>`,
+            <button class="btn" id="etAddHabit">+ הרגל</button>
+          </div>
+          <div class="note" style="margin-top:7px">תת-משימה היא משימה של ממש — יש לה זמן וסטטוס.
+            אם זה רק שם לסמן, המקום שלו ברשימה שלמעלה.</div></div>
+
+        ${(!isNew && t.parentId) ? `<button class="txtbtn" id="etIndep"
+            style="margin-top:14px">הפוך למשימה עצמאית</button>` : ''}`,
         buttons:[
           ...(isNew ? [{label:'ביטול',act:()=>Modal.shut()}]
                     : [{label:'מחק',act:()=>{ Store.delTask(t.id); Modal.shut(); UI.toast('נמחק'); }}]),
@@ -3141,6 +3484,7 @@ const Wire = (() => {
       const g = x => document.getElementById(x);
 
       function kindNote(){
+        if (!g('etKindNote')) return;
         g('etKindNote').textContent = kind === 'long'
           ? 'תחום שנמשך — פרויקט, תחביב, רשימה חוזרת. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אין לו שעה, מיקום או חזרה — אלה שייכים לתת-המשימות שלו.'
           : 'משימה שיש לה סוף. ברגע שתסמן אותה — היא עוברת לארכיון.';
@@ -3150,7 +3494,6 @@ const Wire = (() => {
           const el = B.querySelector(`[data-acc="${k}"]`);
           if (el) el.hidden = kind === 'long';
         });
-        g('etAddHabit').hidden = kind !== 'long';
         kindNote();
       }
       const sum = (id, txt) => { const el = B.querySelector(`[data-sum="${id}"]`);
@@ -3161,7 +3504,7 @@ const Wire = (() => {
         const pid = g('etPlace') ? g('etPlace').value : '';
         sum('place', rem === 'place' && pid
           ? UI.whereLabel({ placeId:pid, delayMin:+g('etDelay').value||0 }) : '');
-        sum('trip', g('etKm').value ? g('etKm').value + ' ק״מ' : '');
+        sum('trip', (g('etKm') && g('etKm').value) ? g('etKm').value + ' ק״מ' : '');
         sum('repeat', rep ? UI.repeatLabel(rep) + ' · ' + rep.times.join(' ') : '');
       }
       function syncRep(){
@@ -3177,7 +3520,8 @@ const Wire = (() => {
                  date:g('etDate').value, time:g('etTime').value,
                  placeId:g('etPlace') ? g('etPlace').value : '',
                  delay:g('etDelay') ? g('etDelay').value : 0,
-                 km:g('etKm').value, pending:pending.slice() };
+                 km:g('etKm') ? g('etKm').value : '',
+                 pending:pending.slice(), pendItems:pendItems.slice() };
       }
       function openChild(asHabit, existingId){
         const draft = snapshot();
@@ -3223,6 +3567,38 @@ const Wire = (() => {
         if (e.target.closest('#etTripOff')){ g('etKm').value = ''; refreshSummaries(); return; }
         if (e.target.closest('#etAddKid')){   openChild(false); return; }
         if (e.target.closest('#etAddHabit')){ openChild(true);  return; }
+        if (e.target.closest('#etIndep')){
+          Store.toIndependent(t.id); Modal.shut(); UI.toast('עומדת בפני עצמה'); return;
+        }
+        if (e.target.closest('#etAddItem')){ addItem(); return; }
+
+        /* ---- פריטי הרשימה ---- */
+        const ick = e.target.closest('[data-ick]');
+        if (ick){
+          const i = +ick.dataset.ick;
+          if (isNew) pendItems[i].checked = !pendItems[i].checked;
+          else Store.toggleChecklistItem(t.id, items()[i].id);
+          g('etItems').innerHTML = itemRows(); return;
+        }
+        const imv = e.target.closest('[data-imv]');
+        if (imv){
+          const [i, dir] = imv.dataset.imv.split('|').map(Number), j = i + dir;
+          if (j >= 0 && j < items().length){
+            if (isNew) pendItems.splice(j, 0, pendItems.splice(i,1)[0]);
+            else Store.moveChecklistItem(t.id, items()[i].id, dir);
+            g('etItems').innerHTML = itemRows();
+          }
+          return;
+        }
+        const irm = e.target.closest('[data-irm]');
+        if (irm){
+          const i = +irm.dataset.irm;
+          if (isNew) pendItems.splice(i, 1);
+          else Store.delChecklistItem(t.id, items()[i].id);
+          g('etItems').innerHTML = itemRows(); return;
+        }
+        const ied = e.target.closest('[data-iedit]');
+        if (ied){ editItemInline(+ied.dataset.iedit); return; }
 
         const rm = e.target.closest('[data-rm]');
         if (rm){
@@ -3230,6 +3606,12 @@ const Wire = (() => {
           if (isNew){ pending.splice(+key, 1); }
           else { Store.delTask(key); }
           g('etKids').innerHTML = childRows();
+          return;
+        }
+        const cmv = e.target.closest('[data-cmv]');
+        if (cmv){
+          const bar = cmv.dataset.cmv, i = bar.lastIndexOf('|');
+          if (Store.moveChild(bar.slice(0,i), +bar.slice(i+1))) g('etKids').innerHTML = childRows();
           return;
         }
         const op = e.target.closest('[data-open]');
@@ -3246,6 +3628,51 @@ const Wire = (() => {
           } else openChild(false, key);
           return;
         }
+      });
+      /* הוספת פריט — אפשר להקליד ברצף, כל אנטר מוסיף */
+      function addItem(){
+        const inp = g('etNewItem'), v = inp.value.trim();
+        if (!v) return;
+        if (isNew) pendItems.push({ id:'p' + pendItems.length + Date.now().toString(36),
+                                    title:v, note:'', checked:false });
+        else Store.addChecklistItem(t.id, v, '');
+        inp.value = '';
+        g('etItems').innerHTML = itemRows();
+        inp.focus();
+      }
+      /* עריכה מהירה של פריט — שם והערה בלבד, בתוך אותו מסך */
+      function editItemInline(i){
+        const it = items()[i]; if (!it) return;
+        const row = B.querySelector(`[data-iedit="${i}"]`); if (!row) return;
+        row.outerHTML = `<div class="sb2" style="flex:1">
+          <input type="text" class="ie" data-fld="title" value="${esc(it.title)}"
+                 autocomplete="off" style="margin-bottom:6px">
+          <input type="text" class="ie" data-fld="note" value="${esc(it.note||'')}"
+                 placeholder="הערה" autocomplete="off"></div>`;
+        const box = B.querySelector('.ie'); if (box) box.focus();
+        const commit = () => {
+          const f = [...B.querySelectorAll('.ie')];
+          if (!f.length) return;
+          const ttl = f[0].value.trim(), note = (f[1] ? f[1].value.trim() : '');
+          if (ttl){
+            if (isNew){ it.title = ttl; it.note = note; }
+            else Store.updateChecklistItem(t.id, it.id, { title:ttl, note });
+          }
+          g('etItems').innerHTML = itemRows();
+        };
+        B.querySelectorAll('.ie').forEach(f => {
+          f.addEventListener('keydown', e => {
+            if (e.key === 'Enter'){ e.preventDefault(); commit(); }
+            if (e.key === 'Escape'){ e.preventDefault(); g('etItems').innerHTML = itemRows(); }
+          });
+          f.addEventListener('blur', () => setTimeout(() => {
+            if (!B.contains(document.activeElement) ||
+                !document.activeElement.classList.contains('ie')) commit();
+          }, 60));
+        });
+      }
+      B.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.id === 'etNewItem'){ e.preventDefault(); addItem(); }
       });
       B.addEventListener('change', () => { syncRep(); refreshSummaries(); });
       B.addEventListener('input',  refreshSummaries);
@@ -3268,6 +3695,7 @@ const Wire = (() => {
             g('etPlace').value = pre.reminder.placeId;
           g('etDelay').value = pre.reminder.delayMin || 0;
         }
+        if (pre.pendItems){ pendItems = pre.pendItems.slice(); g('etItems').innerHTML = itemRows(); }
         if (pre.repeat){
           rep = { days:pre.repeat.days.slice(), times:pre.repeat.times.slice() };
           B.querySelectorAll('#etDays button').forEach(x =>
@@ -3297,7 +3725,7 @@ const Wire = (() => {
         if (kind !== 'long'){
           out.planned = g('etDate').value || null;
           const tm = g('etTime').value;
-          const km = parseFloat(g('etKm').value);
+          const km = g('etKm') ? parseFloat(g('etKm').value) : NaN;
           const pid = g('etPlace') ? g('etPlace').value : '';
           if (tm) out.reminder = { type:'time', at:tm };
           else if (rem === 'place' && pid)
@@ -3337,6 +3765,7 @@ const Wire = (() => {
         /* ילד ממתין: לא נכתב ל-Store, רק חוזר להורה */
         if (o.back && !o.parentId && !o.id){
           const draft = o.back.draft;
+          data.pendItems = pendItems.slice();
           draft.pending.push(data);
           Modal.shut();
           taskModal({ id:o.back.id, draft });
@@ -3347,13 +3776,16 @@ const Wire = (() => {
         if (isNew){
           const created = Store.addTask({ ...data, rt:initialRt(data), parentId:o.parentId||null });
           queue.push(...alarmsOf(data));
+          pendItems.forEach(it => Store.addChecklistItem(created.id, it.title, it.note));
           /* ילדים שהמתינו נשמרים עכשיו, בסדר שבו נוצרו */
-          pending.forEach(c => {
-            Store.addTask({ ...c, mission:created.mission, rt:initialRt(c), parentId:created.id });
+          pending.forEach((c, i) => {
+            const kid = Store.addTask({ ...c, mission:created.mission, rt:initialRt(c),
+                                        parentId:created.id, sortIndex:i });
+            (c.pendItems || []).forEach(it => Store.addChecklistItem(kid.id, it.title, it.note));
             queue.push(...alarmsOf(c));
           });
           if (o.parentId){ const p = Store.task(o.parentId); if (p && p.collapsed) Store.toggleCollapse(p.id); }
-          if (pending.length && created.collapsed) Store.toggleCollapse(created.id);
+          if ((pending.length || pendItems.length) && created.collapsed) Store.toggleCollapse(created.id);
         } else {
           const before = (t.reminder && t.reminder.type === 'time') ? t.reminder.at : '';
           const beforeRep = Store.isHabit(t) ? t.repeat.times.join(',') : '';
@@ -3375,7 +3807,10 @@ const Wire = (() => {
           return;
         }
         Modal.shut();
-        UI.toast(isNew ? (pending.length ? 'נוסף עם ' + pending.length + ' תת-משימות' : 'נוסף') : 'נשמר');
+        const extra = [];
+        if (isNew && pendItems.length) extra.push(pendItems.length + ' פריטים');
+        if (isNew && pending.length)   extra.push(pending.length + ' תת-משימות');
+        UI.toast(isNew ? (extra.length ? 'נוסף עם ' + extra.join(' ו-') : 'נוסף') : 'נשמר');
         runAlarmQueue(queue);
       }
     }
