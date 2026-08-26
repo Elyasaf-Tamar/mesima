@@ -797,6 +797,9 @@
    Engine – מנוע התזכורות.
    ========================================================================== */
 
+/* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
+const BUILD = '0.6.2 · 2026-08-26';
+
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
   const KEY = 'mesima.v1';
@@ -828,6 +831,13 @@ const Store = (() => {
     });
   }
   delete data.shop;
+  /* הרגל שסומן "בוצע" נעלם מכל התצוגות ואי אפשר להחזיר אותו.
+     זה קרה בגלל שכפתור "בוצע" בהתראה קרא ל-toggleTask. מרפאים למפרע. */
+  data.tasks.forEach(t=>{
+    if (t.repeat && t.repeat.times && t.repeat.times.length && t.done){
+      t.done = false; t.doneAt = null; t.autoDone = false;
+    }
+  });
   data.tasks.forEach(t=>{ if(t.parentId===undefined) t.parentId=null;
                           if(t.planned===undefined) t.planned=null;
                           if(t.eventId===undefined) t.eventId=null;
@@ -888,7 +898,13 @@ const Store = (() => {
       if (t.parentId){ const p = this.task(t.parentId); if (p) t.mission = p.mission; }
       data.tasks.unshift(t); save(); return t;
     },
-    updateTask(id, patch){ const t=this.task(id); if(t){ Object.assign(t, patch); t.rt = {}; save(); } },
+    updateTask(id, patch){
+      const t=this.task(id); if(!t) return;
+      const rt = patch.rt;              /* אפשר לקבוע rt מפורש — למשל "אל תירה היום" */
+      Object.assign(t, patch);
+      t.rt = rt || {};
+      save();
+    },
     setPlanned(id, date){ const t=this.task(id); if(t){ t.planned=date; save(); } },
     toggleCollapse(id){ const t=this.task(id); if(t){ t.collapsed=!t.collapsed; save(); } },
     /** משימות שתוכננו ליום מסוים */
@@ -902,8 +918,15 @@ const Store = (() => {
       if (ev && !t.planned) t.planned = ev.date;   /* נוח: המשימה נוחתת ביום האירוע */
       save();
     },
-    toggleTask(id){
+    toggleTask(id, date){
       const t = data.tasks.find(x=>x.id===id); if(!t) return;
+      /* להרגל אין "בוצע" סופי — יש "נסגר ליום הזה". בלי הניתוב הזה
+         כל כפתור ✓ באפליקציה היה מוחק את ההרגל מהתצוגה לתמיד. */
+      if (this.isHabit(t)){
+        const d = date || Plan.today();
+        if (this.habitFull(t, d)) this.untickHabit(id, d); else this.tickHabit(id, d);
+        return;
+      }
       t.done = !t.done; t.doneAt = t.done ? Date.now() : null;
       if (t.done){
         t.rt = {}; t.planned = null;
@@ -1768,6 +1791,11 @@ const UI = (() => {
     return dt.toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long'});
   };
 
+  /* כתובת המקור בלי חותמת הזמן — להצגה ולשמירה */
+  const cleanSrc = u => String(u||'').replace(/([?&])t=\d+&?/g,'$1').replace(/[?&]$/,'');
+  const bustSrc  = u => { const c = cleanSrc(u);
+                          return c + (c.includes('?') ? '&' : '?') + 't=' + Date.now(); };
+
   /* ---------- מצב האתר: האם בכלל מותר לבקש מיקום? ---------- */
   function originState(){
     const p = location.protocol;
@@ -2363,8 +2391,11 @@ const UI = (() => {
 
   function renderNative(){
     const box = document.getElementById('nativeBox');
+    const ver = `<div class="set"><div class="rb"><div class="t">גרסה שרצה עכשיו</div>
+        <div class="d" dir="ltr" style="unicode-bidi:isolate">${esc(BUILD)}</div></div></div>`;
     if (!Native.on){
-      box.innerHTML = `<div class="hint">אתה מריץ את הגרסה בדפדפן. היא לא יכולה לעקוב אחרי מיקום
+      box.innerHTML = `<div class="card">${ver}</div>
+        <div class="hint">אתה מריץ את הגרסה בדפדפן. היא לא יכולה לעקוב אחרי מיקום
         כשהיא סגורה, ולא יכולה לכתוב לשעון של הטלפון — זו מגבלת דפדפן, לא של האפליקציה.
         <b>הגרסה המותקנת (APK)</b> עושה את שניהם.</div>`;
       return;
@@ -2383,10 +2414,11 @@ const UI = (() => {
           <button class="btn-wide" data-nat="apply" style="margin-top:10px">טען את הגרסה החדשה</button>
         </div>` : ''}
       <div class="card">
+        ${ver}
         <div class="set"><div class="rb">
           <div class="t">כתובת המקור</div>
           <div class="d">הקישור ל-index.html ב-GitHub Pages. משם האפליקציה מושכת עדכונים.</div>
-          <input type="text" id="srcUrl" value="${esc(n.sourceUrl||'')}" inputmode="url"
+          <input type="text" id="srcUrl" value="${esc(cleanSrc(n.sourceUrl||''))}" inputmode="url"
                  placeholder="https://user.github.io/mesima/index.html" style="margin-top:9px">
         </div></div>
         <div class="set"><div class="rb">
@@ -2396,8 +2428,10 @@ const UI = (() => {
       </div>
       <button class="btn-wide" data-nat="saveSrc">שמור כתובת</button>
       <button class="btn-wide" data-nat="check">בדוק עדכון עכשיו</button>
-      <div class="note">האפליקציה עצמה לא צריכה להיבנות מחדש בשביל שינוי בקוד.
-        מעלים index.html חדש ל-GitHub, לוחצים כאן, וזהו.</div>`;
+      <button class="btn-wide" data-nat="peek">מה יש בשרת עכשיו?</button>
+      <div class="note">"בדוק עדכון" מוסיף לכתובת חותמת זמן, כדי ש-GitHub לא יגיש לך
+        עותק ישן מהמטמון. "מה יש בשרת" מוריד את הקובץ ומראה איזו גרסה יושבת שם —
+        כך אפשר להבדיל בין "לא העליתי" לבין "העליתי והמטמון תקוע".</div>`;
 
     box.innerHTML = upd + `<h2>הרשאות</h2><div class="card">
       ${row(n.locationBackground, 'מיקום כל הזמן',
@@ -2559,7 +2593,8 @@ const UI = (() => {
     $('#alMsg').textContent = a.item.title;
     $('#alSub').textContent = a.why;
     $('#alTtl').textContent = a.kind==='event' ? 'אירוע ביומן' : (MISSIONS[a.item.mission]||'תזכורת');
-    $('#alDone').textContent = a.kind==='event' ? 'הבנתי' : 'בוצע';
+    $('#alDone').textContent = a.kind==='event' ? 'הבנתי'
+                             : (Store.isHabit(Store.task(a.item.id)) ? 'סימנתי ✓' : 'בוצע');
     $('#alQ').textContent = alertQ.length ? '+' + alertQ.length + ' עוד' : '';
     $('#alert').classList.add('on');
   }
@@ -2587,7 +2622,7 @@ const UI = (() => {
            get calM(){ return calM; },  set calM(v){ calM=v; },
            get calView(){ return calView; }, set calView(v){ calView=v; },
            get alertItem(){ return alertItem; }, set alertItem(v){ alertItem=v; },
-           originState, typing, get deferred(){ return deferred; } };
+           originState, typing, cleanSrc, bustSrc, get deferred(){ return deferred; } };
 })();
 
 /* -------------------------------- Wire ---------------------------------- */
@@ -2975,16 +3010,31 @@ const Wire = (() => {
             rep = { days, times:[...new Set(times)] };
             rem = null;
           }
+          /* שעה שכבר עברה היום לא אמורה לצלצל ברגע שלחצת "הוסף".
+             מסמנים אותה כאילו כבר ירתה — התזכורת הבאה תהיה בזמן הבא. */
+          let rt = {};
+          if (rep){
+            const nowHM = new Date().toTimeString().slice(0,5);
+            const day = Plan.today();
+            const due = rep.days.includes(new Date().getDay())
+                        ? rep.times.filter(x => x <= nowHM) : [];
+            if (due.length){
+              rt.firedKey = day + '@' + due[due.length-1];
+              const next = rep.times.filter(x => x > nowHM)[0];
+              setTimeout(()=>UI.toast(next ? 'התזכורת הבאה היום ב-' + next
+                                           : 'התזכורת הראשונה תהיה מחר'), 400);
+            }
+          }
           const note = g('etNote').value.trim();
           if (isNew){
-            Store.addTask({ mission:o.mission||UI.mission, title, reminder:rem, note, repeat:rep,
+            Store.addTask({ mission:o.mission||UI.mission, title, reminder:rem, note, repeat:rep, rt,
                             parentId:o.parentId||null, planned:o.planned||null });
             if (o.parentId){
               const par = Store.task(o.parentId);
               if (par && par.collapsed) Store.toggleCollapse(par.id);
             }
           } else {
-            Store.updateTask(t.id, { title, reminder:rem, note, repeat:rep });
+            Store.updateTask(t.id, { title, reminder:rem, note, repeat:rep, rt });
           }
           Modal.shut(); UI.toast(isNew ? 'נוסף' : 'נשמר');
         }}]});
@@ -3800,14 +3850,87 @@ ${r.date?'תאריך פרסום: <b>'+UI.esc(r.date)+'</b>':'אין תאריך �
       UI.render();
     });
 
+    /** הכתובת שמוצגת בשדה, ואם אין — זו ששמורה במעטפת */
+    const srcNow = () => {
+      const el = document.getElementById('srcUrl');
+      const v = el ? UI.cleanSrc(el.value.trim()) : '';
+      return v || UI.cleanSrc((Native.status()||{}).sourceUrl || '');
+    };
+
+    /** מוריד את הקובץ מהשרת ומשווה חותמות. עונה על "העליתי או לא?" */
+    async function peekServer(){
+      const base = srcNow();
+      if (!/^https:\/\//.test(base)){ UI.toast('קודם שמור כתובת https'); return; }
+      UI.toast('מוריד מהשרת…');
+      const url = UI.bustSrc(base);
+      try {
+        const r = await fetch(url, { cache:'no-store' });
+        const txt = await r.text();
+        const m = /const BUILD\s*=\s*'([^']+)'/.exec(txt);
+        const there = m ? m[1] : null;
+        const kb = Math.round(txt.length/1024);
+        const same = there === BUILD;
+        const looksApp = /MesimaNative|id="nav"/.test(txt);
+        let verdict, color;
+        if (!r.ok){
+          verdict = 'השרת החזיר ' + r.status + '. הכתובת כנראה לא נכונה, או שה-Pages לא פעיל.';
+          color = '#fca5a5';
+        } else if (!looksApp){
+          verdict = 'מה שירד לא נראה כמו האפליקציה — כנראה דף שגיאה של GitHub.';
+          color = '#fca5a5';
+        } else if (!there){
+          verdict = 'בשרת יושבת גרסה ישנה שאין בה חותמת בכלל (לפני 0.6.1). ' +
+                    'זאת אומרת שהעדכון האחרון לא הגיע לשרת.';
+          color = '#fcd34d';
+        } else if (same){
+          verdict = 'בשרת יושבת בדיוק אותה גרסה שרצה אצלך. אין מה לעדכן — ' +
+                    'אם ציפית לחדשה, הקובץ לא נכנס ל-GitHub (בדוק ששם הקובץ הוא ' +
+                    'index.html בדיוק, ולא index (1).html).';
+          color = '#fcd34d';
+        } else {
+          verdict = 'בשרת יש גרסה שונה. לחץ "בדוק עדכון עכשיו" ואז "טען את הגרסה החדשה".';
+          color = '#6ee7b7';
+        }
+        Modal.open({ title:'מה יש בשרת',
+          body:`<div class="card" style="border:0;background:transparent">
+            <div class="set"><div class="rb"><div class="t">אצלך רץ</div>
+              <div class="d" dir="ltr" style="unicode-bidi:isolate">${UI.esc(BUILD)}</div></div></div>
+            <div class="set"><div class="rb"><div class="t">בשרת</div>
+              <div class="d" dir="ltr" style="unicode-bidi:isolate">${UI.esc(there || '— אין חותמת —')}</div></div></div>
+            <div class="set"><div class="rb"><div class="t">תשובת השרת</div>
+              <div class="d" dir="ltr" style="unicode-bidi:isolate">HTTP ${r.status} · ${kb} KB</div></div></div>
+            <div class="set"><div class="rb"><div class="t">כתובת</div>
+              <div class="d" dir="ltr" style="unicode-bidi:isolate;word-break:break-all">${UI.esc(base)}</div></div></div>
+          </div>
+          <div class="hint" style="border-style:solid;color:${color};margin-top:4px">${UI.esc(verdict)}</div>`,
+          buttons:[{label:'סגור',act:()=>Modal.shut()}]});
+      } catch(e){
+        Modal.open({ title:'מה יש בשרת',
+          body:`<div class="hint" style="border-style:solid;color:#fca5a5">
+            לא הצלחתי להוריד את הקובץ.<br>
+            <span dir="ltr" style="unicode-bidi:isolate">${UI.esc(String(e.message).slice(0,140))}</span><br><br>
+            אם הכתובת נכונה, כנראה ש-GitHub Pages לא מופעל על הריפו,
+            או שהקובץ לא נמצא בנתיב הזה.</div>`,
+          buttons:[{label:'סגור',act:()=>Modal.shut()}]});
+      }
+    }
+
     $('#nativeBox').addEventListener('click', e=>{
       const b=e.target.closest('[data-nat]'); if(!b) return;
       ({ loc:()=>Native.askLocation(), notif:()=>Native.askNotifications(),
          batt:()=>Native.battery(), samsung:()=>Native.samsung(),
          alarms:()=>Native.showAlarms(),
-         check:()=>{ UI.toast('בודק…'); Native.checkUpdate(); },
+         /* חותמת זמן על הכתובת — אחרת GitHub/Fastly מגישים עותק ישן
+            והמעטפת מקבלת את אותם בייטים ומכריזה "כבר מעודכן". */
+         check:()=>{
+           const base = srcNow();
+           if(!/^https:\/\//.test(base)){ UI.toast('קודם שמור כתובת https'); return; }
+           Native.setSource(UI.bustSrc(base));
+           UI.toast('בודק…'); Native.checkUpdate();
+         },
          apply:()=>Native.applyUpdate(),
-         saveSrc:()=>{ const v=document.getElementById('srcUrl').value.trim();
+         peek:peekServer,
+         saveSrc:()=>{ const v=UI.cleanSrc(document.getElementById('srcUrl').value.trim());
                        if(!/^https:\/\//.test(v)){ UI.toast('צריך כתובת https'); return; }
                        Native.setSource(v); UI.toast('נשמר'); }
        })[b.dataset.nat]?.();
@@ -3833,7 +3956,11 @@ ${r.date?'תאריך פרסום: <b>'+UI.esc(r.date)+'</b>':'אין תאריך �
     /* ---------------- מודאל התראה ---------------- */
     $('#alDone').addEventListener('click', ()=>{
       const a=UI.alertItem;
-      if (a && a.kind!=='event' && Store.task(a.item.id)) Store.toggleTask(a.item.id);
+      const t = a && a.kind!=='event' ? Store.task(a.item.id) : null;
+      if (t && Store.isHabit(t)){
+        const r = Store.tickHabit(t.id, Plan.today());
+        if (r) UI.toast('כל הכבוד! 🔥 ' + r.streak + (r.streak===1?' יום':' ימים') + ' ברצף');
+      } else if (t) Store.toggleTask(t.id);
       UI.closeAlert(); UI.render();
     });
     $('#alLater').addEventListener('click', ()=>{
