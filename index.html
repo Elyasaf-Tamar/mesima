@@ -611,7 +611,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.0.1 · 2026-08-26';
+const BUILD = '2.1 · 2026-08-26';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -888,6 +888,44 @@ const Store = (() => {
       }
       save();
     },
+    /* ---------- רשימה לשימוש חוזר ----------
+       "רשימה" היא לא ישות חדשה — זו משימה עם תת-משימות. איפוס מחזיר את
+       הפריטים שסומנו למצב פעיל, בלי לשכפל ובלי למחוק היסטוריה גלובלית.
+       הפונקציה טהורה ומקבלת מזהה בלבד, כך שאיפוס אוטומטי בעתיד
+       (כל יום ראשון, כל שבוע) יוכל לקרוא לה בלי שינוי נוסף. */
+
+    /** כמה פריטים בעץ הזה יחזרו לפעילים */
+    resettableCount(id){
+      return this.descendants(id).filter(c => c.archived || c.done).length;
+    },
+    /** האם בכלל יש כאן רשימה — כלומר תת-משימות כלשהן */
+    hasChecklist(id){ return this.descendants(id).length > 0; },
+
+    /**
+     * מחזיר את כל צאצאי המשימה למצב פעיל, לכל עומק.
+     * שם, הערה, מבנה, תזכורות והיררכיה נשארים בדיוק כפי שהם.
+     * הרגלים לא מושפעים — הם ממילא לא מסומנים כגמורים.
+     */
+    resetChecklist(id){
+      const t = this.task(id); if(!t) return 0;
+      let n = 0;
+      this.descendants(id).forEach(c => {
+        if (!c.archived && !c.done) return;
+        c.archived = false; c.archivedAt = null; c.autoArch = false;
+        c.done = false; c.doneAt = null; c.autoDone = false;
+        c.rt = c.rt || {};
+        n++;
+      });
+      /* ההורה נשאר פעיל. אם הוא עצמו אורכב — הרשימה חוזרת איתו. */
+      if (t.archived || t.done){
+        t.archived = false; t.archivedAt = null; t.autoArch = false;
+        t.done = false; t.doneAt = null; t.autoDone = false;
+      }
+      t.lastResetAt = Date.now();
+      save();
+      return n;
+    },
+
     /** שורשי הארכיון: פריט שההורה שלו אינו מאורכב — כדי לא לכפול עצים */
     archived(){
       return data.tasks
@@ -2800,6 +2838,9 @@ const Wire = (() => {
         body:`<button class="pick" data-m="edit"><span class="pn">ערוך</span></button>
           <button class="pick" data-m="sub"><span class="pn">תת-משימה חדשה</span></button>
           ${isLong ? `<button class="pick" data-m="habit"><span class="pn">הוסף הרגל לפריט הזה</span></button>` : ''}
+          ${Store.hasChecklist(id) ? `<button class="pick" data-m="reset">
+              <span class="pn">אפס רשימה</span>
+              <span class="pm">${Store.resettableCount(id) || 'הכול פעיל'}</span></button>` : ''}
           ${!isLong ? `<button class="pick" data-m="today"><span class="pn">תכנן להיום</span></button>
             <button class="pick" data-m="tomorrow"><span class="pn">תכנן למחר</span></button>
             ${t.planned ? `<button class="pick" data-m="unplan"><span class="pn">הסר מהתכנון</span>
@@ -2819,6 +2860,7 @@ const Wire = (() => {
         if (k==='edit'){ taskModal({ id }); return; }
         if (k==='sub'){  taskModal({ parentId:t.id, mission:t.mission }); return; }
         if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true, kind:'short' }); return; }
+        if (k==='reset'){ resetChecklist(id); return; }
         if (k==='link'){ pickEventFor(id); return; }
         if (k==='unlink'){ Store.linkTask(id, null); Modal.shut(); UI.toast('נותק'); return; }
         if (k==='today')    Store.setPlanned(id, Plan.today());
@@ -2828,6 +2870,27 @@ const Wire = (() => {
         if (k==='del'){     Store.delTask(id); UI.toast('נמחק'); }
         Modal.shut();
       });
+    }
+
+    /** איפוס רשימה — פעולה רגילה וחוזרת, בלי אזהרה כבדה */
+    function resetChecklist(id){
+      const t = Store.task(id); if(!t) return;
+      const n = Store.resettableCount(id);
+      if (!n){
+        Modal.shut();
+        UI.toast('כל הפריטים ברשימה כבר פעילים');
+        return;
+      }
+      Modal.open({ title:t.title,
+        body:`<div class="note">לאפס את כל הפריטים שסומנו ברשימה?<br>
+                ${n} ${n===1?'פריט יחזור':'פריטים יחזרו'} להיות פעילים.
+                השמות, ההערות והמבנה נשארים בדיוק כפי שהם.</div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'אפס',kind:'p',act:()=>{
+                    const done = Store.resetChecklist(id);
+                    Modal.shut();
+                    UI.toast(done + (done===1?' פריט חזר לרשימה':' פריטים חזרו לרשימה'));
+                 }}]});
     }
 
     function pickEventFor(taskId){
