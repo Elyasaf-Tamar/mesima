@@ -142,6 +142,12 @@
   .tcard.home{background:var(--home-bg);border-color:var(--home-line)}
   .tcard.free{background:var(--free-bg);border-color:var(--free-line)}
   .tcard.gap{margin-top:20px}   /* רווח טבעי בין קבוצות צבע — בלי קו ובלי כותרת */
+  /* ארוך-טווח: פס דק בקצה, כדי שיהיה ברור מיד שזה מיכל ולא פעולה */
+  .tcard.long{border-inline-start-width:3px}
+  .tcard.army.long{border-inline-start-color:var(--army-ink)}
+  .tcard.home.long{border-inline-start-color:var(--home-ink)}
+  .tcard.free.long{border-inline-start-color:var(--free-ink)}
+  .tcard.long .ttl{font-weight:700}
   .tcard .catname{font-size:11px;font-weight:600;letter-spacing:.3px}
   .tcard.army .catname{color:var(--army-ink)}
   .tcard.home .catname{color:var(--home-ink)}
@@ -173,11 +179,11 @@
   .twist[aria-expanded="true"] .ar{transform:rotate(90deg)}
 
   /* מסננים — לשוניות טקסט שקטות, לא קפסולות */
-  .tabrow{display:flex;align-items:center;gap:8px;margin:2px 0 16px}
-  .tabs{display:flex;gap:16px;flex:1;overflow-x:auto;scrollbar-width:none}
+  .tabrow{display:flex;align-items:center;gap:10px;margin:2px 0 18px}
+  .tabs{display:flex;gap:26px;flex:1;overflow-x:auto;scrollbar-width:none}
   .tabs::-webkit-scrollbar{display:none}
   .tabs button{
-    flex:0 0 auto;padding:7px 0 8px;font-size:14px;color:var(--muted2);
+    flex:0 0 auto;padding:9px 2px 9px;font-size:14.5px;color:var(--muted2);
     border-bottom:1.5px solid transparent;transition:.15s;
   }
   .tabs button[aria-selected="true"]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
@@ -344,6 +350,20 @@
     font-size:13.5px;opacity:0;pointer-events:none;transition:.22s;z-index:70;max-width:88vw;
   }
   #toast.on{opacity:1;transform:translateX(-50%)}
+
+  /* ---- תת-משימות בתוך העורך: שורות פשוטות, לא כרטיסים ---- */
+  .subrow{display:flex;gap:10px;align-items:center;padding:11px 2px;
+          border-bottom:1px solid var(--line)}
+  .subrow .sb2{flex:1;min-width:0;text-align:start}
+  .subrow .st2{font-size:14.5px}
+  .subrow .sm2{font-size:11.5px;color:var(--muted2);margin-top:2px}
+  .subempty{font-size:13px;color:var(--muted2);padding:10px 2px}
+  .alrow{display:flex;gap:10px;align-items:center;padding:12px 2px;
+         border-bottom:1px solid var(--line)}
+  .alrow .at2{flex:1;font-size:14.5px}
+  .alrow .atime{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;
+                direction:ltr;unicode-bidi:isolate}
+  .alrow .done2{font-size:12px;color:var(--muted2)}
 
   /* ---- פס רצף (רק בפרטי המשימה) ---- */
   .strip{display:flex;gap:3px;direction:ltr}
@@ -611,7 +631,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.1 · 2026-08-26';
+const BUILD = '2.2 · 2026-08-26';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -1705,11 +1725,14 @@ const Native = (() => {
     samsung(){ try { A().openSamsungSleepingApps(); } catch(e){} },
     appSettings(){ try { A().openAppSettings(); } catch(e){} },
     showAlarms(){ try { A().showAlarms(); } catch(e){} },
-    setAlarm(at, message){
+    /* פותח את מסך יצירת ההתראה באפליקציית השעון ומשאיר למשתמש לאשר.
+       skipUi=false בכוונה — המשתמש רוצה לראות ולאשר את ההתראה בעצמו. */
+    openAlarm(at, label){
       if (!A()) return false;
       const [h,m] = String(at).split(':').map(Number);
-      try { A().setAlarm(h|0, m|0, message, true); return true; } catch(e){ return false; }
+      try { A().setAlarm(h|0, m|0, label, false); return true; } catch(e){ return false; }
     },
+    setAlarm(at, message){ return this.openAlarm(at, message); },
     addEvent(ev){
       if (!A()) return false;
       const b = Cal.startMs(ev), e = Cal.endMs(ev);
@@ -2118,7 +2141,7 @@ const UI = (() => {
     const hab  = Store.isHabit(t);
     const doneToday = hab && Store.habitFull(t, Plan.today());
     const meta = taskMeta(t, { noCat:true, noKids:true });
-    return `<div class="tcard ${t.mission}${gap ? ' gap' : ''}" data-id="${t.id}">
+    return `<div class="tcard ${t.mission}${t.kind==='long'?' long':''}${gap ? ' gap' : ''}" data-id="${t.id}">
       <div class="thead">
         ${t.kind === 'long'
           ? '<span class="cb" style="border-style:dotted;border-color:currentColor;opacity:.45"></span>'
@@ -2911,19 +2934,72 @@ const Wire = (() => {
     }
 
     /* ================= עורך המשימה — אקורדיון (סעיפים 39–40) ================= */
+    /* ================= תור התראות השעון =================
+       ההתראות של משימה נשמרות תמיד בפנים. שעון הטלפון הוא תוספת:
+       פותחים את מסך יצירת ההתראה ומשאירים למשתמש לאשר.
+       אחת — ישר לשעון. יותר מאחת — מסך אחד שממנו פותחים בזו אחר זו,
+       כדי לא לזרוק את המשתמש בין אפליקציות. */
+    const alarmLabel = title => 'משימה — ' + title;
+
+    function openClock(item){
+      if (!Native.on){ UI.toast('התראה בשעון עובדת רק באפליקציה המותקנת'); return false; }
+      const ok = Native.openAlarm(item.time, alarmLabel(item.title));
+      if (!ok) UI.toast('לא הצלחתי לפתוח את שעון הטלפון');
+      return ok;
+    }
+
+    function runAlarmQueue(queue){
+      const q = (queue || []).filter(x => x && x.time && x.title);
+      if (!q.length) return;
+      if (!Native.on) return;                    /* בדפדפן אין שעון — בשקט */
+      if (q.length === 1){ openClock(q[0]); return; }
+      alarmSetupModal(q);
+    }
+
+    /** מסך אחד לכל ההתראות שנוצרו יחד */
+    function alarmSetupModal(q){
+      const opened = new Set();
+      const rows = () => q.map((x,i) => `
+        <div class="alrow">
+          <span class="atime">${esc(x.time)}</span>
+          <span class="at2">${esc(x.title)}</span>
+          ${opened.has(i) ? `<span class="done2">נפתח</span>` : ''}
+          <button class="btn" data-al="${i}" style="padding:8px 12px">פתח בשעון</button>
+        </div>`).join('');
+      Modal.open({ title:'יצירת התראות בשעון',
+        body:`<div class="note" style="padding-bottom:10px">התזכורות של משימה כבר נשמרו.
+                כאן אפשר ליצור גם התראות בשעון של הטלפון — אחת בכל פעם.</div>
+              <div id="alList">${rows()}</div>`,
+        buttons:[{label:'סיום',act:()=>Modal.shut()}]});
+      Modal.body.addEventListener('click', e => {
+        const b = e.target.closest('[data-al]'); if(!b) return;
+        const i = +b.dataset.al;
+        if (openClock(q[i])){ opened.add(i); document.getElementById('alList').innerHTML = rows(); }
+      });
+    }
+
+    /* ================= עורך המשימה ================= */
     function taskModal(o){
+      o = o || {};
       const t = o.id ? Store.task(o.id) : null;
       if (o.id && !t) return;
       const isNew = !t;
-      const parent = o.parentId ? Store.task(o.parentId) : (t && t.parentId ? Store.task(t.parentId) : null);
+      const d  = o.draft || null;                 /* מצב שחזור אחרי יצירת תת-משימה */
+      const parent = o.parentId ? Store.task(o.parentId)
+                   : (t && t.parentId ? Store.task(t.parentId) : null);
+      const isChild = !!(o.parentId || o.pendingUnder || (t && t.parentId));
 
-      let kind = t ? t.kind : (o.kind === 'long' ? 'long' : 'short');
-      let cat  = t ? t.mission : (o.mission || (parent && parent.mission) || 'army');
+      let kind = d ? d.kind : (t ? t.kind : (o.kind === 'long' ? 'long' : 'short'));
+      let cat  = d ? d.cat  : (t ? t.mission
+                   : (o.mission || (parent && parent.mission) || UI.filter !== 'all' && UI.filter || 'army'));
       const r  = (t && t.reminder) || {};
-      let rem  = r.type || 'none';
-      let rep  = t && Store.isHabit(t) ? { days:t.repeat.days.slice(), times:t.repeat.times.slice() }
-                                       : (o.habit ? { days:[0,1,2,3,4], times:['20:00'] } : null);
-      let planned = t ? t.planned : (o.planned || null);
+      let rem  = d ? d.rem : (r.type || 'none');
+      let rep  = d ? d.rep
+               : (t && Store.isHabit(t) ? { days:t.repeat.days.slice(), times:t.repeat.times.slice() }
+                                        : (o.habit ? { days:[0,1,2,3,4], times:['20:00'] } : null));
+      let planned = d ? d.date : (t ? t.planned : (o.planned || null));
+      /* ילדים שטרם נשמרו — קיימים רק בזיכרון עד שההורה נשמר */
+      let pending = d ? d.pending.slice() : [];
 
       const tops = Store.topPlaces();
       const placeOpts = tops.map(top =>
@@ -2931,40 +3007,63 @@ const Wire = (() => {
         Store.subPlaces(top.id).map(k => `<option value="${k.id}">&nbsp;&nbsp;${esc(k.name)}</option>`).join('')
       ).join('') || `<option value="">— אין מקומות —</option>`;
 
+      const underName = o.pendingUnder || (parent && parent.title) || '';
       const heading = isNew
-        ? (parent ? 'תת-משימה תחת "' + esc(parent.title) + '"' : 'משימה חדשה')
+        ? (underName ? 'תת-משימה תחת "' + esc(underName) + '"' : 'משימה חדשה')
         : 'עריכת משימה';
 
-      /* הרצף חי רק כאן, בפרטי המשימה. לא ב"היום" ולא על הכרטיס. */
       const streakBlock = () => {
         if (!t || !Store.isHabit(t)) return '';
         const today = Plan.today(), cells = [];
         for (let i = 13; i >= 0; i--){
           const k = Plan.shift(today, -i);
-          const req = Store.habitDay(t, k);
-          cells.push(`<i class="${!req ? 'off' : (Store.habitFull(t,k) ? 'full' : '')}${k===today?' td':''}"
-                         title="${k}">${DAYL[new Date(k+'T00:00:00').getDay()]}</i>`);
+          cells.push(`<i class="${!Store.habitDay(t,k) ? 'off' : (Store.habitFull(t,k) ? 'full' : '')}${
+            k===today?' td':''}" title="${k}">${DAYL[new Date(k+'T00:00:00').getDay()]}</i>`);
         }
         const n = Store.streak(t.id);
-        return `<div style="margin-bottom:16px">
-          <label>רצף</label>
+        return `<div style="margin-bottom:16px"><label>רצף</label>
           <div class="strip">${cells.join('')}</div>
           <div class="note" style="margin-top:7px">${n
             ? n + (n===1?' יום':' ימים') + ' ברצף' : 'עוד לא התחלת רצף'}</div></div>`;
       };
 
-      const acc = (id, name, summary, body) => `
+      const acc = (id, name, body) => `
         <div class="acc" data-acc="${id}" aria-expanded="false">
           <button class="ah"><span class="an">${name}</span>
-            <span class="as" data-sum="${id}">${summary}</span><span class="ar">‹</span></button>
+            <span class="as" data-sum="${id}">—</span><span class="ar">‹</span></button>
           <div class="ab">${body}</div></div>`;
+
+      /* ---- רשימת תת-המשימות: ממתינות (חדש) או קיימות (עריכה) ---- */
+      function childRows(){
+        const list = isNew
+          ? pending.map((c,i) => ({ key:i, title:c.title, meta:pendingMeta(c) }))
+          : Store.children(t.id).map(c => ({ key:c.id, title:c.title,
+              meta: UI.taskMeta(c, { noCat:true, noKids:true }) }));
+        if (!list.length) return `<div class="subempty">אין עדיין תת-משימות</div>`;
+        return list.map(x => `<div class="subrow">
+          <button class="sb2" data-open="${x.key}">
+            <div class="st2">${esc(x.title)}</div>
+            ${x.meta ? `<div class="sm2">${esc(x.meta)}</div>` : ''}</button>
+          <button class="x" data-rm="${x.key}" aria-label="הסר">×</button></div>`).join('');
+      }
+      function pendingMeta(c){
+        const out = [];
+        if (c.kind === 'long') out.push('ארוך טווח');
+        if (c.reminder && c.reminder.type === 'time') out.push('עד ' + c.reminder.at);
+        if (c.reminder && c.reminder.type === 'place') out.push(UI.whereLabel(c.reminder));
+        if (c.reminder && c.reminder.type === 'trip')  out.push('אחרי ' + c.reminder.km + ' ק״מ');
+        if (c.repeat) out.push('חוזר · ' + UI.repeatLabel(c.repeat) + ' · ' + c.repeat.times.join(' '));
+        if (c.planned) out.push(Plan.label(c.planned));
+        return out.join(' · ');
+      }
 
       Modal.open({ title:heading, body:`
         <div style="margin-bottom:14px"><label>מה צריך לעשות</label>
-          <input type="text" id="etTitle" value="${esc(t ? t.title : (o.title||''))}" autocomplete="off"></div>
+          <input type="text" id="etTitle" value="${esc(d ? d.title : (t ? t.title : (o.title||'')))}"
+                 autocomplete="off"></div>
         <div style="margin-bottom:14px"><label>תיאור</label>
           <textarea id="etNote" rows="2" placeholder="פרטים, מה להביא, לינק…"
-            style="resize:vertical">${esc(t ? (t.note||'') : '')}</textarea></div>
+            style="resize:vertical">${esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea></div>
 
         <div style="margin-bottom:14px"><label>סוג המשימה</label>
           <div class="seg" id="etKind">
@@ -2973,15 +3072,16 @@ const Wire = (() => {
           </div>
           <div class="note" style="margin-top:7px" id="etKindNote"></div></div>
 
+        ${isChild ? '' : `
         <div style="margin-bottom:6px"><label>קטגוריה</label>
           <div class="seg cat" id="etCat">
             ${['army','home','free'].map(k =>
               `<button data-k="${k}" aria-selected="${cat===k}">${CAT[k]}</button>`).join('')}
-          </div></div>
+          </div></div>`}
 
         ${streakBlock()}
         <div id="etAccs" style="margin-top:14px">
-          ${acc('time','זמן','—', `
+          ${acc('time','זמן', `
             <div style="margin-bottom:10px"><label>מתי לבצע</label>
               <div class="seg" id="etWhen">
                 <button data-d="none" aria-selected="${!planned}">ללא תאריך</button>
@@ -2990,22 +3090,33 @@ const Wire = (() => {
               </div>
               <input type="date" id="etDate" value="${esc(planned||'')}" style="margin-top:8px"></div>
             <div><label>שעה ותזכורת</label>
-              <input type="time" id="etTime" value="${esc(r.type==='time'?r.at:'')}"></div>
-            <div class="note" style="margin-top:7px">תזכורת שעה עובדת כרגע רק כשהאפליקציה פתוחה.</div>`)}
+              <input type="time" id="etTime" value="${esc(d ? d.time : (r.type==='time'?r.at:''))}"></div>
+            <div class="note" style="margin-top:7px">אחרי השמירה אפשר לפתוח את שעון הטלפון
+              וליצור גם התראה אמיתית.</div>`)}
 
-          ${acc('place','מיקום','—', `
+          ${acc('place','מיקום', `
             <div class="fgrid">
               <div style="flex:2"><label>מקום</label><select id="etPlace">${placeOpts}</select></div>
               <div><label>+ דקות</label>
-                <input type="number" id="etDelay" value="${r.delayMin||0}" min="0" max="600" inputmode="numeric"></div>
+                <input type="number" id="etDelay" value="${d ? d.delay : (r.delayMin||0)}"
+                       min="0" max="600" inputmode="numeric"></div>
             </div>
             <button class="txtbtn" id="etPlaceOff">בלי תזכורת מיקום</button>
             <div class="note">תזכורת מיקום היא היחידה שעובדת כשהאפליקציה סגורה.</div>`)}
 
-          ${acc('repeat','חוזר','—', `
+          ${acc('trip','נסיעה', `
+            <div class="fgrid" style="align-items:flex-end">
+              <div><label>ק״מ רצוף</label>
+                <input type="number" id="etKm" value="${esc(d ? d.km : (r.type==='trip'?r.km:''))}"
+                       min="1" max="500" inputmode="decimal" placeholder="למשל 4"></div>
+              <button class="btn" id="etTripOff" style="flex:0 0 auto">נקה</button></div>
+            <div class="note" style="margin-top:7px">תזכורת אחרי נסיעה רצופה.
+              עובדת רק כשהאפליקציה פתוחה.</div>`)}
+
+          ${acc('repeat','חוזר', `
             <div style="margin-bottom:10px"><label>באילו ימים</label>
-              <div class="days" id="etDays">${DAYL.map((d,i) =>
-                `<button data-d="${i}" aria-selected="${rep ? rep.days.includes(i) : false}">${d}</button>`).join('')}</div></div>
+              <div class="days" id="etDays">${DAYL.map((x,i) =>
+                `<button data-d="${i}" aria-selected="${rep ? rep.days.includes(i) : false}">${x}</button>`).join('')}</div></div>
             <div><label>מתי להזכיר</label>
               <div class="times" id="etTimes">
                 ${(rep ? rep.times : ['08:00']).map(x => `<input type="time" class="ht" value="${esc(x)}">`).join('')}
@@ -3013,17 +3124,14 @@ const Wire = (() => {
               <div class="note" style="margin-top:7px">אלה ניסיונות חוזרים על אותה משימה.
                 סימון אחד ביום סוגר את היום.</div></div>
             <button class="txtbtn" id="etRepOff">לא חוזר</button>`)}
+        </div>
 
-          ${acc('org','ארגון','—', `
-            <div style="margin-bottom:10px"><label>תת-משימה של</label>
-              <div id="etParent" class="small dim">${parent ? esc(parent.title) : 'משימה עצמאית'}</div></div>
-            <div><label>נסיעה</label>
-              <div class="fgrid" style="align-items:flex-end">
-                <div><input type="number" id="etKm" value="${r.type==='trip'?r.km:''}"
-                     min="1" max="500" inputmode="decimal" placeholder="ק״מ רצוף"></div>
-                <button class="btn" id="etTripOff" style="flex:0 0 auto">נקה</button></div>
-              <div class="note" style="margin-top:7px">תזכורת אחרי נסיעה רצופה. עובדת רק כשהאפליקציה פתוחה.</div></div>`)}
-        </div>`,
+        <div style="margin-top:18px"><label>תת-משימות</label>
+          <div id="etKids">${childRows()}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn" id="etAddKid">+ תת-משימה</button>
+            <button class="btn" id="etAddHabit" ${kind==='long'?'':'hidden'}>+ הרגל לפריט הזה</button>
+          </div></div>`,
         buttons:[
           ...(isNew ? [{label:'ביטול',act:()=>Modal.shut()}]
                     : [{label:'מחק',act:()=>{ Store.delTask(t.id); Modal.shut(); UI.toast('נמחק'); }}]),
@@ -3034,27 +3142,53 @@ const Wire = (() => {
 
       function kindNote(){
         g('etKindNote').textContent = kind === 'long'
-          ? 'תחום או פרויקט שנמשך. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אין לו שעה, מיקום או חזרה — אלה שייכים לתת-המשימות שלו.'
+          ? 'תחום שנמשך — פרויקט, תחביב, רשימה חוזרת. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אין לו שעה, מיקום או חזרה — אלה שייכים לתת-המשימות שלו.'
           : 'משימה שיש לה סוף. ברגע שתסמן אותה — היא עוברת לארכיון.';
       }
       function applyKind(){
-        /* פריט ארוך-טווח הוא מיכל, לא פעולה מתוזמנת (סעיף 27) */
-        B.querySelector('[data-acc="time"]').hidden   = kind === 'long';
-        B.querySelector('[data-acc="place"]').hidden  = kind === 'long';
-        B.querySelector('[data-acc="repeat"]').hidden = kind === 'long';
+        ['time','place','trip','repeat'].forEach(k => {
+          const el = B.querySelector(`[data-acc="${k}"]`);
+          if (el) el.hidden = kind === 'long';
+        });
+        g('etAddHabit').hidden = kind !== 'long';
         kindNote();
       }
-      function sum(id, txt){ const el = B.querySelector(`[data-sum="${id}"]`); if (el) el.textContent = txt || 'לא נקבע'; }
+      const sum = (id, txt) => { const el = B.querySelector(`[data-sum="${id}"]`);
+                                 if (el) el.textContent = txt || 'לא נקבע'; };
       function refreshSummaries(){
-        const d = g('etDate').value, tm = g('etTime').value;
-        sum('time', [d ? Plan.label(d) : '', tm].filter(Boolean).join(' · '));
+        const date = g('etDate').value, tm = g('etTime').value;
+        sum('time', [date ? Plan.label(date) : '', tm].filter(Boolean).join(' · '));
         const pid = g('etPlace') ? g('etPlace').value : '';
         sum('place', rem === 'place' && pid
           ? UI.whereLabel({ placeId:pid, delayMin:+g('etDelay').value||0 }) : '');
+        sum('trip', g('etKm').value ? g('etKm').value + ' ק״מ' : '');
         sum('repeat', rep ? UI.repeatLabel(rep) + ' · ' + rep.times.join(' ') : '');
-        const km = g('etKm').value;
-        sum('org', [parent ? 'תחת ' + parent.title : '', km ? km + ' ק״מ נסיעה' : '']
-          .filter(Boolean).join(' · '));
+      }
+      function syncRep(){
+        const days = [...B.querySelectorAll('#etDays [aria-selected="true"]')].map(b => +b.dataset.d);
+        const times = [...B.querySelectorAll('#etTimes .ht')].map(i => i.value).filter(Boolean).sort();
+        rep = (days.length && times.length) ? { days, times:[...new Set(times)] } : null;
+      }
+      /* צילום מצב הטופס — כדי לחזור אליו אחרי שיוצרים תת-משימה */
+      function snapshot(){
+        syncRep();
+        return { title:g('etTitle').value, note:g('etNote').value, kind, cat, rem,
+                 rep: rep ? { days:rep.days.slice(), times:rep.times.slice() } : null,
+                 date:g('etDate').value, time:g('etTime').value,
+                 placeId:g('etPlace') ? g('etPlace').value : '',
+                 delay:g('etDelay') ? g('etDelay').value : 0,
+                 km:g('etKm').value, pending:pending.slice() };
+      }
+      function openChild(asHabit, existingId){
+        const draft = snapshot();
+        const back = { id:o.id, draft };
+        Modal.shut();
+        taskModal({
+          id: existingId || null,
+          parentId: isNew ? null : t.id,
+          pendingUnder: isNew ? (draft.title.trim() || 'המשימה החדשה') : null,
+          mission: cat, habit: asHabit, back,
+        });
       }
 
       B.addEventListener('click', e => {
@@ -3075,11 +3209,11 @@ const Wire = (() => {
                  refreshSummaries(); return; }
         const db = e.target.closest('#etDays button');
         if (db){ db.setAttribute('aria-selected', db.getAttribute('aria-selected') !== 'true');
-                 syncRep(); return; }
+                 syncRep(); refreshSummaries(); return; }
         if (e.target.closest('#etAddTime')){
           const inp = document.createElement('input');
           inp.type='time'; inp.className='ht'; inp.value='20:00';
-          g('etTimes').insertBefore(inp, g('etAddTime')); syncRep(); return;
+          g('etTimes').insertBefore(inp, g('etAddTime')); syncRep(); refreshSummaries(); return;
         }
         if (e.target.closest('#etRepOff')){
           B.querySelectorAll('#etDays button').forEach(x => x.setAttribute('aria-selected','false'));
@@ -3087,71 +3221,164 @@ const Wire = (() => {
         }
         if (e.target.closest('#etPlaceOff')){ rem = 'none'; refreshSummaries(); return; }
         if (e.target.closest('#etTripOff')){ g('etKm').value = ''; refreshSummaries(); return; }
+        if (e.target.closest('#etAddKid')){   openChild(false); return; }
+        if (e.target.closest('#etAddHabit')){ openChild(true);  return; }
+
+        const rm = e.target.closest('[data-rm]');
+        if (rm){
+          const key = rm.dataset.rm;
+          if (isNew){ pending.splice(+key, 1); }
+          else { Store.delTask(key); }
+          g('etKids').innerHTML = childRows();
+          return;
+        }
+        const op = e.target.closest('[data-open]');
+        if (op){
+          const key = op.dataset.open;
+          if (isNew){
+            /* עריכת ילד ממתין: מסירים אותו ופותחים מחדש עם הערכים שלו */
+            const c = pending[+key];
+            const draft = snapshot();
+            draft.pending.splice(+key, 1);
+            Modal.shut();
+            taskModal({ pendingUnder: draft.title.trim() || 'המשימה החדשה',
+                        mission: cat, back:{ id:o.id, draft }, preset:c });
+          } else openChild(false, key);
+          return;
+        }
       });
       B.addEventListener('change', () => { syncRep(); refreshSummaries(); });
-      B.addEventListener('input',  () => { refreshSummaries(); });
+      B.addEventListener('input',  refreshSummaries);
       if (g('etPlace')) g('etPlace').addEventListener('change', () => { rem = 'place'; refreshSummaries(); });
 
-      function syncRep(){
-        const days = [...B.querySelectorAll('#etDays [aria-selected="true"]')].map(b => +b.dataset.d);
-        const times = [...B.querySelectorAll('#etTimes .ht')].map(i => i.value).filter(Boolean).sort();
-        rep = (days.length && times.length) ? { days, times:[...new Set(times)] } : null;
+      /* ערכי התחלה שלא נכנסים דרך ה-HTML */
+      const pre = o.preset || null;
+      if (pre){
+        g('etTitle').value = pre.title || '';
+        g('etNote').value  = pre.note || '';
+        kind = pre.kind || 'short';
+        B.querySelectorAll('#etKind button').forEach(x =>
+          x.setAttribute('aria-selected', x.dataset.k === kind));
+        if (pre.planned) g('etDate').value = pre.planned;
+        if (pre.reminder && pre.reminder.type === 'time') g('etTime').value = pre.reminder.at;
+        if (pre.reminder && pre.reminder.type === 'trip') g('etKm').value = pre.reminder.km;
+        if (pre.reminder && pre.reminder.type === 'place'){
+          rem = 'place';
+          if (g('etPlace').querySelector(`option[value="${pre.reminder.placeId}"]`))
+            g('etPlace').value = pre.reminder.placeId;
+          g('etDelay').value = pre.reminder.delayMin || 0;
+        }
+        if (pre.repeat){
+          rep = { days:pre.repeat.days.slice(), times:pre.repeat.times.slice() };
+          B.querySelectorAll('#etDays button').forEach(x =>
+            x.setAttribute('aria-selected', rep.days.includes(+x.dataset.d)));
+          const wrap = g('etTimes');
+          wrap.querySelectorAll('.ht').forEach(x => x.remove());
+          rep.times.forEach(v => { const i = document.createElement('input');
+            i.type='time'; i.className='ht'; i.value=v; wrap.insertBefore(i, g('etAddTime')); });
+        }
       }
-
-      if (r.type === 'place' && r.placeId && g('etPlace')){
-        if (g('etPlace').querySelector(`option[value="${r.placeId}"]`)) g('etPlace').value = r.placeId;
+      const srcPlace = d ? d.placeId : (r.type === 'place' ? r.placeId : '');
+      if (srcPlace && g('etPlace') && g('etPlace').querySelector(`option[value="${srcPlace}"]`)){
+        g('etPlace').value = srcPlace;
+        if (d ? d.rem === 'place' : true) rem = 'place';
       }
       applyKind(); syncRep(); refreshSummaries();
-      if (o.habit){ B.querySelector('[data-acc="repeat"]').setAttribute('aria-expanded','true'); }
-      if (isNew) setTimeout(() => g('etTitle')?.focus(), 80);
+      if (o.habit || (pre && pre.repeat)) B.querySelector('[data-acc="repeat"]').setAttribute('aria-expanded','true');
+      if (isNew && !d) setTimeout(() => g('etTitle')?.focus(), 80);
 
-      function save(){
+      /* ---- בונה אובייקט משימה מהטופס ---- */
+      function collect(){
         const title = g('etTitle').value.trim();
-        if (!title){ UI.toast('צריך שם'); g('etTitle').focus(); return; }
+        if (!title) return null;
         syncRep();
-        const note = g('etNote').value.trim();
-        let reminder = null, plannedOut = null;
-
+        const out = { title, note:g('etNote').value.trim(), kind, mission:cat,
+                      reminder:null, repeat:rep, planned:null };
         if (kind !== 'long'){
-          plannedOut = g('etDate').value || null;
+          out.planned = g('etDate').value || null;
           const tm = g('etTime').value;
           const km = parseFloat(g('etKm').value);
           const pid = g('etPlace') ? g('etPlace').value : '';
-          if (tm) reminder = { type:'time', at:tm };
+          if (tm) out.reminder = { type:'time', at:tm };
           else if (rem === 'place' && pid)
-            reminder = { type:'place', placeId:pid, delayMin:Math.max(0,+g('etDelay').value||0) };
-          else if (isFinite(km) && km > 0) reminder = { type:'trip', km };
-        }
-
-        /* שעה שכבר עברה היום לא אמורה לצלצל ברגע השמירה */
-        const rt = {};
-        const day = Plan.today();
-        if (reminder && reminder.type === 'time' && plannedOut === day){
-          const [hh,mm] = reminder.at.split(':').map(Number);
+            out.reminder = { type:'place', placeId:pid, delayMin:Math.max(0,+g('etDelay').value||0) };
+          else if (isFinite(km) && km > 0) out.reminder = { type:'trip', km };
+        } else { out.repeat = null; }
+        return out;
+      }
+      /* שעה שכבר עברה היום לא אמורה לצלצל ברגע השמירה */
+      function initialRt(x){
+        const rt = {}, day = Plan.today();
+        /* גם משימה בלי תאריך יורה היום — לכן הבדיקה חלה גם על planned ריק */
+        if (x.reminder && x.reminder.type === 'time' && (!x.planned || x.planned === day)){
+          const [hh,mm] = x.reminder.at.split(':').map(Number);
           const target = new Date(); target.setHours(hh,mm,0,0);
-          if (Date.now() >= target.getTime()) rt.firedKey = new Date().toDateString() + reminder.at;
+          if (Date.now() >= target.getTime()) rt.firedKey = new Date().toDateString() + x.reminder.at;
         }
-        if (rep){
+        if (x.repeat){
           const hm = new Date().toTimeString().slice(0,5);
-          const due = rep.days.includes(new Date().getDay()) ? rep.times.filter(x => x <= hm) : [];
+          const due = x.repeat.days.includes(new Date().getDay()) ? x.repeat.times.filter(y => y <= hm) : [];
           if (due.length) rt.firedKey = day + '@' + due[due.length-1];
         }
+        return rt;
+      }
+      /** אילו התראות שעון המשימה הזאת מבקשת */
+      function alarmsOf(x){
+        if (x.kind === 'long') return [];
+        if (x.repeat) return x.repeat.times.map(tm => ({ title:x.title, time:tm }));
+        if (x.reminder && x.reminder.type === 'time') return [{ title:x.title, time:x.reminder.at }];
+        return [];
+      }
 
-        /* מיכל ארוך-טווח לא נושא חזרה, זמן, מיקום או תאריך */
-        if (kind === 'long'){ rep = null; reminder = null; plannedOut = null; }
+      function save(){
+        const data = collect();
+        if (!data){ UI.toast('צריך שם'); g('etTitle').focus(); return; }
 
-        if (isNew){
-          Store.addTask({ mission:cat, title, note, reminder, repeat:rep, rt, kind,
-                          parentId:o.parentId||null, planned:plannedOut });
-          if (o.parentId){ const p = Store.task(o.parentId); if (p && p.collapsed) Store.toggleCollapse(p.id); }
-        } else {
-          Store.updateTask(t.id, { title, note, reminder, repeat:rep, rt, kind, mission:cat, log: kind==='long' ? {} : (t.log||{}) });
-          Store.setPlanned(t.id, plannedOut);
+        /* ילד ממתין: לא נכתב ל-Store, רק חוזר להורה */
+        if (o.back && !o.parentId && !o.id){
+          const draft = o.back.draft;
+          draft.pending.push(data);
+          Modal.shut();
+          taskModal({ id:o.back.id, draft });
+          return;
         }
-        Modal.shut(); UI.toast(isNew ? 'נוסף' : 'נשמר');
+
+        const queue = [];
+        if (isNew){
+          const created = Store.addTask({ ...data, rt:initialRt(data), parentId:o.parentId||null });
+          queue.push(...alarmsOf(data));
+          /* ילדים שהמתינו נשמרים עכשיו, בסדר שבו נוצרו */
+          pending.forEach(c => {
+            Store.addTask({ ...c, mission:created.mission, rt:initialRt(c), parentId:created.id });
+            queue.push(...alarmsOf(c));
+          });
+          if (o.parentId){ const p = Store.task(o.parentId); if (p && p.collapsed) Store.toggleCollapse(p.id); }
+          if (pending.length && created.collapsed) Store.toggleCollapse(created.id);
+        } else {
+          const before = (t.reminder && t.reminder.type === 'time') ? t.reminder.at : '';
+          const beforeRep = Store.isHabit(t) ? t.repeat.times.join(',') : '';
+          Store.updateTask(t.id, { ...data, rt:initialRt(data),
+                                   log: data.kind === 'long' ? {} : (t.log||{}) });
+          Store.setPlanned(t.id, data.planned);
+          /* רק שינוי בשעה מצדיק לפתוח שוב את השעון */
+          const after = (data.reminder && data.reminder.type === 'time') ? data.reminder.at : '';
+          const afterRep = data.repeat ? data.repeat.times.join(',') : '';
+          if ((after && after !== before) || (afterRep && afterRep !== beforeRep))
+            queue.push(...alarmsOf(data));
+        }
+
+        /* ההורה חוזר אלינו — אם היינו ילד של עורך פתוח */
+        if (o.back){
+          Modal.shut();
+          taskModal({ id:o.back.id, draft:o.back.draft });
+          runAlarmQueue(queue);
+          return;
+        }
+        Modal.shut();
+        UI.toast(isNew ? (pending.length ? 'נוסף עם ' + pending.length + ' תת-משימות' : 'נוסף') : 'נשמר');
+        runAlarmQueue(queue);
       }
     }
-
     /* ================= אירועים ================= */
     function typeChips(sel){
       return Store.eventTypes().map(t => `
