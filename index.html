@@ -652,7 +652,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.3 · 2026-08-26';
+const BUILD = '2.4 · 2026-08-26';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -1589,6 +1589,9 @@ const Alerts = (() => {
   };
   const system = (title, body) => {
     if (!Store.all.prefs.notif) return;
+    /* באפליקציה המותקנת ההתראה מגיעה מ-AlarmManager דרך Kotlin.
+       הודעה שנייה מהדפדפן הייתה כפילות. */
+    if (Native.on) return;
     try {
       if (typeof Notification!=='undefined' && Notification.permission==='granted')
         new Notification(title, { body, tag:'mesima', dir:'rtl', lang:'he' });
@@ -1830,6 +1833,78 @@ const Native = (() => {
     }).slice(0, 95);   /* מגבלת מערכת: 100 גדרים לאפליקציה */
   }
 
+  /* ---------------- תזכורות שעה ברקע (סעיף 59) ----------------
+     ה-JS מחשב את המופעים הקרובים; אנדרואיד רושם אותם ב-AlarmManager
+     ומעיר את עצמו בשעה שנקבעה, גם כשהאפליקציה מתה. הסמנטיקה כאן
+     חייבת להיות זהה לזו של Engine — אחרת תקבל התראה כפולה או חסרה. */
+  const WINDOW_DAYS = 7;      /* פתיחת האפליקציה מגלגלת את החלון קדימה */
+  const ALARM_CAP   = 100;
+
+  const ms = (dateKey, hm) => {
+    const [y,mo,d] = dateKey.split('-').map(Number);
+    const [h,mi]   = String(hm||'00:00').split(':').map(Number);
+    return new Date(y, mo-1, d, h||0, mi||0, 0, 0).getTime();
+  };
+
+  function alarmList(days){
+    const out  = [];
+    const now  = Date.now();
+    const soon = now + 30000;             /* מה שקורה ממש עכשיו — Engine מטפל */
+    const t0   = Plan.today();
+    const span = [];
+    for (let i = 0; i < (days || WINDOW_DAYS); i++) span.push(Plan.shift(t0, i));
+    const nowHM = new Date().toTimeString().slice(0,5);
+
+    Store.all.tasks.forEach(t => {
+      if (t.archived) return;
+
+      /* הרגל: כל שעה בכל יום חובה שבחלון, כל עוד היום עוד לא סומן */
+      if (Store.isHabit(t)){
+        span.forEach(day => {
+          if (!Store.habitDay(t, day)) return;
+          if (Store.habitFull(t, day)) return;      /* סימון סוגר את כל היום */
+          t.repeat.times.forEach(hm => {
+            const at = ms(day, hm);
+            if (at < soon) return;
+            const more = t.repeat.times.filter(x => x > hm);
+            out.push({ id:'h_'+t.id+'_'+day+'@'+hm, at, title:t.title,
+                       body:'תזכורת יומית ' + hm +
+                            (more.length ? ' · תזכורת נוספת ב-' + more[0] : '') });
+          });
+        });
+        return;
+      }
+
+      if (t.kind === 'long') return;
+      const r = t.reminder;
+      if (!r || r.type !== 'time') return;
+
+      /* משימה עם תאריך — מופע אחד. בלי תאריך — כל יום, בדיוק כמו Engine */
+      const dayList = t.planned ? (t.planned >= t0 ? [t.planned] : []) : span;
+      dayList.forEach(day => {
+        const at = ms(day, r.at);
+        if (at < soon) return;
+        /* היום כבר ירה? Engine מסמן firedKey ליום הנוכחי */
+        if (day === t0 && t.rt && t.rt.firedKey === new Date().toDateString() + r.at) return;
+        out.push({ id:'t_'+t.id+'_'+day, at, title:t.title, body:'הגיע הזמן — ' + r.at });
+      });
+    });
+
+    /* אירועי יומן */
+    Store.all.events.forEach(ev => {
+      if (ev.remindMin == null || ev.remindMin < 0) return;
+      if (ev.rt && ev.rt.firedAt) return;
+      const at = Cal.startMs(ev) - ev.remindMin * 60000;
+      if (at < soon || at > now + (days || WINDOW_DAYS) * 86400000) return;
+      out.push({ id:'e_'+ev.id, at, title:ev.title,
+                 body: ev.remindMin > 0
+                   ? 'מתחיל בעוד ' + ev.remindMin + ' דקות (' + ev.time + ')'
+                   : 'מתחיל עכשיו (' + ev.time + ')' });
+    });
+
+    return out.sort((a,b) => a.at - b.at).slice(0, ALARM_CAP);
+  }
+
   return {
     get on(){ return !!A(); },
     status(){ try { return A() ? JSON.parse(A().status()) : null; } catch(e){ return null; } },
@@ -1837,9 +1912,17 @@ const Native = (() => {
     sync(){
       if (!A()) return;
       clearTimeout(syncT);
-      syncT = setTimeout(() => { try { A().syncGeofences(JSON.stringify(fenceList())); } catch(e){} }, 600);
+      syncT = setTimeout(() => {
+        try { A().syncGeofences(JSON.stringify(fenceList())); } catch(e){}
+        try { A().syncAlarms(JSON.stringify(alarmList())); } catch(e){}
+      }, 600);
     },
     fenceCount(){ return fenceList().length; },
+    alarmList,
+    alarmCount(){ return alarmList().length; },
+    /** האם המערכת מרשה תזכורת בשנייה המדויקת */
+    canExact(){ try { return A() ? !!A().canExactAlarms() : false; } catch(e){ return false; } },
+    askExact(){ try { A().requestExactAlarms(); } catch(e){} },
     askLocation(){ try { A().requestLocation(); } catch(e){} },
     askNotifications(){ try { A().requestNotifications(); } catch(e){} },
     battery(){ try { A().requestBatteryExemption(); } catch(e){} },
@@ -2624,6 +2707,20 @@ const UI = (() => {
       ${perm(n.batteryUnrestricted,'ללא הגבלת סוללה',
              n.batteryUnrestricted ? 'אנדרואיד לא ירדים את האפליקציה'
              : 'בלי זה סמסונג תרדים את האפליקציה אחרי כמה ימים','batt')}
+      ${(() => {
+        const a = n.alarms || {};
+        const nx = a.next ? new Date(a.next) : null;
+        const k  = nx ? Plan.key(nx) : '';
+        const when = nx ? (k === Plan.today() ? '' : Plan.label(k) + ' ')
+                          + nx.toTimeString().slice(0,5) : '';
+        return `
+        ${perm(a.exact !== false, 'התראות ותזכורות',
+               a.exact !== false ? 'תזכורות שעה יורות בשנייה המדויקת'
+               : 'בלי זה אנדרואיד ידחה תזכורות בכמה דקות כדי לחסוך סוללה','exact')}
+        <div class="set"><div class="sb"><div class="st">תזכורות שעה רשומות</div>
+          <div class="sd">${a.scheduled||0} רשומות במערכת${
+            when ? ' · הקרובה ' + esc(when) : ''}</div></div></div>`;
+      })()}
       <div class="set"><div class="sb"><div class="st">גדרות רשומות</div>
         <div class="sd">${n.fences||0} מתוך ${Native.fenceCount()} תזכורות מקום פעילות</div></div></div>
       ${String(n.manufacturer||'').toLowerCase().includes('samsung') ? `
@@ -2663,9 +2760,14 @@ const UI = (() => {
       <button class="btn d wide" id="btnWipe">מחיקת כל הנתונים</button>
 
       <div class="notice" style="margin-top:22px">
-        <b>מה עובד כשהאפליקציה סגורה:</b> תזכורות לפי מקום בלבד — מערכת ההפעלה מחזיקה אותן.<br>
-        <b>מה דורש שהאפליקציה תהיה פתוחה:</b> תזכורות לפי שעה, תזכורות הרגל, תזכורות אירוע
-        ותזכורות מרחק נסיעה. זה בטיפול לגרסה הבאה.</div>`;
+        ${Native.on ? `<b>מה עובד כשהאפליקציה סגורה:</b> תזכורות לפי מקום, לפי שעה,
+          תזכורות הרגל ותזכורות אירוע — מערכת ההפעלה מחזיקה את כולן.<br>
+          <b>מה דורש שהאפליקציה תהיה פתוחה:</b> תזכורת לפי מרחק נסיעה בלבד,
+          כי היא מחייבת מעקב מיקום רציף.<br>
+          <span class="dim">האפליקציה רושמת תזכורות לשבוע קדימה. כל פתיחה שלה
+          מגלגלת את החלון, וגם בלי פתיחה יש רענון עצמי פעמיים ביום.</span>`
+        : `<b>בדפדפן שום תזכורת לא עובדת כשהחלון סגור.</b> זו מגבלת דפדפן, לא באג —
+          מיקום ותזכורות רקע חסומים שם לגמרי. הגרסה המותקנת עושה את שניהם.`}</div>`;
   }
 
   /* ====================================================================
@@ -3421,8 +3523,9 @@ const Wire = (() => {
               <input type="date" id="etDate" value="${esc(planned||'')}" style="margin-top:8px"></div>
             <div><label>שעה ותזכורת</label>
               <input type="time" id="etTime" value="${esc(d ? d.time : (r.type==='time'?r.at:''))}"></div>
-            <div class="note" style="margin-top:7px">אחרי השמירה אפשר לפתוח את שעון הטלפון
-              וליצור גם התראה אמיתית.</div>`)}
+            <div class="note" style="margin-top:7px">${Native.on
+              ? 'התזכורת תצלצל גם כשהאפליקציה סגורה. אחרי השמירה אפשר להוסיף גם התראה בשעון הטלפון.'
+              : 'בדפדפן התזכורת עובדת רק כשהאפליקציה פתוחה. באפליקציה המותקנת היא עובדת גם סגורה.'}</div>`)}
 
           ${isChild ? '' : acc('place','מיקום', `
             <div class="fgrid">
@@ -3432,7 +3535,9 @@ const Wire = (() => {
                        min="0" max="600" inputmode="numeric"></div>
             </div>
             <button class="txtbtn" id="etPlaceOff">בלי תזכורת מיקום</button>
-            <div class="note">תזכורת מיקום היא היחידה שעובדת כשהאפליקציה סגורה.</div>`)}
+            <div class="note">${Native.on
+              ? 'מערכת ההפעלה מחזיקה את הגדר. עובד גם כשהאפליקציה מתה לגמרי.'
+              : 'תזכורת מיקום עובדת ברקע רק באפליקציה המותקנת.'}</div>`)}
 
           ${isChild ? '' : acc('trip','נסיעה', `
             <div class="fgrid" style="align-items:flex-end">
@@ -3452,7 +3557,8 @@ const Wire = (() => {
                 ${(rep ? rep.times : ['08:00']).map(x => `<input type="time" class="ht" value="${esc(x)}">`).join('')}
                 <button class="btn" id="etAddTime" style="padding:8px 11px">+ שעה</button></div>
               <div class="note" style="margin-top:7px">אלה ניסיונות חוזרים על אותה משימה.
-                סימון אחד ביום סוגר את היום.</div></div>
+                סימון אחד ביום סוגר את היום${Native.on
+                  ? ', ומשתיק גם את התזכורות שנשארו' : ''}.</div></div>
             <button class="txtbtn" id="etRepOff">לא חוזר</button>`)}
         </div>
 
@@ -4680,6 +4786,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       ({ loc:()=>Native.askLocation(), notif:()=>Native.askNotifications(),
          batt:()=>Native.battery(), samsung:()=>Native.samsung(),
          alarms:()=>Native.showAlarms(),
+         exact:()=>Native.askExact(),
          check:()=>{
            const base = srcNow();
            if (!/^https:\/\//.test(base)){ UI.toast('קודם שמור כתובת https'); return; }
