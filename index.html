@@ -253,6 +253,27 @@
   .fab:active{background:var(--surface3)}
   .fabwrap{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
 
+  /* כיוון טקסט לפי התוכן עצמו. בלי זה סוגריים וסימני פיסוק
+     מתהפכים כשכותבים עברית ואנגלית/מספרים באותו שדה. */
+  input[type=text],input[type=search],input[type=url],input:not([type]),textarea,
+  [contenteditable]{unicode-bidi:plaintext;text-align:start}
+  .tnote,.kpeek,.msum,.dsc,.m,.km,.note,.t,.ttl{unicode-bidi:plaintext}
+
+  /* ---------------- בוחר תאריך פנימי ---------------- */
+  #dpick{position:fixed;inset:0;background:rgba(8,10,14,.72);display:none;z-index:80;
+    align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
+  #dpick.on{display:flex}
+  #dpick .mbox{max-height:86vh}
+  #dpick .dgrid{direction:ltr}
+  .dpday{
+    aspect-ratio:1;border-radius:10px;display:grid;place-items:center;
+    font-size:14px;color:var(--text);background:var(--surface2, rgba(255,255,255,.03));
+  }
+  .dpday.out{opacity:.32}
+  .dpday.today{outline:1px solid var(--accent)}
+  .dpday[aria-selected="true"]{background:var(--accent);color:#0d1117;font-weight:700}
+  .dpday .dot{width:4px;height:4px;border-radius:50%;background:var(--muted2);margin-top:2px}
+
   /* ---------------- מודאל ---------------- */
   #modal{position:fixed;inset:0;background:rgba(8,10,14,.7);display:none;z-index:60;
     align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
@@ -327,6 +348,8 @@
 
   /* ---------------- לוח חודשי ---------------- */
   /* היומן רץ משמאל לימין — ראשון בקצה השמאלי, כמו כל יומן שהוא מכיר */
+  .tnotewrap{margin-top:6px}
+  .notetog{font-size:11.5px;color:var(--muted2);text-align:start;padding:2px 0}
   .cal{direction:ltr}
   .mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
   .wd{text-align:center;font-size:11px;color:var(--muted2);padding-bottom:6px}
@@ -659,6 +682,11 @@
   <div class="mbody" id="mBody"></div>
   <div class="mfoot" id="mFoot"></div>
 </div></div>
+<div id="dpick"><div class="mbox">
+  <div class="mhead"><div class="mtitle" id="dpTitle">בחירת תאריך</div><button class="x" id="dpX">×</button></div>
+  <div class="mbody" id="dpBody"></div>
+  <div class="mfoot" id="dpFoot"></div>
+</div></div>
 <div id="alert"><div class="box">
   <div class="k" id="alTtl">תזכורת</div>
   <div class="msg" id="alMsg"></div>
@@ -682,7 +710,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.5 · 2026-08-27';
+const BUILD = '2.6 · 2026-08-30';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -1806,6 +1834,88 @@ const Modal = (() => {
   return { open, shut, get body(){ return $('#mBody'); } };
 })();
 
+/* --------------------------- בוחר תאריך פנימי ---------------------------
+   שדה תאריך של הדפדפן קטן ומבלבל. במקומו נפתח כאן אותו לוח חודשי
+   שהמשתמש כבר מכיר מהמסך "חודש", עם נקודות על ימים תפוסים. */
+const DatePick = (() => {
+  const $ = x => document.querySelector(x);
+  let y, m, val, cb = null, allowClear = false;
+
+  function grid(){
+    const today = Plan.today();
+    const cells = Cal.monthGrid(y, m);
+    const wd = ['א','ב','ג','ד','ה','ו','ש'];
+    return `<div class="calnav">
+        <button class="hbtn" data-dm="-1" aria-label="חודש קודם">&#8249;</button>
+        <div class="ttl">${Cal.MONTHS[m]} ${y}</div>
+        <button class="hbtn" data-dm="1" aria-label="חודש הבא">&#8250;</button>
+      </div>
+      <div class="dgrid">
+        <div class="mgrid">${wd.map(d=>`<div class="wd">${d}</div>`).join('')}</div>
+        <div class="mgrid" style="margin-top:4px">${cells.map(c => {
+          const busy = Store.events(c.key).length + Store.plannedFor(c.key).length;
+          return `<button class="dpday${c.out?' out':''}${c.key===today?' today':''}"
+            data-dp="${c.key}" aria-selected="${c.key===val}">
+            <span>${c.date.getDate()}</span>
+            ${busy ? '<span class="dot"></span>' : ''}</button>`;
+        }).join('')}</div>
+      </div>
+      <div class="rule" style="margin:14px 0 10px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn s" data-dq="0">היום</button>
+        <button class="btn s" data-dq="1">מחר</button>
+        <button class="btn s" data-dq="7">בעוד שבוע</button>
+      </div>`;
+  }
+
+  function paint(){
+    $('#dpBody').innerHTML = grid();
+    $('#dpTitle').textContent = val ? Plan.longDate(val) : 'בחירת תאריך';
+  }
+
+  function open(initial, onPick, opts){
+    opts = opts || {};
+    allowClear = !!opts.clear;
+    val = initial || Plan.today();
+    const [yy,mm] = val.split('-').map(Number);
+    y = yy; m = mm - 1;
+    cb = onPick;
+    const body = $('#dpBody');
+    const fresh = body.cloneNode(false);
+    body.replaceWith(fresh);
+    paint();
+    $('#dpFoot').innerHTML =
+      (allowClear ? '<button class="btn s" data-df="clear">נקה</button>' : '') +
+      '<button class="btn s" data-df="x">ביטול</button>' +
+      '<button class="btn p" data-df="ok">בחר</button>';
+    $('#dpick').classList.add('on');
+    fresh.addEventListener('click', e => {
+      const nav = e.target.closest('[data-dm]');
+      if (nav){ m += +nav.dataset.dm;
+        if (m < 0){ m = 11; y--; } if (m > 11){ m = 0; y++; }
+        paint(); return; }
+      const q = e.target.closest('[data-dq]');
+      if (q){ val = Plan.shift(Plan.today(), +q.dataset.dq);
+        const [a,b] = val.split('-').map(Number); y=a; m=b-1; paint(); return; }
+      const d = e.target.closest('[data-dp]');
+      if (d){ val = d.dataset.dp; paint(); }
+    });
+    $('#dpFoot').querySelectorAll('[data-df]').forEach(el => {
+      el.addEventListener('click', () => {
+        const k = el.dataset.df;
+        /* שומרים את הקריאה החוזרת לפני הסגירה — shut מאפס אותה */
+        const done = cb;
+        if (k === 'ok'){ shut(); done?.(val); return; }
+        if (k === 'clear'){ shut(); done?.(''); return; }
+        shut();
+      });
+    });
+  }
+  function shut(){ $('#dpick').classList.remove('on'); cb = null; }
+  function isOpen(){ return $('#dpick').classList.contains('on'); }
+  return { open, shut, isOpen };
+})();
+
 /* --------------------------------- Plan --------------------------------- */
 /* עוזרי תכנון יומי: מיזוג אירועי יומן עם משימות שתוכננו ליום. */
 const Plan = (() => {
@@ -2068,6 +2178,11 @@ const UI = (() => {
   let rangeFrom = Plan.today();
   /* תת-משימות שהמשתמש פתח כדי לקרוא את התיאור. מצב תצוגה בלבד. */
   const peeked = new Set();
+  /* תיאורים שהמשתמש קיפל בעצמו. ברירת המחדל היא תיאור פתוח. */
+  const noteShut = new Set();
+  /* מסלול הניווט בתוך "היום" — כדי שכפתור החזרה יחזור צעד אחורה
+     (יום → 3 ימים → היום) ולא יקפוץ החוצה מהאפליקציה. */
+  const trail = [];
   let calY, calM;
   { const [y,m] = selDate.split('-').map(Number); calY = y; calM = m - 1; }
   let deferred = false, alertItem = null;
@@ -2294,6 +2409,7 @@ const UI = (() => {
       <div class="bd"><div class="t">${esc(t.title)}</div>
         ${(() => { const m = taskMeta(t,{noPlan:true,noKids:true,noTime:!!at});
                    return m ? `<div class="m">${esc(m)}</div>` : ''; })()}
+        ${t.note ? noteBlock(t) : ''}
       </div>
       <span class="chev" data-act="open">‹</span>
     </div>`;
@@ -2525,6 +2641,16 @@ const UI = (() => {
     return { bits, html, any: bits.length > 0 };
   }
 
+  /** תיאור מקופל/פתוח — נשלט מה-UI בלבד, לא מתפריט ההגדרות */
+  function noteBlock(t){
+    const shut = noteShut.has(t.id);
+    return `<div class="tnotewrap">
+      <button class="notetog" data-act="notetog" data-nid="${t.id}"
+        aria-expanded="${!shut}">${shut ? '‹ הצג תיאור' : '⌄ הסתר תיאור'}</button>
+      ${shut ? '' : `<div class="tnote">${esc(t.note)}</div>`}
+    </div>`;
+  }
+
   /** כרטיס משימה — הקטגוריה צובעת את כל המשטח, בגוון טונלי (סעיפים 22–23) */
   function card(t, gap){
     const sec  = sections(t.id);
@@ -2540,7 +2666,7 @@ const UI = (() => {
         <div class="bd">
           <div class="ttl">${esc(t.title)}</div>
           <div class="tmeta"><span class="catname">${CAT[t.mission]}</span>${meta ? ' · ' + esc(meta) : ''}</div>
-          ${(t.note && !t.noteHidden) ? `<div class="tnote">${esc(t.note)}</div>` : ''}
+          ${t.note ? noteBlock(t) : ''}
         </div>
         <button class="hbtn" data-act="menu" style="width:28px;height:28px;font-size:15px">⋯</button>
       </div>
@@ -3100,7 +3226,7 @@ const UI = (() => {
     get onlyUnplanned(){ return onlyUnplanned; }, set onlyUnplanned(v){ onlyUnplanned=v; },
     get selDate(){ return selDate; }, set selDate(v){ selDate=v; },
     get rangeFrom(){ return rangeFrom; }, set rangeFrom(v){ rangeFrom=v; },
-    peeked,
+    peeked, noteShut, trail,
     get calY(){ return calY; },       set calY(v){ calY=v; },
     get calM(){ return calM; },       set calM(v){ calM=v; },
     get openList(){ return openList; }, set openList(v){ openList=v; },
@@ -3126,6 +3252,8 @@ const Wire = (() => {
     /* ================= מעטפת ================= */
     $('#nav').addEventListener('click', e => {
       const b = e.target.closest('button[data-s]'); if(!b) return;
+      if (b.dataset.s === 'today'){ UI.trail.length = 0; UI.tview = 'day';
+                                    UI.selDate = Plan.today(); UI.rangeFrom = Plan.today(); }
       UI.screen = null; UI.section = b.dataset.s; UI.openNote = null; UI.openList = null;
       UI.render();
     });
@@ -3168,8 +3296,21 @@ const Wire = (() => {
     });
 
     /* ================= היום ================= */
+    /* שומר את מצב התצוגה הנוכחי לפני מעבר, בשביל כפתור החזרה */
+    function mark(){
+      const st = { tview:UI.tview, selDate:UI.selDate, rangeFrom:UI.rangeFrom,
+                   calY:UI.calY, calM:UI.calM };
+      const last = UI.trail[UI.trail.length-1];
+      if (last && last.tview===st.tview && last.selDate===st.selDate
+          && last.rangeFrom===st.rangeFrom) return;
+      UI.trail.push(st);
+      if (UI.trail.length > 20) UI.trail.shift();
+    }
+
     $('#tvModes').addEventListener('click', e => {
       const b = e.target.closest('button'); if(!b) return;
+      if (b.dataset.v === UI.tview) return;
+      mark();
       UI.tview = b.dataset.v;
       if (UI.tview === 'month'){
         const [y,m] = UI.selDate.split('-').map(Number); UI.calY = y; UI.calM = m-1;
@@ -3181,6 +3322,10 @@ const Wire = (() => {
     });
 
     $('#todayBody').addEventListener('click', e => {
+      const ntg = e.target.closest('[data-act="notetog"]');
+      if (ntg){ const nid = ntg.dataset.nid;
+        if (UI.noteShut.has(nid)) UI.noteShut.delete(nid); else UI.noteShut.add(nid);
+        UI.render(); return; }
       if (e.target.closest('[data-act="add"]')){ $('#fab').click(); return; }
 
       const mo = e.target.closest('[data-mo]');
@@ -3197,6 +3342,7 @@ const Wire = (() => {
       }
       const dayBtn = e.target.closest('[data-day]');
       if (dayBtn){
+        if (UI.tview !== 'month' || dayBtn.dataset.day !== UI.selDate) mark();
         UI.selDate = dayBtn.dataset.day;
         if (UI.tview === 'month'){ $('#mDay').innerHTML = UI.monthDayList(UI.selDate);
                                    UI.render(); }
@@ -3246,6 +3392,10 @@ const Wire = (() => {
     UI.closeSearch = closeSearch;
 
     $('#tasksBody').addEventListener('click', e => {
+      const ntg = e.target.closest('[data-act="notetog"]');
+      if (ntg){ const nid = ntg.dataset.nid;
+        if (UI.noteShut.has(nid)) UI.noteShut.delete(nid); else UI.noteShut.add(nid);
+        UI.render(); return; }
       if (e.target.closest('[data-act="add"]')){ taskModal({}); return; }
       if (e.target.closest('#unschd')){
         UI.onlyUnplanned = !UI.onlyUnplanned; UI.renderTasks(); return;
@@ -3340,8 +3490,6 @@ const Wire = (() => {
           ${t.parentId ? `<button class="pick" data-m="indep"><span class="pn">הפוך למשימה עצמאית</span></button>
             ${!kids ? `<button class="pick" data-m="toitem"><span class="pn">הפוך לפריט ברשימה</span>
               <span class="pm">${esc((Store.task(t.parentId)||{}).title || '')}</span></button>` : ''}` : ''}
-          ${t.note ? `<button class="pick" data-m="notevis">
-              <span class="pn">${t.noteHidden ? 'הצג תיאור בכרטיס' : 'הסתר תיאור מהכרטיס'}</span></button>` : ''}
           <button class="pick" data-m="up"><span class="pn">הזז למעלה</span></button>
           <button class="pick" data-m="down"><span class="pn">הזז למטה</span></button>
           ${Store.hasChecklist(id) ? `<button class="pick" data-m="reset">
@@ -3367,8 +3515,6 @@ const Wire = (() => {
         if (k==='sub'){  taskModal({ parentId:t.id, mission:t.mission }); return; }
         if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true, kind:'short' }); return; }
         if (k==='item'){ newItemModal(id); return; }
-        if (k==='notevis'){ Store.updateTask(id, { noteHidden: !t.noteHidden, rt:t.rt });
-                            Modal.shut(); return; }
         if (k==='up' || k==='down'){
           const moved = Store.moveTask(id, k==='up' ? -1 : 1);
           Modal.shut(); if (!moved) UI.toast('כבר בקצה');
@@ -4307,22 +4453,60 @@ const Wire = (() => {
       });
     }
 
+    /* בחירת משימות לקישור — לפי היררכיה, כמו בעמוד המשימות, עם חיפוש */
     function linkTaskModal(ev){
       const already = new Set(Store.tasksForEvent(ev.id).map(t => t.id));
-      const avail = Store.active().filter(t => !already.has(t.id) && t.kind !== 'long');
+      const ok = t => !already.has(t.id) && t.kind !== 'long' && !t.archived;
+      const avail = Store.active().filter(ok);
       if (!avail.length){ UI.toast('אין משימות פנויות לקשר'); return; }
       const chosen = new Set();
+      let q = '';
+
+      const line = (t, depth) => `<button class="pick" data-t="${t.id}"
+          aria-checked="${chosen.has(t.id)}" style="padding-inline-start:${depth*16}px">
+          <span class="bx">✓</span>
+          <span class="pn">${depth ? '<span style="opacity:.45">↳ </span>' : ''}${esc(t.title)}</span>
+          <span class="pm">${depth ? '' : CAT[t.mission]}</span></button>`;
+
+      /* עץ: משימה ראשית ואחריה התת-משימות שלה. ענף נשאר אם הוא עצמו
+         מתאים לחיפוש או אם אחד מצאצאיו מתאים. */
+      function branch(t, depth){
+        const kids = Store.subtasksOf(t.id).concat(Store.habitsOf(t.id));
+        const sub  = kids.map(k => branch(k, depth + 1)).filter(Boolean);
+        const hit  = ok(t) && (!q || t.title.toLowerCase().includes(q));
+        if (!hit && !sub.length) return '';
+        return (ok(t) ? line(t, depth) : `<div class="small dim"
+                 style="padding:10px 2px 4px;padding-inline-start:${depth*16}px">${esc(t.title)}</div>`)
+               + sub.join('');
+      }
+
+      function listHTML(){
+        const cats = ['army','home','free'];
+        let out = '';
+        cats.forEach(c => {
+          const roots = Store.children(null, c).filter(t => !t.archived);
+          const body = roots.map(t => branch(t, 0)).filter(Boolean).join('');
+          if (body) out += `<div class="sh" style="margin:14px 0 2px">${CAT[c]}</div>` + body;
+        });
+        return out || '<div class="small dim" style="padding:16px 2px">אין התאמה</div>';
+      }
+
       Modal.open({ title:'קשר משימה ל"'+ev.title+'"',
         body:`<div class="note" style="padding-bottom:10px">המשימות שתבחר יופיעו בתוך האירוע
-                וייקבעו ליום שלו.</div>` +
-          avail.map(t => `<button class="pick" data-t="${t.id}" aria-checked="false">
-            <span class="bx">✓</span><span class="pn">${esc(t.title)}</span>
-            <span class="pm">${CAT[t.mission]}</span></button>`).join(''),
+                וייקבעו ליום שלו.</div>
+              <input type="search" id="lkQ" placeholder="חיפוש משימה…" autocomplete="off">
+              <div id="lkList">${listHTML()}</div>`,
         buttons:[{label:'ביטול',act:()=>Modal.shut()},
                  {label:'קשר',kind:'p',act:()=>{
                     chosen.forEach(id => Store.linkTask(id, ev.id));
                     Modal.shut(); UI.toast(chosen.size ? chosen.size+' קושרו' : 'לא נבחר כלום');
                  }}]});
+
+      Modal.body.addEventListener('input', e2 => {
+        if (e2.target.id !== 'lkQ') return;
+        q = e2.target.value.trim().toLowerCase();
+        document.getElementById('lkList').innerHTML = listHTML();
+      });
       Modal.body.addEventListener('click', e2 => {
         const b = e2.target.closest('[data-t]'); if(!b) return;
         const id = b.dataset.t;
@@ -4362,13 +4546,28 @@ const Wire = (() => {
       const v = Math.min(2.4, Math.max(0.7, Math.round(z*20)/20));
       Store.setPref('noteZoom', v); applyZoom();
     }
+    /* המשפט הראשון בהערה — עד סוף שורה, נקודה או 60 תווים */
+    function firstLine(html){
+      const d = document.createElement('div');
+      d.innerHTML = (html||'').replace(/<(br|\/p|\/div|\/li|\/h[1-6])>/gi,'\n');
+      const txt = (d.textContent||'').replace(/\u00a0/g,' ').trim();
+      if (!txt) return '';
+      let line = txt.split('\n').map(x=>x.trim()).find(Boolean) || '';
+      const stop = line.search(/[.!?]\s|[.!?]$/);
+      if (stop > 2) line = line.slice(0, stop + 1);
+      line = line.trim();
+      return line.length > 60 ? line.slice(0,60).trim() + '…' : line;
+    }
     function noteSave(now){
       const id = UI.openNote; if(!id) return;
       clearTimeout(saveT);
       const doIt = () => {
         if (!UI.openNote) return;
+        const html = cleanHTML(NB().innerHTML);
+        /* בלי כותרת מפורשת — המשפט הראשון בגוף ההערה משמש ככותרת */
         Store.updateNote(UI.openNote,
-          { title:$('#nTitle').value.trim(), html:cleanHTML(NB().innerHTML) }, true);
+          { title: $('#nTitle').value.trim() || firstLine(html),
+            html }, true);
         $('#nSaved').textContent = 'נשמר ' +
           new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
       };
@@ -4398,6 +4597,8 @@ const Wire = (() => {
       UI.render();
     }
     $('#nSearch').addEventListener('input', e => { UI.noteQ = e.target.value; UI.renderNotes(); });
+    $('#dpX').addEventListener('click', () => DatePick.shut());
+    $('#dpick').addEventListener('click', e => { if (e.target.id === 'dpick') DatePick.shut(); });
     $('#nBack').addEventListener('click', closeNote);
     $('#nMenu').addEventListener('click', () => { if (UI.openNote){ noteSave(true); noteMenu(UI.openNote); } });
     $('#notesList').addEventListener('click', e => {
@@ -5140,13 +5341,51 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       setTimeout(() => { if (UI.deferred && !UI.typing()) UI.render(); }, 60);
     });
 
-    /* חזרה בכפתור האחורה של אנדרואיד סוגרת שכבה במקום לצאת */
+    /* כל שדה תאריך פותח את הלוח הפנימי במקום את בורר הדפדפן */
+    document.addEventListener('mousedown', e => {
+      const inp = e.target.closest('input[type=date]');
+      if (!inp) return;
+      e.preventDefault(); inp.blur();
+      DatePick.open(inp.value || Plan.today(), v => {
+        inp.value = v;
+        inp.dispatchEvent(new Event('change', { bubbles:true }));
+        inp.dispatchEvent(new Event('input',  { bubbles:true }));
+      }, { clear: !inp.required });
+    }, true);
+    document.addEventListener('focus', e => {
+      if (e.target.matches && e.target.matches('input[type=date]')) e.target.blur();
+    }, true);
+
+    /* ---------------------------------------------------------------
+       כפתור החזרה של אנדרואיד. מקלף שכבה אחת בכל לחיצה, בסדר קבוע,
+       ורק כשאין יותר מה לקלף (עמוד "היום", תצוגת יום, היום עצמו)
+       הוא מחזיר false והמערכת סוגרת את האפליקציה.
+       --------------------------------------------------------------- */
+    function goBack(){
+      if (DatePick.isOpen()){ DatePick.shut(); return true; }
+      if ($('#modal').classList.contains('on')){ Modal.shut(); return true; }
+      if (UI.openNote){ closeNote(); return true; }
+      if (UI.openList){ UI.openList = null; UI.render(); return true; }
+      if (UI.screen){ UI.screen = null; UI.render(); return true; }
+      if (UI.section !== 'today'){ UI.section = 'today'; UI.render(); return true; }
+
+      /* בתוך "היום": חוזרים לאחור לפי המסלול שהמשתמש עשה */
+      if (UI.trail.length){
+        const st = UI.trail.pop();
+        UI.tview = st.tview; UI.selDate = st.selDate; UI.rangeFrom = st.rangeFrom;
+        if (st.calY != null){ UI.calY = st.calY; UI.calM = st.calM; }
+        UI.render(); return true;
+      }
+      if (UI.tview !== 'day'){ UI.tview = 'day'; UI.render(); return true; }
+      if (UI.selDate !== Plan.today()){ UI.selDate = Plan.today(); UI.render(); return true; }
+      return false;   /* אין יותר לאן — כאן מותר לצאת */
+    }
+    window.__back = goBack;
+
+    /* גם בדפדפן רגיל: כפתור האחורה מתנהג אותו דבר */
     history.replaceState({ m:0 }, '');
     window.addEventListener('popstate', () => {
-      if ($('#modal').classList.contains('on')){ Modal.shut(); }
-      else if (UI.openNote){ closeNote(); }
-      else if (UI.openList){ UI.openList = null; UI.render(); }
-      else if (UI.screen){ UI.screen = null; UI.render(); }
+      goBack();
       history.pushState({ m:1 }, '');
     });
     history.pushState({ m:1 }, '');
