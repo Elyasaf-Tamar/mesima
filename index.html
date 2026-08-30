@@ -354,14 +354,46 @@
   .dkid .dkm{font-size:11.5px;color:var(--muted2)}
   .dkid.clitem .dkt{color:var(--muted)}
   .dkid .dot{width:4px;height:4px;border-radius:50%;background:var(--muted2);flex:0 0 auto}
-  .tcard{touch-action:pan-y}
-  /* רשימה מסומנת בקו מקווקו בקצה הכרטיס — הכיתוב עצמו כבר בשורת המטא */
-  .tcard.listkind{border-inline-start:2px dashed var(--line2)}
-  .dragmode{touch-action:none;user-select:none}
-  .tcard.dragging{
-    position:relative;z-index:5;opacity:.94;
-    box-shadow:0 12px 28px rgba(0,0,0,.45);transform-origin:center;
+  /* ---- העורך: בחירת סוג עם הסבר ודוגמה, לא רק תווית ---- */
+  .kindpick{display:flex;flex-direction:column;gap:8px}
+  .kindpick button{
+    text-align:start;padding:12px 13px;border-radius:12px;
+    border:1px solid var(--line);background:transparent;
   }
+  .kindpick button[aria-selected="true"]{border-color:var(--accent);background:var(--surface2)}
+  .kindpick .kn{display:block;font-size:14.5px;font-weight:650;margin-bottom:3px}
+  .kindpick .kd{display:block;font-size:12.5px;color:var(--muted2);line-height:1.5}
+  .ex{font-size:12px;color:var(--muted2);line-height:1.55;margin-top:7px}
+  .belongs{font-size:12.5px;color:var(--muted2);margin:-6px 0 14px}
+  .esec{padding:14px 0;border-top:1px solid var(--line)}
+  .esec:first-child{border-top:0;padding-top:4px}
+  .esechead{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+  .esechead > span:first-child{
+    flex:1;font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted2);
+  }
+  .evcur{padding:8px 0}
+  .evcur .el{font-size:14px}
+  .evcur .em{font-size:12px;color:var(--muted2);margin-top:2px}
+
+  /* כותרת מקטע נושאת את הפעולות ששייכות לו — במקום תפריט ⋯ ארוך */
+  .sechead{display:flex;align-items:baseline;gap:12px;margin:14px 0 4px}
+  .sechead:first-child{margin-top:6px}
+  .secname{flex:1;font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted2)}
+  .secact{font-size:12px;color:var(--accent);font-weight:600;padding:3px 0}
+  .secempty{padding:4px 0 6px;font-size:12.5px;color:var(--muted2);line-height:1.55}
+  .secempty .ex{color:var(--muted2);opacity:.72;margin-top:2px}
+  .ordering{opacity:.92}
+  .ord{display:flex;gap:2px;flex:0 0 auto}
+  .ord button{
+    width:28px;height:28px;border-radius:8px;font-size:13px;color:var(--text);
+    border:1px solid var(--line2);
+  }
+  .ord button[disabled]{opacity:.28}
+  /* האירוע שהמשימה קשורה אליו */
+  .evlink{display:flex;align-items:center;gap:9px;width:100%;text-align:start;
+    padding:8px 0;margin-top:2px;font-size:13px}
+  .evlink .el{flex:1}
+  .evlink .em{font-size:12px;color:var(--muted2)}
   .tnotewrap{margin-top:6px}
   .tnimg{display:block;margin-top:8px;max-width:100%;max-height:230px;
     border-radius:10px;border:1px solid var(--line)}
@@ -746,7 +778,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.7 · 2026-08-30';
+const BUILD = '3.0 · 2026-08-30';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -867,7 +899,18 @@ const Store = (() => {
   /* ---------- v5 -> v6: תמונה אחת לכל משימה, וסוג "רשימה" ----------
      `noteHidden` יצא משימוש ב-2.6 — הקיפול הוא מצב תצוגה בלבד. */
   data.tasks.forEach(t => { if (t.img === undefined) t.img = null; });
-  data.v = 6;
+  /* ---------- v6 -> v7: "רשימה" מפסיקה להיות סוג משימה ----------
+     היא הייתה שאלה של מימוש, לא שאלה של משתמש. שום נתון לא הולך לאיבוד:
+     הפריטים, התת-משימות, ההרגלים, החזרה, התאריך והתמונה נשארים כפי שהם.
+     רשימה שנשאה חזרה או תזכורת נשארת קצרת-טווח, כדי שהתזכורת תמשיך לעבוד
+     בדיוק כמו קודם. אחרת היא הופכת למיכל ארוך-טווח, שזה מה שהיא באמת. */
+  data.tasks.forEach(t => {
+    if (t.kind !== 'list') return;
+    const ticks = !!(t.repeat && t.repeat.times && t.repeat.times.length);
+    const timed = !!(t.reminder && t.reminder.type);
+    t.kind = (ticks || timed) ? 'short' : 'long';
+  });
+  data.v = 7;
 
   const subs = [];
   const save = () => {
@@ -909,7 +952,7 @@ const Store = (() => {
         createdAt:Date.now(), doneAt:null, reminder:o.reminder||null, rt:o.rt||{},
         parentId:o.parentId||null, planned:o.planned||null, eventId:o.eventId||null,
         note:o.note||'', repeat:o.repeat||null, log:{}, collapsed:true,
-        kind:(o.kind==='long'||o.kind==='list') ? o.kind : 'short',
+        kind:(o.kind === 'long') ? 'long' : 'short',
         img:o.img||null, archived:false, archivedAt:null, autoArch:false,
         checklist:[], sortIndex:0 };
       /* תת-משימה יורשת את המשימה-על של ההורה, אחרת היא נעלמת מהתצוגה */
@@ -1007,8 +1050,7 @@ const Store = (() => {
 
     /* ---------- מחזור חיים וארכיון (2.0) ---------- */
     isLong(t){ return !!t && t.kind === 'long'; },
-    /** רשימה היא סוג בפני עצמו: יש לה זמן וחזרה, אין לה מיקום או נסיעה,
-        והלב שלה הוא הפריטים — לא הסימון של עצמה. */
+    /** נשאר רק בשביל נתונים ישנים; המיגרציה ל-v7 כבר ניקתה אותם. */
     isList(t){ return !!t && t.kind === 'list'; },
 
     /**
@@ -1060,36 +1102,29 @@ const Store = (() => {
        הפונקציה טהורה ומקבלת מזהה בלבד, כך שאיפוס אוטומטי בעתיד
        (כל יום ראשון, כל שבוע) יוכל לקרוא לה בלי שינוי נוסף. */
 
-    /** כמה פריטים ברשימה ובעץ יחזרו למצב פעיל */
+    /** כמה פריטים ברשימה מסומנים כרגע — רק הם מתאפסים */
     resettableCount(id){
-      return this.checklist(id).filter(x => x.checked).length +
-             this.descendants(id).filter(c => c.archived || c.done).length;
+      return this.checklist(id).filter(x => x.checked).length;
     },
-    /** האם בכלל יש כאן רשימה — פריטים או תת-משימות */
-    hasChecklist(id){ return this.checklist(id).length > 0 || this.descendants(id).length > 0; },
+    /** האם יש כאן רשימת פריטים */
+    hasChecklist(id){ return this.checklist(id).length > 0; },
 
     /**
      * מחזיר את כל צאצאי המשימה למצב פעיל, לכל עומק.
      * שם, הערה, מבנה, תזכורות והיררכיה נשארים בדיוק כפי שהם.
      * הרגלים לא מושפעים — הם ממילא לא מסומנים כגמורים.
      */
+    /**
+     * מאפס פריטי רשימה בלבד.
+     * פריט ותת-משימה הם שני דברים שונים: פריט הוא סימון, תת-משימה היא
+     * עבודה שנעשתה. איפוס הרשימה לא מחזיר לחיים תת-משימות שהסתיימו,
+     * לא מוציא מהארכיון ולא נוגע בהרגלים.
+     */
     resetChecklist(id){
       const t = this.task(id); if(!t) return 0;
       let n = 0;
-      /* פריטי הרשימה חוזרים ללא-מסומן. שם, הערה וסדר נשמרים בדיוק. */
+      /* שם, הערה וסדר נשמרים בדיוק. רק הסימון יורד. */
       this.checklist(id).forEach(it => { if (it.checked){ it.checked = false; n++; } });
-      this.descendants(id).forEach(c => {
-        if (!c.archived && !c.done) return;
-        c.archived = false; c.archivedAt = null; c.autoArch = false;
-        c.done = false; c.doneAt = null; c.autoDone = false;
-        c.rt = c.rt || {};
-        n++;
-      });
-      /* ההורה נשאר פעיל. אם הוא עצמו אורכב — הרשימה חוזרת איתו. */
-      if (t.archived || t.done){
-        t.archived = false; t.archivedAt = null; t.autoArch = false;
-        t.done = false; t.doneAt = null; t.autoDone = false;
-      }
       t.lastResetAt = Date.now();
       save();
       return n;
@@ -1876,10 +1911,17 @@ const Modal = (() => {
       el.addEventListener('click', ()=> buttons[+el.dataset.mb].act?.());
     });
     onClose = close || null;
+    guard = null;
     $('#modal').classList.add('on');
   }
-  function shut(){ $('#modal').classList.remove('on'); $('#mBody').innerHTML=''; onClose?.(); onClose=null; }
-  return { open, shut, get body(){ return $('#mBody'); } };
+  function shut(){ $('#modal').classList.remove('on'); $('#mBody').innerHTML='';
+                   guard = null; onClose?.(); onClose=null; }
+  /** ניסיון סגירה "מבחוץ" — ה-×, כפתור החזרה, לחיצה על הרקע.
+      עורך שמחזיק עבודה שלא נשמרה יכול לעצור את זה ולשאול. */
+  let guard = null;
+  function tryShut(){ if (guard && guard() === false) return false; shut(); return true; }
+  return { open, shut, tryShut, get body(){ return $('#mBody'); },
+           set closeGuard(fn){ guard = fn; } };
 })();
 
 /* --------------------------- בוחר תאריך פנימי ---------------------------
@@ -2164,6 +2206,7 @@ const Native = (() => {
       }, 600);
     },
     fenceCount(){ return fenceList().length; },
+    fenceList,
     alarmList,
     alarmCount(){ return alarmList().length; },
     /** האם המערכת מרשה תזכורת בשנייה המדויקת */
@@ -2232,6 +2275,9 @@ const UI = (() => {
   const peeked = new Set();
   /* תיאורים שהמשתמש קיפל בעצמו. ברירת המחדל היא תיאור פתוח. */
   const noteShut = new Set();
+  /* מצב "שינוי סדר": פועל על מקטע אחד של משימה אחת בכל רגע.
+     מחוץ למצב הזה אין חיצים ואין ידיות — הממשק נשאר נקי. */
+  let reorder = null;          /* { taskId, sec:'items'|'subs'|'habits' } */
   /* מסלול הניווט בתוך "היום" — כדי שכפתור החזרה יחזור צעד אחורה
      (יום → 3 ימים → היום) ולא יקפוץ החוצה מהאפליקציה. */
   const trail = [];
@@ -2295,7 +2341,6 @@ const UI = (() => {
     const out = [];
     if (!opts.noCat) out.push(CAT[t.mission]);
     if (t.kind === 'long') out.push('ארוך טווח');
-    if (t.kind === 'list') out.push('רשימה');
     const r = t.reminder;
     if (r && r.type === 'time' && !opts.noTime) out.push('עד ' + r.at);
     if (r && r.type === 'place') out.push(whereLabel(r));
@@ -2695,7 +2740,13 @@ const UI = (() => {
   function secLbl(name, on, many){ return (on && many) ? `<div class="seclbl">${name}</div>` : ''; }
 
   /** שורת פריט ברשימה. שם וסימון — ותו לא. */
-  function clRow(ownerId, x){
+  function clRow(ownerId, x, ord, i, n){
+    if (ord) return `<div class="clrow ordering" data-cl="${x.id}" data-clp="${ownerId}">
+      <span class="ct"><span>${esc(x.title)}</span></span>
+      <span class="ord">
+        <button data-act="clup" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
+        <button data-act="cldown" ${i===n-1?'disabled':''} aria-label="הזז למטה">↓</button>
+      </span></div>`;
     return `<div class="clrow${x.checked ? ' ck' : ''}" data-cl="${x.id}" data-clp="${ownerId}">
       <button class="cb${x.checked ? ' on' : ''}" data-act="ckl"
               style="width:18px;height:18px;font-size:10px;flex:0 0 auto">✓</button>
@@ -2705,6 +2756,14 @@ const UI = (() => {
   }
 
   /** שלושת המקטעים שמתחת למשימה — רשימה, תת-משימות, הרגלים. לעולם לא עץ אחד מעורבב. */
+  /* ההסברים והדוגמאות הם חלק מהמוצר, לא תיעוד. משפט אחד קצר וסימוכין
+     קונקרטי — כדי שאפשר יהיה להבין מה ההבדל בלי להכיר את המונחים. */
+  const SECHELP = {
+    items: ['רשימה מתאימה לדברים שרק צריך לסמן.', 'למשל מדים, מטען ותפילין.'],
+    subs:  ['אפשר לפרק את המשימה לפעולות קטנות יותר.', 'למשל בתוך "ציוד לצבא" — "לכבס מדים".'],
+    habs:  ['פעולה שחוזרת בימים קבועים.', 'למשל "לארוז תיק בכל ראשון ב-20:00".'],
+  };
+
   function sections(id){
     const cl = Store.checklist(id), subs = Store.subtasksOf(id), habs = Store.habitsOf(id);
     const st = Store.checklistStats(id);
@@ -2712,11 +2771,48 @@ const UI = (() => {
     if (cl.length)   bits.push('רשימה ' + st.checked + '/' + st.total);
     if (subs.length) bits.push(subs.length + (subs.length === 1 ? ' תת-משימה' : ' תת-משימות'));
     if (habs.length) bits.push(habs.length + (habs.length === 1 ? ' הרגל' : ' הרגלים'));
-    const many = bits.length > 1;
-    const html = () =>
-      secLbl('רשימה', cl.length, many) + cl.map(x => clRow(id, x)).join('') +
-      secLbl('תת-משימות', subs.length, many) + subs.map(kidRow).join('') +
-      secLbl('הרגלים', habs.length, many) + habs.map(kidRow).join('');
+
+    const on = key => !!(reorder && reorder.taskId === id && reorder.sec === key);
+    const anyOn = () => !!(reorder && reorder.taskId === id);
+
+    /* כותרת מקטע + הפעולות ששייכות דווקא לו. ככה אף פעולה יומיומית
+       לא צריכה לגור בתפריט ה-⋯. */
+    function head(key, name, count, acts){
+      return `<div class="sechead">
+        <span class="secname">${name}</span>
+        ${on(key)
+          ? `<button class="secact" data-act="reorderOff">סיום</button>`
+          : (anyOn() ? '' : acts.map(a =>
+              `<button class="secact" data-act="${a[0]}" data-sec="${key}">${a[1]}</button>`).join(''))}
+      </div>`;
+    }
+    function empty(key){
+      const h = SECHELP[key];
+      return `<div class="secempty"><div>${h[0]}</div><div class="ex">${h[1]}</div></div>`;
+    }
+
+    const html = () => {
+      let out = '';
+      const clActs = [['addItem','+ פריט']];
+      if (st.checked) clActs.push(['resetcl','אפס']);
+      if (cl.length > 1) clActs.push(['reorderOn','שנה סדר']);
+      out += head('items', 'רשימה', cl.length, clActs);
+      out += cl.length ? cl.map((x,i) => clRow(id, x, on('items'), i, cl.length)).join('')
+                       : empty('items');
+
+      out += head('subs', 'תת-משימות', subs.length,
+        subs.length > 1 ? [['addkid','+ תת-משימה'], ['reorderOn','שנה סדר']]
+                        : [['addkid','+ תת-משימה']]);
+      out += subs.length ? subs.map((c,i) => kidRow(c, on('subs'), i, subs.length)).join('')
+                         : empty('subs');
+
+      out += head('habs', 'הרגלים', habs.length,
+        habs.length > 1 ? [['addhabit','+ הרגל'], ['reorderOn','שנה סדר']]
+                        : [['addhabit','+ הרגל']]);
+      out += habs.length ? habs.map((c,i) => kidRow(c, on('habs'), i, habs.length)).join('')
+                         : empty('habs');
+      return out;
+    };
     return { bits, html, any: bits.length > 0 };
   }
 
@@ -2732,6 +2828,18 @@ const UI = (() => {
     </div>`;
   }
 
+  /** האירוע שהמשימה קשורה אליו — יחס גלוי, לא פריט בתפריט */
+  function linkedEventLine(t){
+    const ev = t.eventId ? Store.event(t.eventId) : null;
+    if (!ev) return '';
+    const ty = Cal.type(ev);
+    return `<button class="evlink" data-act="openEv" data-ev="${ev.id}">
+      <span class="edot" style="background:${ty.color}"></span>
+      <span class="el">${esc(ev.title)}</span>
+      <span class="em">${esc(Plan.label(ev.date))}${ev.allDay ? '' : ' · ' + esc(ev.time)}</span>
+    </button>`;
+  }
+
   /** כרטיס משימה — הקטגוריה צובעת את כל המשטח, בגוון טונלי (סעיפים 22–23) */
   function card(t, gap){
     const sec  = sections(t.id);
@@ -2740,7 +2848,7 @@ const UI = (() => {
     const doneToday = hab && Store.habitFull(t, Plan.today());
     const meta = taskMeta(t, { noCat:true, noKids:true });
     return `<div class="tcard ${t.mission}${t.kind==='long'?' long':''}${
-      t.kind==='list'?' listkind':''}${gap ? ' gap' : ''}" data-id="${t.id}">
+      gap ? ' gap' : ''}" data-id="${t.id}">
       <div class="thead">
         ${t.kind === 'long'
           ? '<span class="cb" style="border-style:dotted;border-color:currentColor;opacity:.45"></span>'
@@ -2752,13 +2860,12 @@ const UI = (() => {
         </div>
         <button class="hbtn" data-act="menu" style="width:28px;height:28px;font-size:15px">⋯</button>
       </div>
-      <button class="addkid" data-act="addkid">+ תת-משימה</button>
-      ${sec.any ? `
-        <button class="twist" data-act="twist" aria-expanded="${open}">
-          <span class="ar">‹</span>
-          <span>${sec.bits.join(' · ')}</span>
-        </button>
-        ${open ? `<div class="kids">${sec.html()}</div>` : ''}` : ''}
+      ${linkedEventLine(t)}
+      <button class="twist" data-act="twist" aria-expanded="${open}">
+        <span class="ar">‹</span>
+        <span>${sec.any ? sec.bits.join(' · ') : 'מה יש בתוך המשימה'}</span>
+      </button>
+      ${open ? `<div class="kids">${sec.html()}</div>` : ''}
     </div>`;
   }
 
@@ -2767,9 +2874,19 @@ const UI = (() => {
    * תת-משימה. נגיעה בשורה פותחת את התיאור במקום — לא את העורך.
    * הכניסה לעריכה היא פעולה מפורשת, כי ברוב הפעמים רוצים רק לקרוא.
    */
-  function kidRow(t){
-    const sec = sections(t.id);
+  /**
+   * שורת תת-משימה או הרגל. נגיעה בשורה פותחת את הפרטים והעריכה ישירות —
+   * לא תפריט פעולות. תיבת הסימון היא מטרת נגיעה נפרדת.
+   */
+  function kidRow(t, ord, i, n){
     const hab  = Store.isHabit(t);
+    if (ord) return `<div class="krow ordering" data-id="${t.id}">
+      <span class="kt">${esc(t.title)}</span>
+      <span class="ord">
+        <button data-act="kidup" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
+        <button data-act="kiddown" ${i===n-1?'disabled':''} aria-label="הזז למטה">↓</button>
+      </span></div>`;
+    const sec = sections(t.id);
     const doneToday = hab && Store.habitFull(t, Plan.today());
     const meta = taskMeta(t, { noCat:true, noKids:true });
     const open = peeked.has(t.id);
@@ -2782,15 +2899,13 @@ const UI = (() => {
             ${t.note ? `<div class="tnote">${esc(t.note)}</div>`
                      : `<div class="tnote dim">אין תיאור לתת-המשימה הזאת.</div>`}
             ${t.img ? `<img class="tnimg" src="${t.img}" alt="" data-act="zoom">` : ''}
+            ${sec.any ? `<div class="kids">${sec.html()}</div>` : ''}
             <div class="acts">
-              <button data-act="edit">ערוך</button>
-              <button data-act="addsub">+ תת-משימה</button>
+              <button data-act="edit">פתח ועריכה</button>
+              <button data-act="menu">אפשרויות</button>
             </div></div>` : ''}
-        ${sec.any ? `<button class="km" data-act="twist" style="text-align:start">
-            ${t.collapsed ? '‹ ' : '⌄ '}${sec.bits.join(' · ')}</button>
-          ${!t.collapsed ? `<div class="kids">${sec.html()}</div>` : ''}` : ''}
+        ${!open && sec.any ? `<div class="km">${sec.bits.join(' · ')}</div>` : ''}
       </div>
-      <button class="hbtn" data-act="menu" style="width:24px;height:24px;font-size:14px">⋯</button>
     </div>`;
   }
 
@@ -2823,7 +2938,6 @@ const UI = (() => {
           <div class="ab2">
             <div class="at">${esc(t.title)}</div>
             <div class="am">${CAT[t.mission]}${t.kind==='long'?' · ארוך טווח':''}${
-              t.kind==='list'?' · רשימה':''}${
               kids ? ' · ' + kids + ' תת-משימות' : ''}${
               t.archivedAt ? ' · ' + esc(fmtDate(t.archivedAt)) : ''}</div>
           </div>
@@ -3112,8 +3226,13 @@ const UI = (() => {
           <div class="sd">${a.scheduled||0} רשומות במערכת${
             when ? ' · הקרובה ' + esc(when) : ''}</div></div></div>`;
       })()}
-      <div class="set"><div class="sb"><div class="st">גדרות רשומות</div>
-        <div class="sd">${n.fences||0} מתוך ${Native.fenceCount()} תזכורות מקום פעילות</div></div></div>
+      <div class="set"><div class="sb"><div class="st">תזכורות מקום רשומות</div>
+        <div class="sd">${n.fences||0} מתוך ${Native.fenceCount()} רשומות במערכת${
+          n.fencesResult ? ' · ' + esc(n.fencesResult) : ''}</div></div></div>
+      <div class="notice" style="margin-top:10px">תזכורת מקום נשענת על שירותי המיקום של
+        אנדרואיד. היא ממשיכה לעבוד כשהאפליקציה סגורה, אבל היא <b>לא מיידית</b>:
+        המערכת בודקת כל כמה דקות, ורדיוס קטן מ-140 מטר מורחב אוטומטית כי
+        מתחת לזה ה-GPS לא מדויק מספיק. חיסכון סוללה אגרסיבי יכול לעכב אותה עוד.</div>
       ${String(n.manufacturer||'').toLowerCase().includes('samsung') ? `
         <div class="notice" style="margin-top:12px"><b>סמסונג מרדימה אפליקציות אחרי 3 ימים.</b>
           זה הצעד הכי חשוב כאן — הוסף את "משימה" ל-Never sleeping apps.
@@ -3369,6 +3488,7 @@ const UI = (() => {
     get selDate(){ return selDate; }, set selDate(v){ selDate=v; },
     get rangeFrom(){ return rangeFrom; }, set rangeFrom(v){ rangeFrom=v; },
     peeked, noteShut, trail,
+    get reorder(){ return reorder; }, set reorder(v){ reorder=v; },
     get calY(){ return calY; },       set calY(v){ calY=v; },
     get calM(){ return calM; },       set calM(v){ calM=v; },
     get openList(){ return openList; }, set openList(v){ openList=v; },
@@ -3509,104 +3629,6 @@ const Wire = (() => {
     });
 
     /* ================= משימות ================= */
-    /* ----------------------------------------------------------------
-       גרירה לסידור משימות: לחיצה ארוכה מרימה את הכרטיס, גרירה מזיזה
-       אותו בין אחיו באותה קטגוריה, ושחרור מקבע את הסדר.
-       הגרירה מוגבלת לקבוצת הצבע — הזזה בין קטגוריות היא שינוי קטגוריה,
-       לא שינוי סדר, ולזה יש מקום אחר.
-       ---------------------------------------------------------------- */
-    (function dragToOrder(){
-      const HOLD = 380, SLOP = 10;
-      const body = $('#tasksBody');
-      let timer = null, card = null, sibs = [], live = false;
-      let startY = 0, startX = 0, dy = 0, pid = null;
-
-      const cardsOf = el => {
-        const mission = [...el.classList].find(c => ['army','home','free'].includes(c));
-        return [...body.querySelectorAll('.tcard')].filter(x => x.classList.contains(mission));
-      };
-      function cancel(){
-        clearTimeout(timer); timer = null;
-        if (live && card){
-          card.classList.remove('dragging');
-          card.style.transform = '';
-          sibs.forEach(x => x.style.transform = '');
-          body.classList.remove('dragmode');
-          const ids = [...body.querySelectorAll('.tcard')]
-            .filter(x => sibs.includes(x)).map(x => x.dataset.id);
-          body.dataset.justDragged = '1';
-          Store.orderIds(ids);
-          UI.toast('הסדר נשמר');
-        }
-        live = false; card = null; sibs = []; dy = 0; pid = null;
-      }
-      function abort(){
-        clearTimeout(timer); timer = null;
-        if (live && card){
-          card.classList.remove('dragging'); card.style.transform = '';
-          sibs.forEach(x => x.style.transform = '');
-          body.classList.remove('dragmode');
-        }
-        live = false; card = null; sibs = []; dy = 0; pid = null;
-      }
-
-      body.addEventListener('pointerdown', e => {
-        if (e.button) return;
-        /* כפתורים ופעולות בתוך הכרטיס לא מתחילים גרירה */
-        if (e.target.closest('button, input, textarea, a, .krow')) return;
-        const c = e.target.closest('.tcard'); if (!c) return;
-        card = c; startY = e.clientY; startX = e.clientX; pid = e.pointerId;
-        timer = setTimeout(() => {
-          if (!card) return;
-          live = true;
-          sibs = cardsOf(card);
-          if (sibs.length < 2){ abort(); return; }
-          card.classList.add('dragging');
-          body.classList.add('dragmode');
-          try { navigator.vibrate && navigator.vibrate(18); } catch(x){}
-          try { card.setPointerCapture(pid); } catch(x){}
-        }, HOLD);
-      });
-
-      body.addEventListener('pointermove', e => {
-        if (!card) return;
-        if (!live){
-          if (Math.abs(e.clientY-startY) > SLOP || Math.abs(e.clientX-startX) > SLOP) abort();
-          return;
-        }
-        e.preventDefault();
-        dy = e.clientY - startY;
-        card.style.transform = 'translateY(' + dy + 'px)';
-        const mid = card.getBoundingClientRect().top + card.offsetHeight/2;
-        for (const other of sibs){
-          if (other === card) continue;
-          const r = other.getBoundingClientRect();
-          const oMid = r.top + r.height/2;
-          if (dy < 0 && mid < oMid && other.compareDocumentPosition(card)
-              & Node.DOCUMENT_POSITION_FOLLOWING){
-            other.parentNode.insertBefore(card, other);
-            startY = e.clientY - 0; dy = 0; card.style.transform = '';
-            break;
-          }
-          if (dy > 0 && mid > oMid && card.compareDocumentPosition(other)
-              & Node.DOCUMENT_POSITION_FOLLOWING){
-            other.parentNode.insertBefore(card, other.nextSibling);
-            startY = e.clientY; dy = 0; card.style.transform = '';
-            break;
-          }
-        }
-      }, { passive:false });
-
-      body.addEventListener('pointerup', cancel);
-      body.addEventListener('pointercancel', abort);
-      window.addEventListener('blur', abort);
-      /* לחיצה שהפכה לגרירה לא צריכה לפתוח גם את העורך */
-      body.addEventListener('click', e => {
-        if (body.dataset.justDragged){ delete body.dataset.justDragged;
-          e.stopPropagation(); e.preventDefault(); }
-      }, true);
-    })();
-
     $('#tFilters').addEventListener('click', e => {
       const b = e.target.closest('button'); if(!b) return;
       UI.filter = b.dataset.f; UI.render();
@@ -3647,33 +3669,53 @@ const Wire = (() => {
       if (e.target.closest('#unschd')){
         UI.onlyUnplanned = !UI.onlyUnplanned; UI.renderTasks(); return;
       }
+      const actEl = e.target.closest('[data-act]');
+      const act = actEl ? actEl.dataset.act : null;
+
+      /* ---- פעולות המקטע: כולן שייכות למשימה שמעליהן ---- */
+      const host = e.target.closest('.tcard, .krow');
+      const hostId = host ? host.dataset.id : null;
+      if (act === 'reorderOn'){
+        UI.reorder = { taskId:hostId, sec:actEl.dataset.sec }; UI.renderTasks(); return; }
+      if (act === 'reorderOff'){ UI.reorder = null; UI.renderTasks(); return; }
+      if (act === 'addItem'){ newItemModal(hostId); return; }
+      if (act === 'resetcl'){ resetChecklist(hostId); return; }
+      if (act === 'addhabit'){ const t = Store.task(hostId);
+        taskModal({ parentId:hostId, mission:t && t.mission, habit:true }); return; }
+
       /* פריט ברשימה נתפס לפני שורת המשימה — הוא לא משימה ולא נפתח כמוה */
       const cli = e.target.closest('[data-cl]');
       if (cli){
-        const a2 = e.target.closest('[data-act]');
-        if (a2 && a2.dataset.act === 'ckl'){
+        if (act === 'clup' || act === 'cldown'){
+          Store.moveChecklistItem(cli.dataset.clp, cli.dataset.cl, act === 'clup' ? -1 : 1);
+          return;
+        }
+        if (act === 'ckl'){
           Store.toggleChecklistItem(cli.dataset.clp, cli.dataset.cl); return;
         }
+        if (UI.reorder) return;
         itemModal(cli.dataset.clp, cli.dataset.cl); return;   /* נגיעה בשורה = עריכה מיד */
       }
       const row = e.target.closest('[data-id]'); if(!row) return;
       const id = row.dataset.id;
-      const actEl = e.target.closest('[data-act]');
-      const act = actEl ? actEl.dataset.act : null;
+      if (act === 'kidup' || act === 'kiddown'){
+        Store.moveChild(id, act === 'kidup' ? -1 : 1); return; }
+      if (act === 'openEv'){ const o = Store.event(actEl.dataset.ev);
+                             if (o) eventMenu(o); return; }
       if (act === 'twist'){ Store.toggleCollapse(id); return; }
       if (act === 'done'){ finish(id); return; }
       if (act === 'menu'){ taskMenu(id); return; }
       if (act === 'addkid'){ const t = Store.task(id);
                              taskModal({ parentId:id, mission:t && t.mission }); return; }
       if (act === 'edit'){  taskModal({ id }); return; }
-      if (act === 'addsub'){ const t = Store.task(id);
-                             taskModal({ parentId:id, mission:t && t.mission }); return; }
-      /* תת-משימה: נגיעה פותחת את התיאור, לא את העורך */
+      /* תת-משימה: נגיעה פותחת את הפרטים במקום */
       if (act === 'peek'){
+        if (UI.reorder) return;
         if (UI.peeked.has(id)) UI.peeked.delete(id); else UI.peeked.add(id);
         UI.renderTasks(); return;
       }
       if (act === 'open' && UI.taskQ){ revealTask(id); return; }
+      if (UI.reorder) return;
       taskModal({ id });
     });
 
@@ -3723,48 +3765,33 @@ const Wire = (() => {
     });
 
     /* ================= תפריט משימה ================= */
+    /**
+     * תפריט ה-⋯ מחזיק רק פעולות נדירות, מבניות או הרסניות.
+     * כל מה שעושים כל יום — להוסיף פריט, תת-משימה, הרגל, לקשר לאירוע,
+     * לשנות סדר, לתכנן — יושב במקום שאליו הוא שייך על המסך עצמו.
+     */
     function taskMenu(id){
       const t = Store.task(id); if(!t) return;
       const kids = Store.descendants(id).length;
       const isLong = t.kind === 'long';
-      const isList = t.kind === 'list';
       Modal.open({ title:t.title,
-        body:`<button class="pick" data-m="edit"><span class="pn">ערוך</span></button>
-          <button class="pick" data-m="item"><span class="pn">פריט חדש לרשימה</span>
-            <span class="pm">${(() => { const st = Store.checklistStats(id);
-              return st.total ? st.checked + '/' + st.total : 'הרשימה ריקה'; })()}</span></button>
-          <button class="pick" data-m="sub"><span class="pn">תת-משימה חדשה</span></button>
-          <button class="pick" data-m="habit"><span class="pn">הרגל חדש</span></button>
-          ${t.parentId ? `<button class="pick" data-m="indep"><span class="pn">הפוך למשימה עצמאית</span></button>
-            ${!kids ? `<button class="pick" data-m="toitem"><span class="pn">הפוך לפריט ברשימה</span>
-              <span class="pm">${esc((Store.task(t.parentId)||{}).title || '')}</span></button>` : ''}` : ''}
-          <button class="pick" data-m="up"><span class="pn">הזז למעלה</span></button>
-          <button class="pick" data-m="down"><span class="pn">הזז למטה</span></button>
-          ${Store.hasChecklist(id) ? `<button class="pick" data-m="reset">
-              <span class="pn">אפס רשימה</span>
-              <span class="pm">${Store.resettableCount(id) || 'הכול פעיל'}</span></button>` : ''}
-          ${!isLong ? `<button class="pick" data-m="today"><span class="pn">תכנן להיום</span></button>
-            <button class="pick" data-m="tomorrow"><span class="pn">תכנן למחר</span></button>
-            ${t.planned ? `<button class="pick" data-m="unplan"><span class="pn">הסר מהתכנון</span>
-                <span class="pm">${esc(Plan.label(t.planned))}</span></button>` : ''}
-            ${t.eventId && Store.event(t.eventId)
-              ? `<button class="pick" data-m="unlink"><span class="pn">נתק מהאירוע</span></button>`
-              : `<button class="pick" data-m="link"><span class="pn">קשר לאירוע ביומן</span></button>`}` : ''}
-          ${isLong
+        body:`${isLong
             ? `<button class="pick" data-m="close"><span class="pn">סגור וארכב</span>
                  <span class="pm">${kids ? kids + ' בפנים' : ''}</span></button>`
-            : isList
-            ? `<button class="pick" data-m="close"><span class="pn">סגור את הרשימה וארכב</span></button>`
             : `<button class="pick" data-m="close"><span class="pn">סיים והעבר לארכיון</span></button>`}
+          ${t.parentId ? `<button class="pick" data-m="indep">
+              <span class="pn">הפוך למשימה עצמאית</span>
+              <span class="pm">תצא מ"${esc((Store.task(t.parentId)||{}).title || '')}"</span></button>
+            ${!kids ? `<button class="pick" data-m="toitem">
+              <span class="pn">הפוך לפריט ברשימה</span>
+              <span class="pm">רק שם לסמן</span></button>` : ''}`
+            : `<button class="pick" data-m="up"><span class="pn">הזז למעלה</span></button>
+               <button class="pick" data-m="down"><span class="pn">הזז למטה</span></button>`}
           <button class="pick" data-m="del"><span class="pn" style="color:var(--danger)">מחק לצמיתות</span></button>`,
         buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-m]'); if(!b) return;
         const k = b.dataset.m;
-        if (k==='edit'){ taskModal({ id }); return; }
-        if (k==='sub'){  taskModal({ parentId:t.id, mission:t.mission }); return; }
-        if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true, kind:'short' }); return; }
-        if (k==='item'){ newItemModal(id); return; }
         if (k==='up' || k==='down'){
           const moved = Store.moveTask(id, k==='up' ? -1 : 1);
           Modal.shut(); if (!moved) UI.toast('כבר בקצה');
@@ -3777,14 +3804,8 @@ const Wire = (() => {
           UI.toast(it ? 'הפך לפריט ברשימה' : 'לא הצלחתי להמיר');
           return;
         }
-        if (k==='reset'){ resetChecklist(id); return; }
-        if (k==='link'){ pickEventFor(id); return; }
-        if (k==='unlink'){ Store.linkTask(id, null); Modal.shut(); UI.toast('נותק'); return; }
-        if (k==='today')    Store.setPlanned(id, Plan.today());
-        if (k==='tomorrow') Store.setPlanned(id, Plan.shift(Plan.today(),1));
-        if (k==='unplan')   Store.setPlanned(id, null);
-        if (k==='close'){   Store.finishTask(id); UI.toast('הועבר לארכיון'); }
-        if (k==='del'){     confirmDelete(id); return; }
+        if (k==='close'){ Store.finishTask(id); UI.toast('הועבר לארכיון'); }
+        if (k==='del'){   confirmDelete(id); return; }
         Modal.shut();
       });
     }
@@ -4000,7 +4021,6 @@ const Wire = (() => {
       let cat  = d ? d.cat  : (t ? t.mission
                    : (o.mission || (parent && parent.mission) || UI.filter !== 'all' && UI.filter || 'army'));
       const r  = (t && t.reminder) || {};
-      let rem  = d ? d.rem : (r.type || 'none');
       let rep  = d ? d.rep
                : (t && Store.isHabit(t) ? { days:t.repeat.days.slice(), times:t.repeat.times.slice() }
                                         : (o.habit ? { days:[0,1,2,3,4], times:['20:00'] } : null));
@@ -4070,22 +4090,21 @@ const Wire = (() => {
       }
 
       /* ---- תת-משימות והרגלים: שני מקטעים נפרדים, לעולם לא עץ מעורבב ---- */
-      function childRows(){
+      /** מקטע אחד בכל קריאה — תת-משימות והרגלים לעולם לא מעורבבים */
+      function childRows(which){
         const mk = (c, key, hab) => ({ key:String(key), title:c.title, hab,
           meta: isNew ? pendingMeta(c) : UI.taskMeta(c, { noCat:true, noKids:true }) });
-        let subs, habs;
+        let l;
         if (isNew){
-          subs = pending.map((c,i) => mk(c, i, !!c.repeat)).filter(x => !x.hab);
-          habs = pending.map((c,i) => mk(c, i, !!c.repeat)).filter(x =>  x.hab);
+          l = pending.map((c,i) => mk(c, i, !!c.repeat))
+                     .filter(x => which === 'habs' ? x.hab : !x.hab);
         } else {
-          subs = Store.subtasksOf(t.id).map(c => mk(c, c.id, false));
-          habs = Store.habitsOf(t.id).map(c => mk(c, c.id, true));
+          l = which === 'habs' ? Store.habitsOf(t.id).map(c => mk(c, c.id, true))
+                               : Store.subtasksOf(t.id).map(c => mk(c, c.id, false));
         }
-        if (!subs.length && !habs.length) return `<div class="subempty">אין עדיין תת-משימות</div>`;
-        const many = subs.length && habs.length;
-        const sec = (name, l) => !l.length ? '' :
-          (many ? `<div class="seclbl">${name}</div>` : '') +
-          l.map((x,i) => `<div class="subrow">
+        if (!l.length) return `<div class="subempty">${
+          which === 'habs' ? 'אין עדיין הרגלים' : 'אין עדיין תת-משימות'}</div>`;
+        return l.map((x,i) => `<div class="subrow">
             <button class="sb2" data-open="${x.key}">
               <div class="st2">${esc(x.title)}</div>
               ${x.meta ? `<div class="sm2">${esc(x.meta)}</div>` : ''}</button>
@@ -4093,7 +4112,10 @@ const Wire = (() => {
               <button data-cmv="${x.key}|-1" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
               <button data-cmv="${x.key}|1" ${i===l.length-1?'disabled':''} aria-label="הזז למטה">↓</button></span>`}
             <button class="x" data-rm="${x.key}" aria-label="הסר">×</button></div>`).join('');
-        return sec('תת-משימות', subs) + sec('הרגלים', habs);
+      }
+      function repaintKids(){
+        if (g('etKids')) g('etKids').innerHTML = childRows('subs');
+        if (g('etHabs')) g('etHabs').innerHTML = childRows('habs');
       }
       function pendingMeta(c){
         const out = [];
@@ -4107,105 +4129,206 @@ const Wire = (() => {
         return out.join(' · ');
       }
 
+      /* ---------------------------------------------------------------
+         מבנה העורך: קודם מה שחייבים לדעת, אחר כך מה ששייך למשימה הזאת,
+         ורק בסוף — "אפשרויות נוספות". משימה פשוטה נוצרת בלי לגלול
+         דרך כל היכולות של האפליקציה.
+         --------------------------------------------------------------- */
+
+      /* מצב ההתראה. זהו שדה אחד, בדיוק כמו במודל הנתונים: למשימה יש
+         תזכורת אחת. חד-פעמית וחוזרת לא מוצגות יחד לעולם. */
+      let mode = d ? d.mode
+               : rep ? 'repeat'
+               : (r.type === 'place') ? 'place'
+               : (r.type === 'trip')  ? 'trip'
+               : (r.type === 'time' || (t && t.planned)) ? 'once'
+               : (o.habit ? 'repeat' : (o.planned ? 'once' : 'none'));
+      if (o.habit) mode = 'repeat';
+
+      /* עורך הרגל ממוקד = יצירת הרגל, או עריכת הרגל שיושב בתוך משימה.
+         משימת שורש שחוזרת נשארת משימה — ולכן שומרת את בורר הסוג. */
+      const isHabitEditor = !!o.habit || !!(t && Store.isHabit(t) && t.parentId);
+
+      const alertSeg = () => `
+        <div class="seg" id="etMode">
+          ${isHabitEditor ? '' : `
+            <button data-a="none"   aria-selected="${mode==='none'}">ללא</button>
+            <button data-a="once"   aria-selected="${mode==='once'}">חד-פעמית</button>`}
+          <button data-a="repeat" aria-selected="${mode==='repeat'}">חוזרת</button>
+        </div>`;
+
+      const onceBlock = () => `
+        <div id="etOnce">
+          <div class="fgrid" style="margin-bottom:10px">
+            <div id="etDateWrap"><input type="date" id="etDate" value="${esc(planned||'')}"></div>
+            <div id="etTimeWrap"><label>שעה</label>
+              <input type="time" id="etTime" value="${esc(d ? d.time : (r.type==='time'?r.at:''))}"></div>
+          </div>
+          <div class="seg" id="etWhen">
+            <button data-d="today" aria-selected="${planned===Plan.today()}">היום</button>
+            <button data-d="tom" aria-selected="${planned===Plan.shift(Plan.today(),1)}">מחר</button>
+            <button data-d="none" aria-selected="${!planned}">ללא תאריך</button>
+          </div>
+          <div class="ex" id="etOnceEx">קורה פעם אחת. למשל "להתקשר למפקד מחר ב-18:00".</div>
+        </div>`;
+
+      const repeatBlock = () => `
+        <div id="etRepeat">
+          <label>באילו ימים</label>
+          <div class="days" id="etDays">${DAYL.map((x,i) =>
+            `<button data-d="${i}" aria-selected="${rep ? rep.days.includes(i) : false}">${x}</button>`).join('')}</div>
+          <label style="margin-top:12px">באילו שעות</label>
+          <div class="times" id="etTimes">
+            ${(rep ? rep.times : ['20:00']).map(x => `<input type="time" class="ht" value="${esc(x)}">`).join('')}
+            <button class="btn" id="etAddTime" style="padding:8px 11px">+ שעה</button></div>
+          <div class="ex">חוזר בימים קבועים. למשל "ללמוד Fusion בכל ראשון ושלישי ב-20:00".
+            סימון אחד ביום סוגר את היום${Native.on ? ', ומשתיק את השעות שנשארו' : ''}.</div>
+        </div>`;
+
+      const placeBlock = () => `
+        <div id="etPlaceB">
+          <div class="fgrid">
+            <div style="flex:2"><label>מקום</label><select id="etPlace">${placeOpts}</select></div>
+            <div><label>+ דקות</label>
+              <input type="number" id="etDelay" value="${d ? d.delay : (r.delayMin||0)}"
+                     min="0" max="600" inputmode="numeric"></div>
+          </div>
+          <div class="ex">קבל התראה כשאתה מגיע למקום.
+            למשל "להזכיר לי לקחת ציוד כשאני מגיע לבסיס".
+            ${Native.on ? 'עובד גם כשהאפליקציה סגורה, אבל לא בשנייה המדויקת — אנדרואיד בודק כל כמה דקות.'
+                        : 'בדפדפן זה עובד רק כשהאפליקציה פתוחה.'}</div>
+        </div>`;
+
+      const tripBlock = () => `
+        <div id="etTripB">
+          <label>ק״מ רצוף</label>
+          <input type="number" id="etKm" value="${esc(d ? d.km : (r.type==='trip'?r.km:''))}"
+                 min="1" max="500" inputmode="decimal" placeholder="למשל 100">
+          <div class="ex">קבל התראה אחרי שנסעת מרחק מסוים ברצף.
+            למשל "להזכיר לי לעצור אחרי 100 ק״מ". עובד רק כשהאפליקציה פתוחה.</div>
+        </div>`;
+
+      /* המקטעים של התוכן. לארוכת-טווח הם הלב של המסך ולכן גלויים תמיד;
+         לקצרת-טווח הם נכנסים ל"אפשרויות נוספות" כל עוד הם ריקים. */
+      const contentBlock = () => `
+        <div id="etContent">
+          <div class="esec">
+            <div class="esechead"><span>רשימה</span>
+              <button class="secact" id="etAddItem2">+ הוסף פריט</button></div>
+            <div id="etItems">${itemRows()}</div>
+            <div class="ex">דברים קטנים שאתה רק רוצה לסמן. למשל מדים, מטען ותפילין.</div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <input type="text" id="etNewItem" placeholder="הוסף פריט…" autocomplete="off" style="flex:1">
+              <button class="btn" id="etAddItem" style="flex:0 0 auto">הוסף</button></div>
+          </div>
+
+          <div class="esec">
+            <div class="esechead"><span>תת-משימות</span>
+              <button class="secact" id="etAddKid">+ תת-משימה</button></div>
+            <div id="etKids">${childRows('subs')}</div>
+            <div class="ex">פעולה שצריך לבצע כחלק מהמשימה. למשל "לכבס מדים".</div>
+          </div>
+
+          <div class="esec">
+            <div class="esechead"><span>הרגלים</span>
+              <button class="secact" id="etAddHabit">+ הרגל</button></div>
+            <div id="etHabs">${childRows('habs')}</div>
+            <div class="ex">פעולה שחוזרת בימים קבועים. למשל "לארוז תיק בכל ראשון ב-20:00".</div>
+          </div>
+        </div>`;
+
+      const eventBlock = () => {
+        if (isNew || isChild) return '';
+        const ev = t.eventId ? Store.event(t.eventId) : null;
+        return `<div class="esec" id="etEvent">
+          <div class="esechead"><span>אירוע קשור</span></div>
+          ${ev ? `<div class="evcur">
+                    <div class="el">${esc(ev.title)}</div>
+                    <div class="em">${esc(Plan.longDate(ev.date))}${ev.allDay ? '' : ' · ' + esc(ev.time)}</div>
+                  </div>
+                  <div style="display:flex;gap:14px;margin-top:6px">
+                    <button class="secact" id="etEvOpen">פתח אירוע</button>
+                    <button class="secact" id="etEvOff">נתק</button></div>`
+                : `<div class="ex">לא מקושר. חבר את המשימה למשהו שקורה ביומן —
+                     למשל "להכין מצגת" לאירוע "הצגת הפרויקט".</div>
+                   <button class="secact" id="etEvLink" style="margin-top:6px">קשר לאירוע</button>`}
+        </div>`;
+      };
+
       Modal.open({ title:heading, body:`
-        <div style="margin-bottom:14px"><label>מה צריך לעשות</label>
+        <div style="margin-bottom:14px"><label>${isHabitEditor ? 'איזה הרגל?' : 'מה צריך לעשות?'}</label>
           <input type="text" id="etTitle" value="${esc(d ? d.title : (t ? t.title : (o.title||'')))}"
-                 autocomplete="off"></div>
+                 autocomplete="off" placeholder="${isHabitEditor ? 'למשל: לארוז תיק' : 'למשל: לקנות מטען'}"></div>
+
+        ${isChild ? `<div class="belongs">שייך ל־${esc(underName)}</div>` : ''}
+
         <div style="margin-bottom:14px"><label>תיאור</label>
-          <textarea id="etNote" rows="6" placeholder="פרטים, מה להביא, לינק…"
-            style="resize:vertical;min-height:132px;line-height:1.6">${
-              esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea>
-          <div id="etImgBox" style="margin-top:9px">${imgBox()}</div>
-          <input type="file" id="etImgFile" accept="image/*" hidden></div>
+          <textarea id="etNote" rows="4" placeholder="פרטים, מה להביא, לינק…"
+            style="resize:vertical;min-height:120px;line-height:1.6">${
+              esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea></div>
 
-        <div style="margin-bottom:16px"><label>תת-משימות והרגלים</label>
-          <div id="etKids">${childRows()}</div>
-          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-            <button class="btn" id="etAddKid">+ תת-משימה</button>
-            <button class="btn" id="etAddHabit">+ הרגל</button>
+        ${(isChild || isHabitEditor) ? '' : `
+        <div style="margin-bottom:14px"><label>איזה סוג משימה?</label>
+          <div class="kindpick" id="etKind">
+            <button data-k="short" aria-selected="${kind==='short'}">
+              <span class="kn">קצרת טווח</span>
+              <span class="kd">משהו שצריך לעשות ולסיים. למשל "לקנות מטען".</span></button>
+            <button data-k="long" aria-selected="${kind==='long'}">
+              <span class="kn">ארוכת טווח</span>
+              <span class="kd">משהו שנמשך לאורך זמן ויכול להכיל דברים בתוכו. למשל "ציוד לצבא".</span></button>
           </div>
-          <div class="note" style="margin-top:7px">תת-משימה היא משימה של ממש — יש לה זמן וסטטוס.
-            אם זה רק שם לסמן, המקום שלו ברשימה שלמטה.</div></div>
+          <div class="ex" id="etKindNote"></div></div>
 
-        ${isChild ? '' : `
-        <div style="margin-bottom:14px"><label>סוג המשימה</label>
-          <div class="seg" id="etKind">
-            <button data-k="short" aria-selected="${kind==='short'}">קצרת טווח</button>
-            <button data-k="long"  aria-selected="${kind==='long'}">ארוך טווח</button>
-            <button data-k="list"  aria-selected="${kind==='list'}">רשימה</button>
-          </div>
-          <div class="note" style="margin-top:7px" id="etKindNote"></div></div>`}
-
-        ${isChild ? '' : `
-        <div style="margin-bottom:6px"><label>קטגוריה</label>
+        <div style="margin-bottom:14px"><label>קטגוריה</label>
           <div class="seg cat" id="etCat">
             ${['army','home','free'].map(k =>
               `<button data-k="${k}" aria-selected="${cat===k}">${CAT[k]}</button>`).join('')}
           </div></div>`}
 
-        ${streakBlock()}
-        <div id="etAccs" style="margin-top:14px">
-          ${acc('time','זמן', `
-            <div style="margin-bottom:10px"><label>${kind==='long'?'תאריך יעד':'מתי לבצע'}</label>
-              <div class="seg" id="etWhen">
-                <button data-d="none" aria-selected="${!planned}">ללא תאריך</button>
-                <button data-d="today" aria-selected="${planned===Plan.today()}">היום</button>
-                <button data-d="tom" aria-selected="${planned===Plan.shift(Plan.today(),1)}">מחר</button>
-              </div>
-              <input type="date" id="etDate" value="${esc(planned||'')}" style="margin-top:8px"></div>
-            <div id="etHour"><label>שעה ותזכורת</label>
-              <input type="time" id="etTime" value="${esc(d ? d.time : (r.type==='time'?r.at:''))}"></div>
-            <div class="note" style="margin-top:7px">${Native.on
-              ? 'התזכורת תצלצל גם כשהאפליקציה סגורה. אחרי השמירה אפשר להוסיף גם התראה בשעון הטלפון.'
-              : 'בדפדפן התזכורת עובדת רק כשהאפליקציה פתוחה. באפליקציה המותקנת היא עובדת גם סגורה.'}</div>`)}
-
-          ${isChild ? '' : acc('place','מיקום', `
-            <div class="fgrid">
-              <div style="flex:2"><label>מקום</label><select id="etPlace">${placeOpts}</select></div>
-              <div><label>+ דקות</label>
-                <input type="number" id="etDelay" value="${d ? d.delay : (r.delayMin||0)}"
-                       min="0" max="600" inputmode="numeric"></div>
+        <div style="margin-bottom:14px" id="etAlert">
+          <label id="etAlertLbl">${kind === 'long' ? 'תאריך יעד' : 'התראה'}</label>
+          <div id="etAlertBody">
+            ${alertSeg()}
+            <div id="etModeBody" style="margin-top:12px">
+              ${onceBlock()}${repeatBlock()}
             </div>
-            <button class="txtbtn" id="etPlaceOff">בלי תזכורת מיקום</button>
-            <div class="note">${Native.on
-              ? 'מערכת ההפעלה מחזיקה את הגדר. עובד גם כשהאפליקציה מתה לגמרי.'
-              : 'תזכורת מיקום עובדת ברקע רק באפליקציה המותקנת.'}</div>`)}
-
-          ${isChild ? '' : acc('trip','נסיעה', `
-            <div class="fgrid" style="align-items:flex-end">
-              <div><label>ק״מ רצוף</label>
-                <input type="number" id="etKm" value="${esc(d ? d.km : (r.type==='trip'?r.km:''))}"
-                       min="1" max="500" inputmode="decimal" placeholder="למשל 4"></div>
-              <button class="btn" id="etTripOff" style="flex:0 0 auto">נקה</button></div>
-            <div class="note" style="margin-top:7px">תזכורת אחרי נסיעה רצופה.
-              עובדת רק כשהאפליקציה פתוחה.</div>`)}
-
-          ${acc('repeat','חוזר', `
-            <div style="margin-bottom:10px"><label>באילו ימים</label>
-              <div class="days" id="etDays">${DAYL.map((x,i) =>
-                `<button data-d="${i}" aria-selected="${rep ? rep.days.includes(i) : false}">${x}</button>`).join('')}</div></div>
-            <div><label>מתי להזכיר</label>
-              <div class="times" id="etTimes">
-                ${(rep ? rep.times : ['08:00']).map(x => `<input type="time" class="ht" value="${esc(x)}">`).join('')}
-                <button class="btn" id="etAddTime" style="padding:8px 11px">+ שעה</button></div>
-              <div class="note" style="margin-top:7px">אלה ניסיונות חוזרים על אותה משימה.
-                סימון אחד ביום סוגר את היום${Native.on
-                  ? ', ומשתיק גם את התזכורות שנשארו' : ''}.</div></div>
-            <button class="txtbtn" id="etRepOff">לא חוזר</button>`)}
+          </div>
         </div>
 
-        <div style="margin-top:18px"><label>רשימה</label>
-          <div id="etItems">${itemRows()}</div>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <input type="text" id="etNewItem" placeholder="הוסף פריט…" autocomplete="off" style="flex:1">
-            <button class="btn" id="etAddItem" style="flex:0 0 auto">הוסף</button></div>
-          <div class="note" style="margin-top:7px">פריט הוא שם וסימון בלבד — בלי תאריך, תזכורת,
-            מקום או ארכיון. פריט מסומן נשאר ברשימה.</div></div>
+        ${streakBlock()}
+
+        <div id="etMain"></div>
+
+        <div class="acc" id="etAdvAcc" aria-expanded="false">
+          <button class="ah" id="etAdvHead"><span class="an">אפשרויות נוספות</span>
+            <span class="as" data-sum="adv">—</span><span class="ar">‹</span></button>
+          <div class="ab" id="etAdv">
+            ${isChild ? '' : `
+            <div class="esec" data-adv="place">
+              <div class="esechead"><span>מיקום</span>
+                <button class="secact" data-advpick="place">בחר מקום</button></div>
+              <div id="etPlaceHost"></div>
+            </div>
+            <div class="esec" data-adv="trip">
+              <div class="esechead"><span>נסיעה</span>
+                <button class="secact" data-advpick="trip">לפי מרחק</button></div>
+              <div id="etTripHost"></div>
+            </div>`}
+            ${eventBlock()}
+            <div class="esec">
+              <div class="esechead"><span>תמונה</span></div>
+              <div class="ex">תמונה אחת מהגלריה. למשל צילום של רשימת הציוד.</div>
+              <div id="etImgBox" style="margin-top:8px">${imgBox()}</div>
+              <input type="file" id="etImgFile" accept="image/*" hidden>
+            </div>
+            <div id="etAdvContent"></div>
+          </div>
+        </div>
 
         ${(!isNew && t.parentId) ? `<button class="txtbtn" id="etIndep"
             style="margin-top:14px">הפוך למשימה עצמאית</button>` : ''}`,
         buttons:[
-          ...(isNew ? [{label:'ביטול',act:()=>Modal.shut()}]
+          ...(isNew ? [{label:'ביטול',act:()=>closeEditor()}]
                     : [{label:'מחק',act:()=>{ Store.delTask(t.id); Modal.shut(); UI.toast('נמחק'); }}]),
           {label: isNew ? 'הוסף' : 'שמור', kind:'p', act:save}]});
 
@@ -4214,39 +4337,81 @@ const Wire = (() => {
 
       function kindNote(){
         if (!g('etKindNote')) return;
-        g('etKindNote').textContent =
-            kind === 'long' ? 'תחום שנמשך — פרויקט, תחביב, רשימת ציוד חוזרת. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אפשר לתת לו תאריך יעד, אבל שעה, מיקום וחזרה שייכים לתת-המשימות שלו.'
-          : kind === 'list' ? 'הלב שלה הוא הפריטים, לא הסימון של עצמה. יש לה זמן וחזרה — למשל קנייה שבועית — ואין לה מיקום או נסיעה. אפשר לאפס אותה ולהתחיל מחדש.'
-          : 'משימה שיש לה סוף. ברגע שתסמן אותה — היא עוברת לארכיון.';
+        g('etKindNote').textContent = kind === 'long'
+          ? 'נשאר על המסך עד שתסגור אותו. הרשימה, התת-משימות וההרגלים חיים בתוכו.'
+          : 'ברגע שתסמן אותו הוא עובר לארכיון.';
       }
+
+      /* ---- מצב ההתראה: מציגים בדיוק אחד, אף פעם לא שניים ---- */
+      function applyMode(){
+        const show = (id, on) => { const el = g(id); if (el) el.hidden = !on; };
+        show('etOnce',   mode === 'once');
+        show('etRepeat', mode === 'repeat');
+        const host = g('etModeBody'); if (!host) return;
+        /* מיקום ונסיעה הן תזכורות בפני עצמן — הן תופסות את אותו שדה */
+        let extra = host.querySelector('#etModeExtra');
+        if (mode === 'place' || mode === 'trip'){
+          if (!extra){ extra = document.createElement('div'); extra.id = 'etModeExtra';
+                       host.appendChild(extra); }
+          extra.innerHTML = mode === 'place'
+            ? `<div class="ex">ההתראה הזאת היא לפי מקום. היא מוגדרת ב"אפשרויות נוספות".</div>`
+            : `<div class="ex">ההתראה הזאת היא לפי נסיעה. היא מוגדרת ב"אפשרויות נוספות".</div>`;
+        } else if (extra){ extra.remove(); }
+        B.querySelectorAll('#etMode button').forEach(x =>
+          x.setAttribute('aria-selected', x.dataset.a === mode));
+        const lbl = g('etAlertLbl');
+        if (lbl) lbl.textContent = kind === 'long' ? 'תאריך יעד' : 'התראה';
+      }
+
+      /* ---- הצבת המקטעים: ארוכת-טווח מציגה אותם, קצרת-טווח מסתירה ---- */
+      function placeContent(){
+        const main = g('etMain'), adv = g('etAdvContent');
+        if (!main || !adv) return;
+        let box = g('etContent');
+        if (!box){
+          const tmp = document.createElement('div');
+          tmp.innerHTML = contentBlock();
+          box = tmp.firstElementChild;
+        }
+        const populated = items().length || pending.length ||
+                          (!isNew && (Store.subtasksOf(t.id).length || Store.habitsOf(t.id).length));
+        const inline = (kind === 'long') || !!populated || isChild;
+        (inline ? main : adv).appendChild(box);
+      }
+
       function applyKind(){
-        /* לפריט ארוך-טווח אין שעה, מקום, נסיעה או חזרה — אבל כן יכול להיות
-           תאריך יעד. רשימת ציוד ליציאה לבסיס צריכה לנחות על יום מסוים. */
+        /* ארוכת-טווח היא מיכל: יש לה תאריך יעד, ומיקום/נסיעה/שעה שייכים
+           לתת-המשימות שלה. שום יכולת לא נמחקת — היא רק לא רלוונטית כאן. */
+        const alertBody = g('etAlertBody');
+        if (alertBody){
+          const seg = g('etMode');
+          if (seg) seg.hidden = kind === 'long';
+          if (kind === 'long'){
+            mode = 'once';
+            if (g('etTime')) g('etTime').value = '';
+          }
+        }
+        if (g('etTimeWrap')) g('etTimeWrap').hidden = kind === 'long';
+        if (g('etOnceEx')) g('etOnceEx').textContent = kind === 'long'
+          ? 'היום שבו זה אמור לנחות. לא תזכורת — רק תאריך יעד.'
+          : 'קורה פעם אחת. למשל "להתקשר למפקד מחר ב-18:00".';
         ['place','trip'].forEach(k => {
-          const el = B.querySelector(`[data-acc="${k}"]`);
-          if (el) el.hidden = kind !== 'short';   /* מיקום ונסיעה שייכים רק לקצרת טווח */
+          const el = B.querySelector(`[data-adv="${k}"]`);
+          if (el) el.hidden = kind === 'long';
         });
-        const rp = B.querySelector('[data-acc="repeat"]');
-        if (rp) rp.hidden = kind === 'long';      /* לרשימה יש חזרה, לארוך-טווח אין */
-        const hour = g('etHour');
-        if (hour) hour.hidden = kind === 'long';
-        if (kind === 'long' && g('etTime')) g('etTime').value = '';
-        const lbl = B.querySelector('[data-acc="time"] label');
-        if (lbl) lbl.textContent = kind === 'long' ? 'תאריך יעד' : 'מתי לבצע';
-        const an = B.querySelector('[data-acc="time"] .an');
-        if (an) an.textContent = kind === 'long' ? 'תאריך יעד' : 'זמן';
-        kindNote();
+        applyMode(); placeContent(); kindNote(); refreshSummaries();
       }
+
       const sum = (id, txt) => { const el = B.querySelector(`[data-sum="${id}"]`);
-                                 if (el) el.textContent = txt || 'לא נקבע'; };
+                                 if (el) el.textContent = txt || '—'; };
       function refreshSummaries(){
-        const date = g('etDate').value, tm = g('etTime').value;
-        sum('time', [date ? Plan.label(date) : '', tm].filter(Boolean).join(' · '));
+        const bits = [];
         const pid = g('etPlace') ? g('etPlace').value : '';
-        sum('place', rem === 'place' && pid
-          ? UI.whereLabel({ placeId:pid, delayMin:+g('etDelay').value||0 }) : '');
-        sum('trip', (g('etKm') && g('etKm').value) ? g('etKm').value + ' ק״מ' : '');
-        sum('repeat', rep ? UI.repeatLabel(rep) + ' · ' + rep.times.join(' ') : '');
+        if (mode === 'place' && pid) bits.push(UI.whereLabel({ placeId:pid, delayMin:+((g('etDelay')||{}).value)||0 }));
+        if (mode === 'trip' && g('etKm') && g('etKm').value) bits.push(g('etKm').value + ' ק״מ');
+        if (img) bits.push('תמונה');
+        if (!isNew && t && t.eventId && Store.event(t.eventId)) bits.push('אירוע');
+        sum('adv', bits.join(' · '));
       }
       function syncRep(){
         const days = [...B.querySelectorAll('#etDays [aria-selected="true"]')].map(b => +b.dataset.d);
@@ -4256,9 +4421,9 @@ const Wire = (() => {
       /* צילום מצב הטופס — כדי לחזור אליו אחרי שיוצרים תת-משימה */
       function snapshot(){
         syncRep();
-        return { title:g('etTitle').value, note:g('etNote').value, kind, cat, rem,
+        return { title:g('etTitle').value, note:g('etNote').value, kind, cat, mode,
                  rep: rep ? { days:rep.days.slice(), times:rep.times.slice() } : null,
-                 date:g('etDate').value, time:g('etTime').value,
+                 date:(g('etDate')||{}).value || '', time:(g('etTime')||{}).value || '',
                  placeId:g('etPlace') ? g('etPlace').value : '',
                  delay:g('etDelay') ? g('etDelay').value : 0,
                  km:g('etKm') ? g('etKm').value : '',
@@ -4287,6 +4452,42 @@ const Wire = (() => {
         const cb = e.target.closest('#etCat button');
         if (cb){ cat = cb.dataset.k;
                  B.querySelectorAll('#etCat button').forEach(x => x.setAttribute('aria-selected', x===cb)); return; }
+        const mb = e.target.closest('#etMode button');
+        if (mb){ mode = mb.dataset.a;
+                 if (mode !== 'repeat'){ rep = null;
+                   B.querySelectorAll('#etDays button').forEach(x => x.setAttribute('aria-selected','false')); }
+                 if (mode !== 'once' && g('etTime')) g('etTime').value = '';
+                 applyMode(); refreshSummaries(); return; }
+        const adv = e.target.closest('[data-advpick]');
+        if (adv){
+          const which = adv.dataset.advpick;
+          if (mode === which){                     /* לחיצה שנייה מכבה */
+            mode = 'none';
+            const host = g(which === 'place' ? 'etPlaceHost' : 'etTripHost');
+            if (host) host.innerHTML = '';
+          } else {
+            mode = which;
+            const host = g(which === 'place' ? 'etPlaceHost' : 'etTripHost');
+            if (host) host.innerHTML = which === 'place' ? placeBlock() : tripBlock();
+            /* בחירת מקום היא בחירה מפורשת. קודם ה-select היה נראה מלא
+               אבל התזכורת לא נשמרה — כלום לא הודיע על זה. */
+            if (which === 'place' && g('etPlace') && !g('etPlace').value && tops.length)
+              g('etPlace').value = tops[0].id;
+          }
+          adv.textContent = mode === which ? 'בטל' : (which === 'place' ? 'בחר מקום' : 'לפי מרחק');
+          applyMode(); refreshSummaries(); return;
+        }
+        if (e.target.closest('#etEvLink')){
+          if (isNew){ UI.toast('שמור קודם את המשימה'); return; }
+          pickEventFor(t.id); return;
+        }
+        if (e.target.closest('#etEvOff')){
+          Store.linkTask(t.id, null); Modal.shut(); UI.toast('נותק'); return;
+        }
+        if (e.target.closest('#etEvOpen')){
+          const ev = Store.event(t.eventId); Modal.shut(); if (ev) eventMenu(ev); return;
+        }
+        if (e.target.closest('#etAddItem2')){ (g('etNewItem')||{focus(){}}).focus(); return; }
         const wb = e.target.closest('#etWhen button');
         if (wb){ g('etDate').value = wb.dataset.d === 'today' ? Plan.today()
                                    : wb.dataset.d === 'tom' ? Plan.shift(Plan.today(),1) : '';
@@ -4300,12 +4501,6 @@ const Wire = (() => {
           inp.type='time'; inp.className='ht'; inp.value='20:00';
           g('etTimes').insertBefore(inp, g('etAddTime')); syncRep(); refreshSummaries(); return;
         }
-        if (e.target.closest('#etRepOff')){
-          B.querySelectorAll('#etDays button').forEach(x => x.setAttribute('aria-selected','false'));
-          rep = null; refreshSummaries(); return;
-        }
-        if (e.target.closest('#etPlaceOff')){ rem = 'none'; refreshSummaries(); return; }
-        if (e.target.closest('#etTripOff')){ g('etKm').value = ''; refreshSummaries(); return; }
         if (e.target.closest('#etImgAdd')){ g('etImgFile').click(); return; }
         if (e.target.closest('#etImgDel')){ img = ''; paintImg(); return; }
         if (e.target.closest('#etAddKid')){   openChild(false); return; }
@@ -4348,13 +4543,13 @@ const Wire = (() => {
           const key = rm.dataset.rm;
           if (isNew){ pending.splice(+key, 1); }
           else { Store.delTask(key); }
-          g('etKids').innerHTML = childRows();
+          repaintKids();
           return;
         }
         const cmv = e.target.closest('[data-cmv]');
         if (cmv){
           const bar = cmv.dataset.cmv, i = bar.lastIndexOf('|');
-          if (Store.moveChild(bar.slice(0,i), +bar.slice(i+1))) g('etKids').innerHTML = childRows();
+          if (Store.moveChild(bar.slice(0,i), +bar.slice(i+1))) repaintKids();
           return;
         }
         const op = e.target.closest('[data-open]');
@@ -4428,7 +4623,6 @@ const Wire = (() => {
         syncRep(); refreshSummaries();
       });
       B.addEventListener('input',  refreshSummaries);
-      if (g('etPlace')) g('etPlace').addEventListener('change', () => { rem = 'place'; refreshSummaries(); });
 
       /* ערכי התחלה שלא נכנסים דרך ה-HTML */
       const pre = o.preset || null;
@@ -4438,34 +4632,71 @@ const Wire = (() => {
         kind = pre.kind || 'short';
         B.querySelectorAll('#etKind button').forEach(x =>
           x.setAttribute('aria-selected', x.dataset.k === kind));
-        if (pre.planned) g('etDate').value = pre.planned;
-        if (pre.reminder && pre.reminder.type === 'time') g('etTime').value = pre.reminder.at;
-        if (pre.reminder && pre.reminder.type === 'trip') g('etKm').value = pre.reminder.km;
-        if (pre.reminder && pre.reminder.type === 'place'){
-          rem = 'place';
-          if (g('etPlace').querySelector(`option[value="${pre.reminder.placeId}"]`))
-            g('etPlace').value = pre.reminder.placeId;
-          g('etDelay').value = pre.reminder.delayMin || 0;
-        }
+        if (pre.planned && g('etDate')) g('etDate').value = pre.planned;
+        if (pre.reminder && pre.reminder.type === 'time'){
+          mode = 'once'; if (g('etTime')) g('etTime').value = pre.reminder.at; }
+        if (pre.reminder && pre.reminder.type === 'trip')  mode = 'trip';
+        if (pre.reminder && pre.reminder.type === 'place') mode = 'place';
         if (pre.pendItems){ pendItems = pre.pendItems.slice(); g('etItems').innerHTML = itemRows(); }
         if (pre.repeat){
+          mode = 'repeat';
           rep = { days:pre.repeat.days.slice(), times:pre.repeat.times.slice() };
-          B.querySelectorAll('#etDays button').forEach(x =>
-            x.setAttribute('aria-selected', rep.days.includes(+x.dataset.d)));
-          const wrap = g('etTimes');
+        }
+        if (pre.img){ img = pre.img; paintImg(); }
+      }
+      /* המקום/הנסיעה חיים ב"אפשרויות נוספות"; מציירים אותם רק אם הם באמת פעילים */
+      const restore = d || (t && !pre ? { placeId:(r.placeId||''), delay:(r.delayMin||0),
+                                          km:(r.type==='trip'?r.km:'') } : null);
+      if (mode === 'place' || mode === 'trip'){
+        const host = g(mode === 'place' ? 'etPlaceHost' : 'etTripHost');
+        if (host){
+          host.innerHTML = mode === 'place' ? placeBlock() : tripBlock();
+          const btn = B.querySelector(`[data-advpick="${mode}"]`);
+          if (btn) btn.textContent = 'בטל';
+          const acc = g('etAdvAcc'); if (acc) acc.setAttribute('aria-expanded','true');
+          if (mode === 'place' && restore && restore.placeId && g('etPlace') &&
+              g('etPlace').querySelector(`option[value="${restore.placeId}"]`)){
+            g('etPlace').value = restore.placeId;
+            if (g('etDelay')) g('etDelay').value = restore.delay || 0;
+          }
+          if (mode === 'trip' && restore && restore.km && g('etKm')) g('etKm').value = restore.km;
+        }
+      }
+      if (rep){
+        B.querySelectorAll('#etDays button').forEach(x =>
+          x.setAttribute('aria-selected', rep.days.includes(+x.dataset.d)));
+        const wrap = g('etTimes');
+        if (wrap){
           wrap.querySelectorAll('.ht').forEach(x => x.remove());
           rep.times.forEach(v => { const i = document.createElement('input');
             i.type='time'; i.className='ht'; i.value=v; wrap.insertBefore(i, g('etAddTime')); });
         }
       }
-      const srcPlace = d ? d.placeId : (r.type === 'place' ? r.placeId : '');
-      if (srcPlace && g('etPlace') && g('etPlace').querySelector(`option[value="${srcPlace}"]`)){
-        g('etPlace').value = srcPlace;
-        if (d ? d.rem === 'place' : true) rem = 'place';
-      }
       applyKind(); syncRep(); refreshSummaries();
-      if (o.habit || (pre && pre.repeat)) B.querySelector('[data-acc="repeat"]').setAttribute('aria-expanded','true');
       if (isNew && !d) setTimeout(() => g('etTitle')?.focus(), 80);
+
+      /* יצירה יכולה להחזיק פריטים ותת-משימות שקיימים רק בזיכרון.
+         סגירה לא תזרוק אותם בשקט — אבל טופס ריק לא מקפיץ שום שאלה. */
+      function dirty(){
+        if (!isNew) return false;
+        return !!(g('etTitle').value.trim() || g('etNote').value.trim() ||
+                  pendItems.length || pending.length || img);
+      }
+      function closeEditor(){
+        if (!dirty()){ Modal.shut(); return true; }
+        const draft = snapshot();
+        Modal.shut();
+        Modal.open({ title:'לזרוק את הטיוטה?',
+          body:`<div class="note">כתבת כאן דברים שעוד לא נשמרו${
+            pendItems.length || pending.length
+              ? ' — כולל ' + [pendItems.length ? pendItems.length + ' פריטים' : '',
+                              pending.length ? pending.length + ' תת-משימות' : '']
+                             .filter(Boolean).join(' ו-') : ''}.</div>`,
+          buttons:[{label:'חזור לעריכה',act:()=>{ Modal.shut(); taskModal({ ...o, draft }); }},
+                   {label:'זרוק',kind:'p',act:()=>{ Modal.shut(); }}]});
+        return false;
+      }
+      Modal.closeGuard = () => closeEditor();
 
       /* ---- בונה אובייקט משימה מהטופס ---- */
       function collect(){
@@ -4473,18 +4704,25 @@ const Wire = (() => {
         if (!title) return null;
         syncRep();
         const out = { title, note:g('etNote').value.trim(), img: img || null,
-                      kind, mission:cat, reminder:null, repeat:rep, planned:null };
-        out.planned = g('etDate').value || null;
-        if (kind !== 'long'){
-          const tm = g('etTime').value;
-          /* מיקום ונסיעה שייכים רק לקצרת טווח — רשימה מקבלת זמן וחזרה בלבד */
-          const km = (kind === 'short' && g('etKm')) ? parseFloat(g('etKm').value) : NaN;
-          const pid = (kind === 'short' && g('etPlace')) ? g('etPlace').value : '';
+                      kind, mission:cat, reminder:null, repeat:null, planned:null };
+        out.planned = (g('etDate') || {}).value || null;
+
+        /* למשימה יש תזכורת אחת. המצב שנבחר הוא זה שנשמר — בלי הכרעה
+           נסתרת בין שעה למקום, שקודם השליכה בשקט תזכורת מיקום שנבחרה. */
+        if (kind === 'long'){ return out; }          /* מיכל: תאריך יעד בלבד */
+        if (mode === 'once'){
+          const tm = (g('etTime') || {}).value;
           if (tm) out.reminder = { type:'time', at:tm };
-          else if (rem === 'place' && pid)
-            out.reminder = { type:'place', placeId:pid, delayMin:Math.max(0,+g('etDelay').value||0) };
-          else if (isFinite(km) && km > 0) out.reminder = { type:'trip', km };
-        } else { out.repeat = null; out.reminder = null; }
+        } else if (mode === 'repeat'){
+          out.repeat = rep;
+        } else if (mode === 'place'){
+          const pid = g('etPlace') ? g('etPlace').value : '';
+          if (pid) out.reminder = { type:'place', placeId:pid,
+                                    delayMin:Math.max(0, +((g('etDelay')||{}).value) || 0) };
+        } else if (mode === 'trip'){
+          const km = g('etKm') ? parseFloat(g('etKm').value) : NaN;
+          if (isFinite(km) && km > 0) out.reminder = { type:'trip', km };
+        }
         return out;
       }
       /* שעה שכבר עברה היום לא אמורה לצלצל ברגע השמירה */
@@ -4699,17 +4937,25 @@ const Wire = (() => {
                 ${ev.allDay ? 'כל היום' : esc(ev.time)+'–'+esc(ev.end||'')} · ${esc(Cal.type(ev).name)}${
                   Cal.dayCount(ev) > 1 ? ' · ' + Cal.dayCount(ev) + ' ימים' : ''}</div>
               ${ev.note ? `<div class="msum" style="margin-bottom:12px">${esc(ev.note)}</div>` : ''}
-              ${linked.length ? `<div style="margin-bottom:8px">${linked.map(t => `
+              <div class="esec">
+                <div class="esechead"><span>דברים להכין</span>
+                  <button class="secact" data-m="link">+ קשר משימה</button></div>
+                ${linked.length ? linked.map(t => `
                   <div class="row" data-id="${t.id}" style="padding:9px 0">
-                    <button class="cb" data-act="doneTask"></button>
-                    <div class="bd"><div class="t" style="font-size:14px">${esc(t.title)}</div></div>
-                  </div>`).join('')}</div>` : ''}
+                    <button class="cb" data-act="doneTask">✓</button>
+                    <div class="bd"><div class="t" style="font-size:14px">${esc(t.title)}</div>
+                      ${(t.reminder && t.reminder.type === 'time')
+                        ? `<div class="m">שעה משלה · ${esc(t.reminder.at)}</div>` : ''}</div>
+                  </div>`).join('')
+                : `<div class="ex">מה שצריך להספיק לפני האירוע.
+                     למשל "להכין מצגת" לפני "הצגת הפרויקט".</div>`}
+              </div>
               ${(() => { const l = ev.listId ? Store.list(ev.listId) : null;
                  return l ? `<button class="pick" data-m="list"><span class="pn">פתח את הרשימה</span>
                    <span class="pm">${l.items.filter(i=>!i.done).length} פתוחים</span></button>` : ''; })()}
               <button class="pick" data-m="edit"><span class="pn">ערוך אירוע</span></button>
-              <button class="pick" data-m="link"><span class="pn">קשר משימה</span></button>
-              <button class="pick" data-m="cal"><span class="pn">ליומן הטלפון</span></button>
+              <button class="pick" data-m="cal"><span class="pn">ליומן הטלפון</span>
+                <span class="pm">יפתח את היומן של הטלפון לאישור</span></button>
               <button class="pick" data-m="del"><span class="pn" style="color:var(--danger)">מחק</span></button>`,
         buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
@@ -5611,7 +5857,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     });
 
     /* ================= כללי ================= */
-    $('#mClose').addEventListener('click', () => Modal.shut());
+    $('#mClose').addEventListener('click', () => Modal.tryShut());
     $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') Modal.shut(); });
     document.addEventListener('focusout', () => {
       setTimeout(() => { if (UI.deferred && !UI.typing()) UI.render(); }, 60);
@@ -5641,6 +5887,8 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     function hasBack(){
       return !!(DatePick.isOpen() || $('#modal').classList.contains('on')
              || $('#imgzoom').classList.contains('on')
+             || $('#alert').classList.contains('on')
+             || UI.reorder
              || UI.openNote || UI.openList || UI.screen
              || UI.section !== 'today' || UI.trail.length
              || UI.tview !== 'day' || UI.selDate !== Plan.today());
@@ -5649,10 +5897,13 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     UI.afterRender = () => Native.canBack(hasBack());
 
     function goBack(){
+      /* מקלפים שכבה אחת בכל פעם, מהעליונה לתחתונה */
       if ($('#imgzoom').classList.contains('on')){
         $('#imgzoom').classList.remove('on'); return true; }
       if (DatePick.isOpen()){ DatePick.shut(); return true; }
-      if ($('#modal').classList.contains('on')){ Modal.shut(); return true; }
+      if ($('#modal').classList.contains('on')){ Modal.tryShut(); return true; }
+      if ($('#alert').classList.contains('on')){ UI.closeAlert(); return true; }
+      if (UI.reorder){ UI.reorder = null; UI.render(); return true; }
       if (UI.openNote){ closeNote(); return true; }
       if (UI.openList){ UI.openList = null; UI.render(); return true; }
       if (UI.screen){ UI.screen = null; UI.render(); return true; }
@@ -5750,6 +6001,10 @@ const Engine = (() => {
       const r = t.reminder;
 
       if (r.type === 'time'){
+        /* משימה שיש לה תאריך יורה רק ביום שלה. בלי הבדיקה הזאת משימה
+           שתוכננה למחר בשעה שכבר עברה היום הייתה מצלצלת מיד — וזו בדיוק
+           הסמנטיקה שהמתזמן ברקע כבר עובד לפיה. */
+        if (t.planned && t.planned !== Plan.today()) return;
         const [h,m] = (r.at||'00:00').split(':').map(Number);
         const target = new Date(); target.setHours(h,m,0,0);
         const key = new Date().toDateString()+r.at;
