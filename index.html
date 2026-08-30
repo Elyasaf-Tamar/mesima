@@ -173,6 +173,15 @@
   .kids .krow:has(+ .seclbl){border-bottom:0}
   .kids .krow .kt{flex:1;font-size:14px;line-height:1.4}
   .kids .krow .km{font-size:11.5px;color:var(--muted2);margin-top:2px}
+  /* התיאור של תת-משימה נפתח במקום, בלי להיכנס לעריכה */
+  .kpeek{
+    margin-top:7px;padding:9px 11px;border-radius:9px;background:var(--surface3);
+    font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap;
+  }
+  .kpeek.empty{color:var(--muted2);font-style:normal}
+  .kpeek .acts{display:flex;gap:14px;margin-top:9px}
+  .kpeek .acts button{font-size:12.5px;color:var(--accent);font-weight:600}
+  .addkid{font-size:12.5px;color:var(--accent);font-weight:600;margin-top:9px;padding:6px 0}
   .twist{
     font-size:12.5px;color:var(--muted2);margin-top:9px;
     display:flex;align-items:center;gap:6px;
@@ -317,10 +326,12 @@
   .swatches button[aria-selected="true"]{border-color:var(--text)}
 
   /* ---------------- לוח חודשי ---------------- */
+  /* היומן רץ משמאל לימין — ראשון בקצה השמאלי, כמו כל יומן שהוא מכיר */
+  .cal{direction:ltr}
   .mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
   .wd{text-align:center;font-size:11px;color:var(--muted2);padding-bottom:6px}
   .day{
-    aspect-ratio:1;border-radius:9px;display:flex;flex-direction:column;
+    aspect-ratio:1/.82;border-radius:9px;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:4px;font-size:13.5px;
     color:var(--text);font-variant-numeric:tabular-nums;
   }
@@ -329,6 +340,25 @@
   .day[aria-selected="true"]{background:var(--surface3)}
   .day .pips{display:flex;gap:3px;height:4px}
   .day .pip{width:4px;height:4px;border-radius:50%}
+
+  /* אירוע רב-יומי: פס אחד רציף לאורך כל הימים שהוא תופס */
+  .mweek{margin-bottom:11px}
+  .mbars{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:3px}
+  .mbar{
+    grid-row:auto;min-width:0;min-height:17px;border-radius:5px;padding:1px 6px;
+    font-size:10.5px;line-height:15px;color:#0d1117;font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:start;
+  }
+  .mbar.mid{border-radius:0}
+  .mbar.head{border-start-end-radius:0;border-end-end-radius:0}
+  .mbar.tail{border-start-start-radius:0;border-end-start-radius:0}
+  .mbar.gap2{visibility:hidden}
+  /* ניווט היומן — חצים בכיוון שהעין מצפה לו במצב LTR */
+  .calnav{display:flex;align-items:center;gap:8px;padding:0 0 12px;direction:ltr}
+  .calnav .ttl{flex:1;text-align:center;font-size:15px;font-weight:600}
+  /* ניווט הטווח רץ LTR כמו שאר היומן; רק הכותרת נשארת עברית */
+  .rangenav{display:flex;align-items:center;gap:8px;margin-bottom:14px;direction:ltr}
+  .rangenav .ttl{flex:1;font-size:12.5px;color:var(--muted2);direction:rtl;text-align:center}
 
   /* ---------------- התראה ---------------- */
   #alert{position:fixed;inset:0;background:rgba(8,10,14,.78);display:none;z-index:80;
@@ -652,7 +682,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '2.4 · 2026-08-26';
+const BUILD = '2.5 · 2026-08-27';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -705,6 +735,8 @@ const Store = (() => {
     if (e.note === undefined) e.note = '';
     if (e.taskIds !== undefined) delete e.taskIds;
     if (e.endDate === undefined) e.endDate = '';
+    if (e.allDay === undefined) e.allDay = false;
+    if (e.listId === undefined) e.listId = null;
     if (!e.end){                       /* גרסאות ישנות שמרו אורך בדקות */
       const [h,m] = (e.time||'09:00').split(':').map(Number);
       const t = h*60 + m + (e.mins || 60);
@@ -811,10 +843,20 @@ const Store = (() => {
         parentId:o.parentId||null, planned:o.planned||null, eventId:o.eventId||null,
         note:o.note||'', repeat:o.repeat||null, log:{}, collapsed:true,
         kind:(o.kind==='long'?'long':'short'), archived:false, archivedAt:null, autoArch:false,
-        checklist:[], sortIndex:(typeof o.sortIndex === 'number' ? o.sortIndex : Date.now()) };
+        checklist:[], sortIndex:0 };
       /* תת-משימה יורשת את המשימה-על של ההורה, אחרת היא נעלמת מהתצוגה */
       if (t.parentId){ const p = this.task(t.parentId); if (p) t.mission = p.mission; }
+      /* משימה חדשה נכנסת למקום שהעין מחפשת: שורש בראש, תת-משימה בסוף הרשימה */
+      t.sortIndex = (typeof o.sortIndex === 'number') ? o.sortIndex : this.freeIndex(t);
       data.tasks.unshift(t); save(); return t;
+    },
+    /** מיקום פנוי בקצה הנכון של הקבוצה שאליה הפריט שייך */
+    freeIndex(t){
+      const sibs = t.parentId ? this.childrenAll(t.parentId)
+                              : data.tasks.filter(x => !x.parentId && x.mission === t.mission);
+      const idx = sibs.filter(x => x.id !== t.id).map(x => x.sortIndex || 0);
+      if (!idx.length) return 0;
+      return t.parentId ? Math.max(...idx) + 1 : Math.min(...idx) - 1;
     },
     updateTask(id, patch){
       const t=this.task(id); if(!t) return;
@@ -920,7 +962,8 @@ const Store = (() => {
     /** מעבר לארוך-טווח: המיכל לא נושא זמן, מיקום, נסיעה, תאריך או חזרה */
     makeLong(id){
       const t = this.task(id); if(!t) return;
-      t.kind = 'long'; t.reminder = null; t.repeat = null; t.planned = null;
+      /* תאריך יעד נשאר — הוא לא תזכורת ולא שעון, רק היום שאליו הדבר מכוון */
+      t.kind = 'long'; t.reminder = null; t.repeat = null;
       t.log = {}; t.rt = {};
       save();
     },
@@ -1045,10 +1088,23 @@ const Store = (() => {
     moveChild(id, dir){
       const t = this.task(id); if(!t) return false;
       const sec = this.isHabit(t) ? this.habitsOf(t.parentId) : this.subtasksOf(t.parentId);
-      const i = sec.findIndex(x => x.id === id), j = i + dir;
-      if (i < 0 || j < 0 || j >= sec.length) return false;
-      sec.splice(j, 0, sec.splice(i, 1)[0]);
-      sec.forEach((x,k) => { x.sortIndex = k; });
+      return this.reorder(sec, id, dir);
+    },
+    /**
+     * הזזה כללית. משימת שורש זזה בתוך הקטגוריה שלה בלבד — אחרת היא הייתה
+     * קופצת בין קבוצות הצבע, וזה בדיוק מה שהקיבוץ בא למנוע.
+     */
+    moveTask(id, dir){
+      const t = this.task(id); if(!t) return false;
+      if (t.parentId) return this.moveChild(id, dir);
+      const roots = this.ordered(this.children(null, t.mission));
+      return this.reorder(roots, id, dir);
+    },
+    reorder(list, id, dir){
+      const i = list.findIndex(x => x.id === id), j = i + dir;
+      if (i < 0 || j < 0 || j >= list.length) return false;
+      list.splice(j, 0, list.splice(i, 1)[0]);
+      list.forEach((x,k) => { x.sortIndex = k; });
       save(); return true;
     },
     /** תת-משימה מתכווצת לפריט קל ברשימה של ההורה */
@@ -1063,7 +1119,8 @@ const Store = (() => {
     /** תת-משימה נגמלת מההורה ועומדת בפני עצמה */
     toIndependent(id){
       const t = this.task(id); if(!t || !t.parentId) return false;
-      t.parentId = null; t.autoArch = false; t.sortIndex = Date.now();
+      t.parentId = null; t.autoArch = false;
+      t.sortIndex = this.freeIndex(t);
       save(); return true;
     },
 
@@ -1122,6 +1179,8 @@ const Store = (() => {
 
     /* ---------- רשימות ---------- */
     list(id){ return data.lists.find(l => l.id === id); },
+    /** האירוע שהרשימה שובצה בו, אם יש */
+    listEvent(listId){ return data.events.find(e => e.listId === listId) || null; },
     addList(o){
       const l = { id:uid(), name:o.name, kind:o.kind||'simple', forWho:o.forWho||'',
                   phone:o.phone||'', createdAt:Date.now(), items:[] };
@@ -1164,11 +1223,17 @@ const Store = (() => {
     },
     eventCount(date){ return data.events.filter(e => this.onDay(e, date)).length; },
     event(id){ return data.events.find(e=>e.id===id); },
+    /** אירועים שנוגעים ביום, כולל רב-יומיים שרק עוברים דרכו */
+    spanning(date){
+      return data.events.filter(e => this.onDay(e, date) &&
+        (e.allDay || (e.endDate && e.endDate !== e.date)));
+    },
     addEvent(o){
       const ev = { id:uid(), title:o.title, date:o.date, time:o.time||'09:00',
         end:o.end||'10:00', endDate:o.endDate||'',
         typeId:o.typeId || (data.eventTypes[0] && data.eventTypes[0].id) || 't_pers',
-        remindMin:(o.remindMin==null?15:o.remindMin), note:o.note||'', rt:{} };
+        remindMin:(o.remindMin==null?15:o.remindMin), note:o.note||'', rt:{},
+        allDay:!!o.allDay, listId:o.listId||null };
       data.events.push(ev); save(); return ev;
     },
     updateEvent(id, patch){ const e=this.event(id); if(e){ Object.assign(e, patch); e.rt={}; save(); } },
@@ -1624,12 +1689,14 @@ const Cal = (() => {
     const [hh,mi] = (hm||'00:00').split(':').map(Number);
     return new Date(y, m-1, d, hh, mi, 0, 0).getTime();
   }
-  function startMs(ev){ return atMs(ev.date, ev.time); }
+  function startMs(ev){ return atMs(ev.date, ev.allDay ? '00:00' : ev.time); }
   /** סיום האירוע.
       שעת סיום קטנה משעת ההתחלה = האירוע חוצה חצות (שמירה 22:00–02:00),
       ואז הסיום הוא למחרת. בלי זה משמרת לילה נספרה כשעה אחת. */
   function endMs(ev){
     const s = startMs(ev);
+    /* אירוע של יום שלם נגמר בסוף היום האחרון שלו, לא בשעה כלשהי */
+    if (ev.allDay) return atMs(ev.endDate || ev.date, '00:00') + 864e5 - 60000;
     let e = atMs(ev.endDate || ev.date, ev.end || ev.time);
     if (e <= s && !ev.endDate) e += 864e5;
     if (e <= s) e = s + 60*60000;
@@ -1637,6 +1704,7 @@ const Cal = (() => {
   }
   function durLabel(ev){
     const mins = Math.round((endMs(ev) - startMs(ev)) / 60000);
+    if (ev.allDay && (!ev.endDate || ev.endDate === ev.date)) return 'כל היום';
     if (ev.endDate && ev.endDate !== ev.date){
       const days = Math.round((atMs(ev.endDate,'00:00') - atMs(ev.date,'00:00')) / 864e5) + 1;
       return days + ' ימים';
@@ -1692,7 +1760,24 @@ const Cal = (() => {
       const x = new Date(dt); x.setDate(dt.getDate()+i); return key(x);
     });
   }
-  return { key, MONTHS, type, startMs, endMs, durLabel, ics, gcal, monthGrid, weekOf };
+  /**
+   * מתי האירוע מזכיר. לאירוע רגיל — שעת ההתחלה פחות ההקדמה.
+   * לאירוע של יום שלם אין שעת התחלה, וחצות זו שעה חסרת תועלת להתראה,
+   * ולכן הבסיס הוא 09:00 של היום הראשון.
+   */
+  const ALLDAY_HOUR = '09:00';
+  function remindAt(ev){
+    if (ev.remindMin == null || ev.remindMin < 0) return 0;
+    const base = ev.allDay ? atMs(ev.date, ALLDAY_HOUR) : startMs(ev);
+    return base - ev.remindMin * 60000;
+  }
+  /** כמה ימים האירוע תופס, ובאיזה יום מתוכם נמצא התאריך */
+  function dayCount(ev){
+    if (!ev.endDate || ev.endDate === ev.date) return 1;
+    return Math.round((atMs(ev.endDate,'00:00') - atMs(ev.date,'00:00')) / 864e5) + 1;
+  }
+  return { key, MONTHS, type, atMs, startMs, endMs, durLabel, dayCount, remindAt,
+           ics, gcal, monthGrid, weekOf };
 })();
 
 /* -------------------------------- Modal --------------------------------- */
@@ -1894,12 +1979,15 @@ const Native = (() => {
     Store.all.events.forEach(ev => {
       if (ev.remindMin == null || ev.remindMin < 0) return;
       if (ev.rt && ev.rt.firedAt) return;
-      const at = Cal.startMs(ev) - ev.remindMin * 60000;
+      const at = Cal.remindAt(ev);
       if (at < soon || at > now + (days || WINDOW_DAYS) * 86400000) return;
       out.push({ id:'e_'+ev.id, at, title:ev.title,
-                 body: ev.remindMin > 0
-                   ? 'מתחיל בעוד ' + ev.remindMin + ' דקות (' + ev.time + ')'
-                   : 'מתחיל עכשיו (' + ev.time + ')' });
+                 body: ev.allDay
+                   ? (ev.date === Plan.today() ? 'היום · כל היום'
+                                               : Plan.label(ev.date) + ' · כל היום')
+                   : ev.remindMin > 0
+                     ? 'מתחיל בעוד ' + ev.remindMin + ' דקות (' + ev.time + ')'
+                     : 'מתחיל עכשיו (' + ev.time + ')' });
     });
 
     return out.sort((a,b) => a.at - b.at).slice(0, ALARM_CAP);
@@ -1975,6 +2063,11 @@ const UI = (() => {
   let taskQ    = '';
   let onlyUnplanned = false;
   let selDate  = Plan.today();
+  /* חלון "3 ימים"/"שבוע" מחזיק עוגן משלו. בלי זה כניסה ליום רחוק
+     הייתה מזיזה את החלון, והחזרה אליו הראתה טווח אחר לגמרי. */
+  let rangeFrom = Plan.today();
+  /* תת-משימות שהמשתמש פתח כדי לקרוא את התיאור. מצב תצוגה בלבד. */
+  const peeked = new Set();
   let calY, calM;
   { const [y,m] = selDate.split('-').map(Number); calY = y; calM = m - 1; }
   let deferred = false, alertItem = null;
@@ -2130,7 +2223,11 @@ const UI = (() => {
     const hm = nowHM();
     const rows = [];
 
-    Store.events(date).forEach(e => rows.push({ at:e.time, kind:'event', ref:e }));
+    const allDay = [];
+    Store.events(date).forEach(e => {
+      if (e.allDay) allDay.push(e);
+      else rows.push({ at:e.time, kind:'event', ref:e });
+    });
 
     Store.plannedFor(date).forEach(t => {
       const at = (t.reminder && t.reminder.type === 'time') ? t.reminder.at : null;
@@ -2160,12 +2257,15 @@ const UI = (() => {
     });
 
     let out = originWarn() + nowBlock(date) + overdueBlock(date);
+    if (allDay.length){
+      out += `<h2 class="sh">כל היום</h2>` + allDay.map(eventRow).join('');
+    }
     if (body) out += `<h2 class="sh">${isToday ? 'במהלך היום' : 'לוח הזמנים'}</h2>` + body;
     if (notimed.length){
       out += `<h2 class="sh">ללא שעה</h2>` +
              notimed.map(r => taskRow(r.ref, null, date)).join('');
     }
-    if (!body && !notimed.length && !nowBlock(date) && !overdueBlock(date)){
+    if (!body && !notimed.length && !allDay.length && !nowBlock(date) && !overdueBlock(date)){
       out += emptyToday(date);
     }
     return `<div class="big">${esc(Plan.label(date))}</div>
@@ -2188,7 +2288,9 @@ const UI = (() => {
     const done = hab && Store.habitFull(t, date || Plan.today());
     return `<div class="row" data-id="${t.id}">
       ${at ? `<div class="when">${esc(at)}</div>` : ''}
-      <button class="cb${hab?' hab':''}${done?' on':''}" data-act="done">✓</button>
+      ${t.kind === 'long'
+        ? '<span class="cb" style="border-style:dotted;border-color:currentColor;opacity:.45"></span>'
+        : `<button class="cb${hab?' hab':''}${done?' on':''}" data-act="done">✓</button>`}
       <div class="bd"><div class="t">${esc(t.title)}</div>
         ${(() => { const m = taskMeta(t,{noPlan:true,noKids:true,noTime:!!at});
                    return m ? `<div class="m">${esc(m)}</div>` : ''; })()}
@@ -2204,9 +2306,14 @@ const UI = (() => {
     const eh  = String(end.getHours()).padStart(2,'0')+':'+String(end.getMinutes()).padStart(2,'0');
     const linked = Store.tasksForEvent(e.id)
       .filter(t => !(t.reminder && t.reminder.type === 'time'));
-    const meta = [ty.name, linked.length ? linked.length + ' דברים להכין' : ''].filter(Boolean).join(' · ');
+    const days = Cal.dayCount(e);
+    const list = e.listId ? Store.list(e.listId) : null;
+    const meta = [ty.name, days > 1 ? days + ' ימים' : '',
+                  list ? 'רשימה · ' + list.items.filter(i=>!i.done).length + ' פריטים' : '',
+                  linked.length ? linked.length + ' דברים להכין' : ''].filter(Boolean).join(' · ');
     return `<div class="evrow" data-ev="${e.id}">
-      <div class="when">${esc(e.time)}<span class="e">${eh}</span></div>
+      <div class="when">${e.allDay ? 'כל<span class="e">היום</span>'
+                                   : esc(e.time) + `<span class="e">${eh}</span>`}</div>
       <span class="bar" style="background:${ty.color}"></span>
       <div class="bd">
         <div class="t">${esc(e.title)}</div>
@@ -2220,18 +2327,24 @@ const UI = (() => {
   /** 3 ימים / שבוע — סקירה בלבד, לא ציר זמן מלא (סעיפים 14–15) */
   function rangeView(n){
     const days = [];
-    for (let i = 0; i < n; i++) days.push(Plan.shift(selDate, i));
+    for (let i = 0; i < n; i++) days.push(Plan.shift(rangeFrom, i));
     const cap = n === 3 ? 3 : 2;
-    return days.map(k => {
+    const head = `<div class="rangenav">
+      <button class="hbtn" data-rng="-${n}" aria-label="אחורה">&#8249;</button>
+      <div class="ttl">${esc(Plan.longDate(days[0]))} — ${esc(Plan.longDate(days[n-1]))}</div>
+      ${days.includes(Plan.today()) ? '' : `<button class="txtbtn" data-rng="today">היום</button>`}
+      <button class="hbtn" data-rng="${n}" aria-label="קדימה">&#8250;</button></div>`;
+    return head + days.map(k => {
       const evs = Store.events(k);
       const tsk = Store.plannedFor(k);
       const hab = Store.habitsFor(k).filter(t => !Store.habitFull(t, k));
-      const items = [...evs.map(e => e.title), ...hab.map(t => t.title), ...tsk.map(t => t.title)];
+      const items = [...evs.map(e => e.title + (e.allDay ? ' · כל היום' : '')),
+                     ...hab.map(t => t.title), ...tsk.map(t => t.title)];
       const total = items.length;
       return `<div style="margin-bottom:6px">
         <button class="row" data-day="${k}" style="width:100%;text-align:start">
           <div class="bd">
-            <div class="t">${esc(Plan.label(k))}</div>
+            <div class="t">${esc(Plan.label(k))}${k===Plan.today()?'':''}</div>
             ${total
               ? `<div class="m">${items.slice(0,cap).map(esc).join(' · ')}${
                   total > cap ? ' · ועוד ' + (total-cap) : ''}</div>`
@@ -2242,33 +2355,76 @@ const UI = (() => {
     }).join('');
   }
 
-  /** חודש — מינימלי. מספר ונקודות בלבד (סעיף 16) */
+  /** חודש. מספרים ונקודות ליום בודד, ופס רציף לאירוע שנמשך כמה ימים (סעיף 16) */
   function monthView(){
     const todayKey = Plan.today();
     const cells = Cal.monthGrid(calY, calM);
-    return `
-      <div class="row" style="border:0;padding:0 0 12px;align-items:center">
-        <button class="hbtn" data-mo="-1">›</button>
-        <div class="bd" style="text-align:center"><div class="t">${Cal.MONTHS[calM]} ${calY}</div></div>
-        <button class="hbtn" data-mo="1">‹</button>
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+    /* אירוע שתופס יותר מיום אחד, או אירוע של יום שלם — נמתח כפס */
+    const spans = Store.all.events.filter(e =>
+      e.allDay || (e.endDate && e.endDate !== e.date));
+
+    return `<div class="cal">
+      <div class="calnav">
+        <button class="hbtn" data-mo="-1" aria-label="חודש קודם">&#8249;</button>
+        <div class="ttl">${Cal.MONTHS[calM]} ${calY}</div>
+        <button class="hbtn" data-mo="1" aria-label="חודש הבא">&#8250;</button>
       </div>
       <div class="mgrid">${DAYL.map(d => `<div class="wd">${d}</div>`).join('')}</div>
-      <div class="mgrid" id="mGrid">${cells.map(c => {
-        const evs = Store.events(c.key);
-        const tsk = Store.plannedFor(c.key).length;
-        const pips = evs.slice(0,3).map(e =>
-          `<span class="pip" style="background:${Cal.type(e).color}"></span>`).join('')
-          + (tsk ? `<span class="pip" style="background:var(--muted2)"></span>` : '');
-        return `<button class="day${c.out?' out':''}${c.key===todayKey?' today':''}"
-          data-day="${c.key}" aria-selected="${c.key===selDate}">
-          <span>${c.date.getDate()}</span><div class="pips">${pips}</div></button>`;
-      }).join('')}</div>
+      <div id="mGrid">${weeks.map(w => `
+        <div class="mweek">
+          <div class="mgrid">${w.map(c => {
+            const evs = Store.events(c.key).filter(e => !e.allDay &&
+              (!e.endDate || e.endDate === e.date));
+            const tsk = Store.plannedFor(c.key).length;
+            const pips = evs.slice(0,3).map(e =>
+              `<span class="pip" style="background:${Cal.type(e).color}"></span>`).join('')
+              + (tsk ? `<span class="pip" style="background:var(--muted2)"></span>` : '');
+            return `<button class="day${c.out?' out':''}${c.key===todayKey?' today':''}"
+              data-day="${c.key}" aria-selected="${c.key===selDate}">
+              <span>${c.date.getDate()}</span><div class="pips">${pips}</div></button>`;
+          }).join('')}</div>
+          ${weekBars(w, spans)}
+        </div>`).join('')}</div>
+      </div>
       <div class="rule"></div>
       <div class="t" style="margin-bottom:10px">${esc(longDate(selDate))}</div>
       <div id="mDay">${monthDayList(selDate)}</div>`;
   }
+
+  /**
+   * הפסים של שבוע אחד. כל אירוע מקבל מסלול משלו, כדי ששני אירועים
+   * חופפים לא ידרסו זה את זה. אירוע שנמשך מעבר לשבוע נחתך בקצה
+   * ומאבד את העיגול בצד החתוך — ככה רואים שהוא ממשיך.
+   */
+  function weekBars(week, spans){
+    const first = week[0].key, last = week[6].key;
+    const lanes = [];
+    spans.forEach(e => {
+      const from = e.date, to = e.endDate || e.date;
+      if (to < first || from > last) return;
+      const s = Math.max(0, week.findIndex(c => c.key === from));
+      const eIdx = to > last ? 6 : week.findIndex(c => c.key === to);
+      if (eIdx < 0) return;
+      const lane = lanes.find(l => l.every(x => x.e < s || x.s > eIdx));
+      const item = { s, e:eIdx, ev:e, open: from < first, cont: to > last };
+      if (lane) lane.push(item); else lanes.push([item]);
+    });
+    if (!lanes.length) return '';
+    return lanes.slice(0, 3).map(lane => `<div class="mbars">${
+      lane.sort((a,b) => a.s - b.s).map(x => {
+        const cls = x.open && x.cont ? 'mid' : x.open ? 'tail' : x.cont ? 'head' : '';
+        return `<div class="mbar ${cls}" data-ev="${x.ev.id}"
+          style="grid-column:${x.s+1}/${x.e+2};background:${Cal.type(x.ev).color}"
+          >${x.open ? '' : esc(x.ev.title)}</div>`;
+      }).join('')}</div>`).join('');
+  }
   function monthDayList(date){
-    const evs = Store.events(date), tsk = Store.plannedFor(date);
+    const all = Store.events(date);
+    const evs = all.filter(e => e.allDay).concat(all.filter(e => !e.allDay));
+    const tsk = Store.plannedFor(date);
     const hab = Store.habitsFor(date).filter(t => !Store.habitFull(t, date));
     if (!evs.length && !tsk.length && !hab.length)
       return `<div class="dim small" style="padding:6px 0">אין כלום ביום הזה.</div>`;
@@ -2310,8 +2466,10 @@ const UI = (() => {
     roots.sort((a,b) => {
       const c = ORDER.indexOf(a.mission) - ORDER.indexOf(b.mission);
       if (c) return c;
-      const k = (a.kind === 'long' ? 0 : 1) - (b.kind === 'long' ? 0 : 1);
-      if (k) return k;
+      /* סדר מפורש קודם לכל. אין כאן כלל נסתר שידרוס את מה שהמשתמש סידר —
+         זו בדיוק ההרגשה של "האפליקציה מזיזה לי דברים". */
+      const si = (a.sortIndex||0) - (b.sortIndex||0);
+      if (si) return si;
       return (b.createdAt||0) - (a.createdAt||0);
     });
     let out = roots.map((t, i) => {
@@ -2382,10 +2540,11 @@ const UI = (() => {
         <div class="bd">
           <div class="ttl">${esc(t.title)}</div>
           <div class="tmeta"><span class="catname">${CAT[t.mission]}</span>${meta ? ' · ' + esc(meta) : ''}</div>
-          ${t.note ? `<div class="tnote">${esc(t.note)}</div>` : ''}
+          ${(t.note && !t.noteHidden) ? `<div class="tnote">${esc(t.note)}</div>` : ''}
         </div>
         <button class="hbtn" data-act="menu" style="width:28px;height:28px;font-size:15px">⋯</button>
       </div>
+      <button class="addkid" data-act="addkid">+ תת-משימה</button>
       ${sec.any ? `
         <button class="twist" data-act="twist" aria-expanded="${open}">
           <span class="ar">‹</span>
@@ -2396,16 +2555,27 @@ const UI = (() => {
   }
 
   /** תת-משימה: כותרת בלבד. ההערה נחשפת רק כשפותחים אותה (סעיף 35) */
+  /**
+   * תת-משימה. נגיעה בשורה פותחת את התיאור במקום — לא את העורך.
+   * הכניסה לעריכה היא פעולה מפורשת, כי ברוב הפעמים רוצים רק לקרוא.
+   */
   function kidRow(t){
     const sec = sections(t.id);
     const hab  = Store.isHabit(t);
     const doneToday = hab && Store.habitFull(t, Plan.today());
     const meta = taskMeta(t, { noCat:true, noKids:true });
+    const open = peeked.has(t.id);
     return `<div class="krow" data-id="${t.id}">
       <button class="cb${hab?' hab':''}${doneToday?' on':''}" data-act="done"
               style="width:18px;height:18px;font-size:10px">✓</button>
-      <div class="kt">${esc(t.title)}
+      <div class="kt" data-act="peek">${esc(t.title)}
         ${meta ? `<div class="km">${esc(meta)}</div>` : ''}
+        ${open ? `<div class="kpeek${t.note ? '' : ' empty'}">${
+            t.note ? esc(t.note) : 'אין תיאור לתת-המשימה הזאת.'}
+            <div class="acts">
+              <button data-act="edit">ערוך</button>
+              <button data-act="addsub">+ תת-משימה</button>
+            </div></div>` : ''}
         ${sec.any ? `<button class="km" data-act="twist" style="text-align:start">
             ${t.collapsed ? '‹ ' : '⌄ '}${sec.bits.join(' · ')}</button>
           ${!t.collapsed ? `<div class="kids">${sec.html()}</div>` : ''}` : ''}
@@ -2568,6 +2738,16 @@ const UI = (() => {
       </div>
       <div id="iPrev"></div>
       <div class="rule"></div>
+      ${(() => {
+        const ev = Store.listEvent(l.id);
+        return ev
+          ? `<div class="set"><div class="sb"><div class="st">משובצת ליומן</div>
+               <div class="sd">${esc(Plan.label(ev.date))}${
+                 ev.allDay ? ' · כל היום' : ' · ' + esc(ev.time)}${
+                 ev.remindMin >= 0 ? ' · תזכורת ' + (ev.remindMin ? ev.remindMin + ' דק׳ לפני' : 'בזמן') : ''}</div></div>
+               <button class="link" id="lUnplan">הסר</button></div>`
+          : `<button class="txtbtn" id="lPlan">שבץ ליומן עם תזכורת</button>`;
+      })()}
       ${body}
       ${l.kind === 'errand'
         ? `<button class="btn p wide" id="lSettle">סיימתי — סגירת חשבון${l.forWho ? ' ושליחה ל' + esc(l.forWho) : ''}</button>`
@@ -2919,6 +3099,8 @@ const UI = (() => {
     get taskQ(){ return taskQ; },     set taskQ(v){ taskQ=v; },
     get onlyUnplanned(){ return onlyUnplanned; }, set onlyUnplanned(v){ onlyUnplanned=v; },
     get selDate(){ return selDate; }, set selDate(v){ selDate=v; },
+    get rangeFrom(){ return rangeFrom; }, set rangeFrom(v){ rangeFrom=v; },
+    peeked,
     get calY(){ return calY; },       set calY(v){ calY=v; },
     get calM(){ return calM; },       set calM(v){ calM=v; },
     get openList(){ return openList; }, set openList(v){ openList=v; },
@@ -2992,6 +3174,9 @@ const Wire = (() => {
       if (UI.tview === 'month'){
         const [y,m] = UI.selDate.split('-').map(Number); UI.calY = y; UI.calM = m-1;
       }
+      /* החלון שומר על מקומו בין מעברים. רק אם הוא נשאר מאחור — מחזירים להיום. */
+      if ((UI.tview === 'd3' || UI.tview === 'week') && UI.rangeFrom < Plan.today())
+        UI.rangeFrom = Plan.today();
       UI.render();
     });
 
@@ -3003,6 +3188,12 @@ const Wire = (() => {
         let m = UI.calM + (+mo.dataset.mo), y = UI.calY;
         if (m < 0){ m = 11; y--; } if (m > 11){ m = 0; y++; }
         UI.calM = m; UI.calY = y; UI.render(); return;
+      }
+      const rng = e.target.closest('[data-rng]');
+      if (rng){
+        UI.rangeFrom = rng.dataset.rng === 'today'
+          ? Plan.today() : Plan.shift(UI.rangeFrom, +rng.dataset.rng);
+        UI.render(); return;
       }
       const dayBtn = e.target.closest('[data-day]');
       if (dayBtn){
@@ -3075,6 +3266,16 @@ const Wire = (() => {
       if (act === 'twist'){ Store.toggleCollapse(id); return; }
       if (act === 'done'){ finish(id); return; }
       if (act === 'menu'){ taskMenu(id); return; }
+      if (act === 'addkid'){ const t = Store.task(id);
+                             taskModal({ parentId:id, mission:t && t.mission }); return; }
+      if (act === 'edit'){  taskModal({ id }); return; }
+      if (act === 'addsub'){ const t = Store.task(id);
+                             taskModal({ parentId:id, mission:t && t.mission }); return; }
+      /* תת-משימה: נגיעה פותחת את התיאור, לא את העורך */
+      if (act === 'peek'){
+        if (UI.peeked.has(id)) UI.peeked.delete(id); else UI.peeked.add(id);
+        UI.renderTasks(); return;
+      }
       if (act === 'open' && UI.taskQ){ revealTask(id); return; }
       taskModal({ id });
     });
@@ -3139,6 +3340,10 @@ const Wire = (() => {
           ${t.parentId ? `<button class="pick" data-m="indep"><span class="pn">הפוך למשימה עצמאית</span></button>
             ${!kids ? `<button class="pick" data-m="toitem"><span class="pn">הפוך לפריט ברשימה</span>
               <span class="pm">${esc((Store.task(t.parentId)||{}).title || '')}</span></button>` : ''}` : ''}
+          ${t.note ? `<button class="pick" data-m="notevis">
+              <span class="pn">${t.noteHidden ? 'הצג תיאור בכרטיס' : 'הסתר תיאור מהכרטיס'}</span></button>` : ''}
+          <button class="pick" data-m="up"><span class="pn">הזז למעלה</span></button>
+          <button class="pick" data-m="down"><span class="pn">הזז למטה</span></button>
           ${Store.hasChecklist(id) ? `<button class="pick" data-m="reset">
               <span class="pn">אפס רשימה</span>
               <span class="pm">${Store.resettableCount(id) || 'הכול פעיל'}</span></button>` : ''}
@@ -3162,6 +3367,13 @@ const Wire = (() => {
         if (k==='sub'){  taskModal({ parentId:t.id, mission:t.mission }); return; }
         if (k==='habit'){ taskModal({ parentId:t.id, mission:t.mission, habit:true, kind:'short' }); return; }
         if (k==='item'){ newItemModal(id); return; }
+        if (k==='notevis'){ Store.updateTask(id, { noteHidden: !t.noteHidden, rt:t.rt });
+                            Modal.shut(); return; }
+        if (k==='up' || k==='down'){
+          const moved = Store.moveTask(id, k==='up' ? -1 : 1);
+          Modal.shut(); if (!moved) UI.toast('כבר בקצה');
+          return;
+        }
         if (k==='indep'){ Store.toIndependent(id); Modal.shut(); UI.toast('עומדת בפני עצמה'); return; }
         if (k==='toitem'){
           const it = Store.toChecklistItem(id);
@@ -3192,8 +3404,8 @@ const Wire = (() => {
         <div style="margin-bottom:14px"><label>שם הפריט</label>
           <input type="text" id="ciT" value="${esc(it.title)}" autocomplete="off"></div>
         <div style="margin-bottom:14px"><label>הערה</label>
-          <textarea id="ciN" rows="2" placeholder="כמה, איזה, איפה…"
-            style="resize:vertical">${esc(it.note||'')}</textarea></div>
+          <textarea id="ciN" rows="3" placeholder="כמה, איזה, איפה…"
+            style="resize:vertical;min-height:74px;line-height:1.6">${esc(it.note||'')}</textarea></div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
           <span class="note" style="flex:1">מקום ברשימה — ${i+1} מתוך ${l.length}</span>
           <span class="ord">
@@ -3493,8 +3705,9 @@ const Wire = (() => {
           <input type="text" id="etTitle" value="${esc(d ? d.title : (t ? t.title : (o.title||'')))}"
                  autocomplete="off"></div>
         <div style="margin-bottom:14px"><label>תיאור</label>
-          <textarea id="etNote" rows="2" placeholder="פרטים, מה להביא, לינק…"
-            style="resize:vertical">${esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea></div>
+          <textarea id="etNote" rows="6" placeholder="פרטים, מה להביא, לינק…"
+            style="resize:vertical;min-height:132px;line-height:1.6">${
+              esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea></div>
 
         ${isChild ? '' : `
         <div style="margin-bottom:14px"><label>סוג המשימה</label>
@@ -3514,14 +3727,14 @@ const Wire = (() => {
         ${streakBlock()}
         <div id="etAccs" style="margin-top:14px">
           ${acc('time','זמן', `
-            <div style="margin-bottom:10px"><label>מתי לבצע</label>
+            <div style="margin-bottom:10px"><label>${kind==='long'?'תאריך יעד':'מתי לבצע'}</label>
               <div class="seg" id="etWhen">
                 <button data-d="none" aria-selected="${!planned}">ללא תאריך</button>
                 <button data-d="today" aria-selected="${planned===Plan.today()}">היום</button>
                 <button data-d="tom" aria-selected="${planned===Plan.shift(Plan.today(),1)}">מחר</button>
               </div>
               <input type="date" id="etDate" value="${esc(planned||'')}" style="margin-top:8px"></div>
-            <div><label>שעה ותזכורת</label>
+            <div id="etHour"><label>שעה ותזכורת</label>
               <input type="time" id="etTime" value="${esc(d ? d.time : (r.type==='time'?r.at:''))}"></div>
             <div class="note" style="margin-top:7px">${Native.on
               ? 'התזכורת תצלצל גם כשהאפליקציה סגורה. אחרי השמירה אפשר להוסיף גם התראה בשעון הטלפון.'
@@ -3592,14 +3805,23 @@ const Wire = (() => {
       function kindNote(){
         if (!g('etKindNote')) return;
         g('etKindNote').textContent = kind === 'long'
-          ? 'תחום שנמשך — פרויקט, תחביב, רשימה חוזרת. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אין לו שעה, מיקום או חזרה — אלה שייכים לתת-המשימות שלו.'
+          ? 'תחום שנמשך — פרויקט, תחביב, רשימת ציוד חוזרת. הוא לא נגמר מעצמו ונשאר עד שתסגור אותו ידנית. אפשר לתת לו תאריך יעד, אבל שעה, מיקום וחזרה שייכים לתת-המשימות שלו.'
           : 'משימה שיש לה סוף. ברגע שתסמן אותה — היא עוברת לארכיון.';
       }
       function applyKind(){
-        ['time','place','trip','repeat'].forEach(k => {
+        /* לפריט ארוך-טווח אין שעה, מקום, נסיעה או חזרה — אבל כן יכול להיות
+           תאריך יעד. רשימת ציוד ליציאה לבסיס צריכה לנחות על יום מסוים. */
+        ['place','trip','repeat'].forEach(k => {
           const el = B.querySelector(`[data-acc="${k}"]`);
           if (el) el.hidden = kind === 'long';
         });
+        const hour = g('etHour');
+        if (hour) hour.hidden = kind === 'long';
+        if (kind === 'long' && g('etTime')) g('etTime').value = '';
+        const lbl = B.querySelector('[data-acc="time"] label');
+        if (lbl) lbl.textContent = kind === 'long' ? 'תאריך יעד' : 'מתי לבצע';
+        const an = B.querySelector('[data-acc="time"] .an');
+        if (an) an.textContent = kind === 'long' ? 'תאריך יעד' : 'זמן';
         kindNote();
       }
       const sum = (id, txt) => { const el = B.querySelector(`[data-sum="${id}"]`);
@@ -3828,8 +4050,8 @@ const Wire = (() => {
         syncRep();
         const out = { title, note:g('etNote').value.trim(), kind, mission:cat,
                       reminder:null, repeat:rep, planned:null };
+        out.planned = g('etDate').value || null;
         if (kind !== 'long'){
-          out.planned = g('etDate').value || null;
           const tm = g('etTime').value;
           const km = g('etKm') ? parseFloat(g('etKm').value) : NaN;
           const pid = g('etPlace') ? g('etPlace').value : '';
@@ -3837,7 +4059,7 @@ const Wire = (() => {
           else if (rem === 'place' && pid)
             out.reminder = { type:'place', placeId:pid, delayMin:Math.max(0,+g('etDelay').value||0) };
           else if (isFinite(km) && km > 0) out.reminder = { type:'trip', km };
-        } else { out.repeat = null; }
+        } else { out.repeat = null; out.reminder = null; }
         return out;
       }
       /* שעה שכבר עברה היום לא אמורה לצלצל ברגע השמירה */
@@ -3958,13 +4180,19 @@ const Wire = (() => {
     function eventModal(ev){
       const isNew = !ev;
       const e = ev || { title:'', date:UI.selDate, time:'09:00', end:'10:00', endDate:'',
-                        typeId:(Store.eventTypes()[0]||{}).id, remindMin:15, note:'' };
+                        typeId:(Store.eventTypes()[0]||{}).id, remindMin:15, note:'',
+                        allDay:false, listId:null };
       let typeId = e.typeId;
+      let allDay = !!e.allDay;
 
       Modal.open({ title: isNew ? 'אירוע חדש' : 'עריכת אירוע', body:`
         <div style="margin-bottom:14px"><label>מה קורה</label>
           <input type="text" id="evT" value="${esc(e.title)}" placeholder="שם האירוע" autocomplete="off"></div>
-        <div class="fgrid" style="margin-bottom:14px">
+        <div class="set" style="padding:10px 0;margin-bottom:8px">
+          <div class="sb"><div class="st">כל היום</div>
+            <div class="sd">אירוע בלי שעה. אם תמלא גם "עד תאריך" הוא יימתח כפס ביומן.</div></div>
+          <button class="sw" id="evAll" aria-checked="${allDay}"></button></div>
+        <div class="fgrid" style="margin-bottom:14px" id="evTimes" ${allDay?'hidden':''}>
           <div><label>מ־</label><input type="time" id="evS" value="${esc(e.time)}"></div>
           <div><label>עד</label><input type="time" id="evE" value="${esc(e.end||'10:00')}"></div>
         </div>
@@ -3978,8 +4206,8 @@ const Wire = (() => {
           <select id="evR">${[[-1,'ללא'],[0,'בזמן'],[10,'10 דק׳'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[1440,'יום']]
             .map(([v,l]) => `<option value="${v}" ${e.remindMin===v?'selected':''}>${l}</option>`).join('')}</select></div>
         <div><label>תיאור</label>
-          <textarea id="evN" rows="3" placeholder="פרטים, מה להביא, מי מגיע…"
-            style="resize:vertical">${esc(e.note||'')}</textarea></div>`,
+          <textarea id="evN" rows="5" placeholder="פרטים, מה להביא, מי מגיע…"
+            style="resize:vertical;min-height:112px;line-height:1.6">${esc(e.note||'')}</textarea></div>`,
         buttons:[ ...(isNew ? [{label:'ביטול',act:()=>Modal.shut()}]
                             : [{label:'מחק',act:()=>{ Store.delEvent(e.id); Modal.shut(); UI.toast('נמחק'); }}]),
           {label: isNew ? 'הוסף' : 'שמור', kind:'p', act:()=>{
@@ -3990,14 +4218,22 @@ const Wire = (() => {
             let endDate = g('evED').value || '';
             if (endDate && endDate < date){ UI.toast('תאריך הסיום לפני ההתחלה'); return; }
             if (endDate === date) endDate = '';
-            const patch = { title, date, endDate, typeId,
-              time:g('evS').value||'09:00', end:g('evE').value||'10:00',
-              remindMin:+g('evR').value, note:g('evN').value.trim() };
+            const patch = { title, date, endDate, typeId, allDay,
+              time: allDay ? '00:00' : (g('evS').value||'09:00'),
+              end:  allDay ? '23:59' : (g('evE').value||'10:00'),
+              remindMin:+g('evR').value, note:g('evN').value.trim(),
+              listId: e.listId || null };
             if (isNew) Store.addEvent(patch); else Store.updateEvent(e.id, patch);
             UI.selDate = date; Modal.shut(); UI.toast(isNew ? 'נוסף ליומן' : 'נשמר');
           }}]});
 
       Modal.body.addEventListener('click', ee => {
+        if (ee.target.closest('#evAll')){
+          allDay = !allDay;
+          document.getElementById('evAll').setAttribute('aria-checked', allDay);
+          document.getElementById('evTimes').hidden = allDay;
+          return;
+        }
         const b = ee.target.closest('[data-ty]'); if(!b) return;
         if (b.dataset.ty === '__new'){
           const draft = {
@@ -4035,13 +4271,17 @@ const Wire = (() => {
       const linked = Store.tasksForEvent(ev.id);
       Modal.open({ title:ev.title,
         body:`<div class="small dim" style="padding:0 0 10px">
-                ${esc(ev.time)}–${esc(ev.end||'')} · ${esc(Cal.type(ev).name)}</div>
+                ${ev.allDay ? 'כל היום' : esc(ev.time)+'–'+esc(ev.end||'')} · ${esc(Cal.type(ev).name)}${
+                  Cal.dayCount(ev) > 1 ? ' · ' + Cal.dayCount(ev) + ' ימים' : ''}</div>
               ${ev.note ? `<div class="msum" style="margin-bottom:12px">${esc(ev.note)}</div>` : ''}
               ${linked.length ? `<div style="margin-bottom:8px">${linked.map(t => `
                   <div class="row" data-id="${t.id}" style="padding:9px 0">
                     <button class="cb" data-act="doneTask"></button>
                     <div class="bd"><div class="t" style="font-size:14px">${esc(t.title)}</div></div>
                   </div>`).join('')}</div>` : ''}
+              ${(() => { const l = ev.listId ? Store.list(ev.listId) : null;
+                 return l ? `<button class="pick" data-m="list"><span class="pn">פתח את הרשימה</span>
+                   <span class="pm">${l.items.filter(i=>!i.done).length} פתוחים</span></button>` : ''; })()}
               <button class="pick" data-m="edit"><span class="pn">ערוך אירוע</span></button>
               <button class="pick" data-m="link"><span class="pn">קשר משימה</span></button>
               <button class="pick" data-m="cal"><span class="pn">ליומן הטלפון</span></button>
@@ -4054,6 +4294,8 @@ const Wire = (() => {
         const b = e.target.closest('[data-m]'); if(!b) return;
         const k = b.dataset.m;
         if (k==='edit'){ eventModal(ev); return; }
+        if (k==='list'){ Modal.shut(); UI.section='library'; UI.screen='lists';
+                         UI.openList = ev.listId; UI.render(); return; }
         if (k==='link'){ linkTaskModal(ev); return; }
         if (k==='cal'){
           if (Native.on){ if (Native.addEvent(ev)) UI.toast('נפתח ביומן — לחץ שמירה'); }
@@ -4435,6 +4677,12 @@ const Wire = (() => {
         return;
       }
       if (e.target.closest('#lSettle')){ settle(l); return; }
+      if (e.target.closest('#lPlan')){ planListModal(l); return; }
+      if (e.target.closest('#lUnplan')){
+        const ev = Store.listEvent(l.id);
+        if (ev){ Store.delEvent(ev.id); UI.toast('הוסר מהיומן'); }
+        return;
+      }
 
       const row = e.target.closest('[data-id]'); if(!row) return;
       const id = row.dataset.id, act = (e.target.closest('[data-act]')||{}).dataset?.act;
@@ -4442,6 +4690,50 @@ const Wire = (() => {
       if (act==='editItem') { editItem(l, id); return; }
       if (act==='check')    { await checkRelease(l, id); return; }
     });
+
+    /**
+     * שיבוץ רשימה ליומן. הרשימה נשארת רשימה — נוצר אירוע שמצביע אליה,
+     * ולכן התזכורת שלו עוברת דרך אותו מסלול של כל אירוע אחר, כולל
+     * ההתראה ברקע. אין כאן מנגנון תזכורות שני.
+     */
+    function planListModal(l){
+      const open = l.items.filter(i => !i.done).length;
+      Modal.open({ title:'שיבוץ "' + l.name + '" ליומן', body:`
+        <div class="fgrid" style="margin-bottom:14px">
+          <div><label>תאריך</label>
+            <input type="date" id="plD" value="${esc(Plan.today())}"></div>
+          <div><label>שעה</label><input type="time" id="plT" value="17:00"></div>
+        </div>
+        <div style="margin-bottom:14px"><label>תזכורת לפני</label>
+          <select id="plR">${[[-1,'ללא'],[0,'בזמן'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[120,'שעתיים'],[1440,'יום']]
+            .map(([v,lb]) => `<option value="${v}" ${v===30?'selected':''}>${lb}</option>`).join('')}</select></div>
+        <div style="margin-bottom:14px"><label>סוג</label>
+          <div id="plTy">${typeChips((Store.eventTypes()[0]||{}).id)}</div></div>
+        <div class="note">${open} פריטים פתוחים ברשימה. האירוע ביומן יקשר אליה,
+          ולחיצה עליו תפתח את הרשימה עצמה.</div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'שבץ',kind:'p',act:()=>{
+          const g = x => document.getElementById(x);
+          const date = g('plD').value || Plan.today();
+          const time = g('plT').value || '17:00';
+          const [h,m] = time.split(':').map(Number);
+          const endH = String((h+1) % 24).padStart(2,'0');
+          const old = Store.listEvent(l.id);
+          if (old) Store.delEvent(old.id);
+          Store.addEvent({ title:l.name, date, time, end:endH + ':' + String(m).padStart(2,'0'),
+                           typeId:planType, remindMin:+g('plR').value, listId:l.id,
+                           note:l.items.filter(i=>!i.done).map(i=>'· '+i.title).join('\n') });
+          Modal.shut(); UI.toast('שובץ ל' + Plan.label(date));
+        }}]});
+      let planType = (Store.eventTypes()[0]||{}).id;
+      Modal.body.addEventListener('click', ee => {
+        const b = ee.target.closest('[data-ty]'); if(!b) return;
+        if (b.dataset.ty === '__new') return;         /* יצירת סוג חדש נעשית מעורך האירוע */
+        planType = b.dataset.ty;
+        Modal.body.querySelectorAll('[data-ty]').forEach(x =>
+          x.setAttribute('aria-checked', x === b));
+      });
+    }
 
     function addItem(){
       const l = Store.list(UI.openList); if(!l) return;
@@ -4978,11 +5270,16 @@ const Engine = (() => {
       ev.rt = ev.rt || {};
       if (ev.rt.firedAt) return;
       if (ev.rt.snoozeTo && now < ev.rt.snoozeTo) return;
-      const at = Cal.startMs(ev) - ev.remindMin*60000;
+      const at = Cal.remindAt(ev);
       if (now >= at && now < at + 6*60*60*1000){
         ev.rt.firedAt = now; changed = true;
-        const mins = Math.round((Cal.startMs(ev)-now)/60000);
-        Alerts.fire(ev, mins > 0 ? `מתחיל בעוד ${mins} דקות (${ev.time})` : `מתחיל עכשיו (${ev.time})`, 'event');
+        if (ev.allDay){
+          Alerts.fire(ev, ev.date === Plan.today() ? 'היום · כל היום'
+                                                   : Plan.label(ev.date) + ' · כל היום', 'event');
+        } else {
+          const mins = Math.round((Cal.startMs(ev)-now)/60000);
+          Alerts.fire(ev, mins > 0 ? `מתחיל בעוד ${mins} דקות (${ev.time})` : `מתחיל עכשיו (${ev.time})`, 'event');
+        }
       }
     });
 
