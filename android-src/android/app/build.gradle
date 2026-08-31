@@ -15,12 +15,29 @@ android {
         versionName "1.0"
     }
 
+    /* מפתח חתימה קבוע שנשמר בריפו.
+       עד כאן ה-APK נחתם ב-signingConfigs.debug, ומפתח ה-debug נוצר מחדש
+       בכל ריצה של CI עם ערכים אקראיים — כלומר כל בנייה יצאה עם חתימה אחרת.
+       אנדרואיד מסרב להתקין עדכון בחתימה שונה, וזה מה שהחזיר
+       "App not installed" בכל ניסיון לעדכן. עם מפתח קבוע כל בנייה עתידית
+       מתקינה מעל הקודמת בלי למחוק שום נתון. */
+    signingConfigs {
+        mesima {
+            storeFile file('mesima.jks')
+            storePassword project.findProperty('mesimaStorePass') ?: 'mesima2026'
+            keyAlias 'mesima'
+            keyPassword project.findProperty('mesimaKeyPass') ?: 'mesima2026'
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.mesima
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // חתימה בחתימת debug כדי שה-APK יהיה בר-התקנה ישירות מ-CI
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.mesima
         }
     }
     lint {
