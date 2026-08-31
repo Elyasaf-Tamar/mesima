@@ -24,7 +24,7 @@ import org.json.JSONObject
 class WebBridge(private val act: Activity) {
 
     @JavascriptInterface
-    fun version(): String = "1.0"
+    fun version(): String = "1.1"
 
     /** הדף מדווח אם יש לו עוד שכבה לסגור. כפתור החזרה של המערכת
      *  מסתמך על זה, ולכן ההחלטה מיידית ולא תלויה בקריאה אסינכרונית. */

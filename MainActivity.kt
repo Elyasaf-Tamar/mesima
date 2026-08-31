@@ -42,6 +42,8 @@ class MainActivity : ComponentActivity() {
     /** הדף מודיע שהוא חי ומוכן לקבל פתיחת התראה. */
     @Volatile private var webReady = false
     private var pendingAlarm: String? = null
+    /** גיבוי שהגיע מבחוץ לפני שהדף סיים להיטען */
+    private var pendingImport: String? = null
 
     private val fineReq = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()) { res ->
@@ -58,6 +60,33 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()) { Fences.reapply(this); notifyJs() }
     private val notifReq = registerForActivityResult(
         ActivityResultContracts.RequestPermission()) { notifyJs() }
+
+    /* ---------- בחירת קובץ מתוך הדף ----------
+       <input type="file"> לא עושה כלום ב-WebView אלא אם המעטפת מיישמת
+       onShowFileChooser. בלי זה הלחיצה על "ייבוא מגיבוי" ועל בחירת תמונה
+       מהגלריה פשוט לא מגיבה — בלי שגיאה ובלי רמז. */
+    private var filePathCb: android.webkit.ValueCallback<Array<Uri>>? = null
+
+    private val fileReq = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()) { res ->
+        val cb = filePathCb
+        filePathCb = null
+        if (cb == null) return@registerForActivityResult
+        val data = res.data
+        val uris: Array<Uri>? = when {
+            res.resultCode != RESULT_OK -> null
+            data == null -> null
+            data.clipData != null -> {
+                val c = data.clipData!!
+                Array(c.itemCount) { i -> c.getItemAt(i).uri }
+            }
+            data.data != null -> arrayOf(data.data!!)
+            else -> null
+        }
+        /* חובה להחזיר תשובה גם על ביטול, אחרת ה-WebView נשאר תקוע
+           ושום בחירת קובץ הבאה לא תיפתח יותר. */
+        cb.onReceiveValue(uris)
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,6 +150,38 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.d("mesima-web", "${m.message()} @${m.lineNumber()}")
                 return true
             }
+
+            /** פותח את בורר הקבצים של אנדרואיד עבור <input type="file"> שבדף. */
+            override fun onShowFileChooser(
+                view: WebView?,
+                callback: android.webkit.ValueCallback<Array<Uri>>?,
+                params: FileChooserParams?
+            ): Boolean {
+                /* בקשה קודמת שלא נסגרה תשאיר את הדף ממתין לנצח */
+                filePathCb?.onReceiveValue(null)
+                filePathCb = callback
+                return try {
+                    val intent = params?.createIntent()
+                        ?: Intent(Intent.ACTION_GET_CONTENT).setType("*/*")
+                    intent.addCategory(Intent.CATEGORY_OPENABLE)
+                    /* גיבוי הוא JSON, ובחלק מהמכשירים בורר הקבצים מסנן החוצה
+                       סוגים לא מוכרים. מרחיבים ידנית כדי שהקובץ יהיה נבחר. */
+                    val t = intent.type ?: ""
+                    if (t.contains("json")) {
+                        intent.type = "*/*"
+                        intent.putExtra(Intent.EXTRA_MIME_TYPES,
+                            arrayOf("application/json", "text/plain", "text/json", "*/*"))
+                    }
+                    fileReq.launch(intent)
+                    true
+                } catch (e: Exception) {
+                    filePathCb = null
+                    callback?.onReceiveValue(null)
+                    Toast.makeText(this@MainActivity,
+                        "לא נמצאה אפליקציה לבחירת קבצים", Toast.LENGTH_SHORT).show()
+                    false
+                }
+            }
         }
 
         web.addJavascriptInterface(WebBridge(this), "MesimaNative")
@@ -147,6 +208,7 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, backCb!!)
 
         handleAlarmIntent(intent)
+        handleImportIntent(intent)
 
         Fences.reapply(this)
         // רישום מחדש של תזכורות השעה מהרשימה השמורה. ה-JS ידרוס אותה
@@ -176,6 +238,43 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAlarmIntent(intent)
+        handleImportIntent(intent)
+    }
+
+    /* ---------- פתיחת קובץ גיבוי מבחוץ ----------
+       "פתח באמצעות משימה" מתוך ההורדות, או שיתוף הקובץ לאפליקציה.
+       זה מסלול עצמאי לגמרי מכפתור הייבוא שבדף, וזאת בכוונה: אם בורר
+       הקבצים של ה-WebView נופל, עדיין יש דרך אחת להחזיר גיבוי. */
+    private fun handleImportIntent(i: Intent?) {
+        if (i == null) return
+        val uri: Uri = when (i.action) {
+            Intent.ACTION_VIEW -> i.data
+            Intent.ACTION_SEND -> {
+                @Suppress("DEPRECATION")
+                i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            else -> null
+        } ?: return
+        i.action = null
+        i.data = null
+        val text = try {
+            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        } catch (e: Exception) { null }
+        if (text.isNullOrBlank()) {
+            Toast.makeText(this, "לא הצלחתי לקרוא את הקובץ", Toast.LENGTH_LONG).show()
+            return
+        }
+        /* גבול שפוי — גיבוי הוא JSON של טקסט, לא מדיה */
+        if (text.length > 8_000_000) {
+            Toast.makeText(this, "הקובץ גדול מדי מכדי להיות גיבוי", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (webReady) fireImportJs(text) else pendingImport = text
+    }
+
+    private fun fireImportJs(text: String) = runOnUiThread {
+        val safe = org.json.JSONObject.quote(text)
+        web.evaluateJavascript("window.__import&&window.__import($safe)", null)
     }
 
     /** התראה שנלחצה מביאה איתה מזהה. הדף פותח עליו את חלון התזכורת
@@ -195,6 +294,7 @@ class MainActivity : ComponentActivity() {
     fun webIsReady() = runOnUiThread {
         webReady = true
         pendingAlarm?.let { fireAlarmJs(it); pendingAlarm = null }
+        pendingImport?.let { fireImportJs(it); pendingImport = null }
     }
 
     override fun onResume() {

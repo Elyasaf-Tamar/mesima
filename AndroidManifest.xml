@@ -55,6 +55,23 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- "פתח באמצעות משימה" על קובץ גיבוי מתוך ההורדות.
+                 מסלול שחזור שלא תלוי בבורר הקבצים של ה-WebView. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/json" />
+                <data android:scheme="file"    android:mimeType="application/json" />
+            </intent-filter>
+
+            <!-- שיתוף הקובץ אל האפליקציה -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
         </activity>
 
         <!-- Play Services מעיר את המקלט הזה גם כשהאפליקציה מתה לגמרי -->

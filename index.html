@@ -803,9 +803,9 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '3.3 · 2026-08-31';
+const BUILD = '3.4 · 2026-08-31';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
-const NEED_APK = '1.0';
+const NEED_APK = '1.1';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -3297,7 +3297,7 @@ const UI = (() => {
           ההתראות. הדף הזה (${esc(BUILD)}) מבקש מהמעטפת פעולות שקיימות רק
           מגרסה <b dir="ltr" style="unicode-bidi:isolate">${esc(NEED_APK)}</b>,
           והמעטפת המותקנת היא
-          <b dir="ltr" style="unicode-bidi:isolate">${esc(Native.version() || 'ישנה מ-1.0')}</b>.<br>
+          <b dir="ltr" style="unicode-bidi:isolate">${esc(Native.version() || 'ישנה מ-1.1')}</b>.<br>
           <b>כל עוד זה כתוב כאן — אף בדיקה למטה לא אמינה, ותזכורות לא ירשמו.</b>
           צריך לבנות ולהתקין APK חדש.</div>` : ''}
       ${perm(n.locationBackground,'מיקום כל הזמן',
@@ -3391,7 +3391,7 @@ const UI = (() => {
       <div class="set"><div class="sb"><div class="st">גרסה שרצה עכשיו</div>
         <div class="sd">הדף: <b dir="ltr" style="unicode-bidi:isolate">${esc(BUILD)}</b>${
           Native.on ? `<br>המעטפת (APK): <b dir="ltr" style="unicode-bidi:isolate">${
-            esc(Native.version() || 'ישנה מ-1.0')}</b>${
+            esc(Native.version() || 'ישנה מ-1.1')}</b>${
             Native.apkOld() ? ' — צריך ' + esc(NEED_APK) : ''}` : ''}</div></div></div>
       ${Native.on ? `
         ${n.updatePending ? `<div class="notice"><b>ירדה גרסה חדשה.</b>
@@ -3418,6 +3418,10 @@ const UI = (() => {
       <button class="btn wide" id="btnExport">ייצוא גיבוי</button>
       <button class="btn wide" id="btnImport">ייבוא מגיבוי</button>
       <input type="file" id="fileIn" accept="application/json" hidden>
+      <button class="btn wide" id="btnPaste" style="margin-top:8px">הדבקת גיבוי כטקסט</button>
+      <div class="notice">אם כפתור הייבוא לא מגיב — זה קורה כשבורר הקבצים של
+        המערכת חסום — יש שתי דרכים אחרות: לפתוח את קובץ הגיבוי מההורדות עם
+        "פתח באמצעות משימה", או להעתיק את תוכן הקובץ ולהדביק אותו כאן.</div>
       <button class="btn d wide" id="btnWipe">מחיקת כל הנתונים</button>
 
       <div class="notice" style="margin-top:22px">
@@ -6229,6 +6233,49 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       return v || UI.cleanSrc((Native.status()||{}).sourceUrl || '');
     };
 
+    /* ייבוא גיבוי. בורר הקבצים של ה-WebView לא תמיד נפתח — במעטפות
+       ישנות הוא לא מיושם בכלל, ואז לחיצה על הכפתור לא עושה כלום ובלי
+       שום שגיאה. לכן: מנסים לפתוח אותו, ואם תוך שנייה וחצי לא קרה כלום
+       מציעים את המסלולים החלופיים במקום להשאיר את המשתמש מול כפתור מת. */
+    function importFlow(){
+      const inp = document.getElementById('fileIn');
+      if (!inp){ pasteImport(); return; }
+      let opened = false;
+      const mark = () => { opened = true; };
+      window.addEventListener('blur', mark, { once:true });
+      inp.addEventListener('change', mark, { once:true });
+      try { inp.click(); } catch(e){ pasteImport(); return; }
+      setTimeout(() => {
+        window.removeEventListener('blur', mark);
+        if (opened) return;
+        Modal.open({ title:'בורר הקבצים לא נפתח',
+          body:`<div class="note">המעטפת המותקנת לא יודעת לפתוח בורר קבצים.
+                  יש שתי דרכים אחרות לשחזר גיבוי:</div>
+                <div class="ex" style="margin-top:10px">1 · פתח את קובץ הגיבוי
+                  מתוך ההורדות של הטלפון ובחר "פתח באמצעות משימה".</div>
+                <div class="ex">2 · פתח את הקובץ בדפדפן, העתק את כל הטקסט,
+                  וחזור לכאן להדביק אותו.</div>`,
+          buttons:[{label:'סגור',act:()=>Modal.shut()},
+                   {label:'הדבקת טקסט',kind:'p',act:()=>{ Modal.shut(); pasteImport(); }}]});
+      }, 1500);
+    }
+
+    /** שחזור בלי קבצים בכלל — הדבקה ישירה של תוכן הגיבוי */
+    function pasteImport(){
+      Modal.open({ title:'הדבקת גיבוי',
+        body:`<div class="note">הדבק כאן את כל תוכן קובץ הגיבוי.</div>
+              <textarea id="pasteBox" rows="8" style="width:100%;margin-top:10px"
+                placeholder='{"tasks":[…]}' dir="ltr"></textarea>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'שחזר',kind:'p',act:()=>{
+                    const v = (document.getElementById('pasteBox')||{}).value || '';
+                    if (!v.trim()){ UI.toast('לא הודבק כלום'); return; }
+                    Modal.shut();
+                    if (!window.__import(v.trim())) UI.toast('הטקסט לא תקין');
+                 }}]});
+      setTimeout(() => { const b = document.getElementById('pasteBox'); b && b.focus(); }, 120);
+    }
+
     async function peekServer(){
       const base = srcNow();
       if (!/^https:\/\//.test(base)){ UI.toast('קודם שמור כתובת https'); return; }
@@ -6316,7 +6363,8 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
         UI.download('mesima-backup.json', Store.export(), 'application/json');
         UI.toast('הגיבוי הורד'); return;
       }
-      if (e.target.closest('#btnImport')){ $('#fileIn').click(); return; }
+      if (e.target.closest('#btnImport')){ importFlow(); return; }
+      if (e.target.closest('#btnPaste')){ pasteImport(); return; }
       if (e.target.closest('#btnWipe')){
         Modal.open({ title:'למחוק הכול?',
           body:`<div class="note">כל המשימות, האירועים, ההערות, המקומות והרשימות יימחקו.
@@ -6464,6 +6512,31 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       return false;   /* אין יותר לאן — כאן מותר לצאת */
     }
     window.__back = goBack;
+
+    /* גיבוי שנפתח מבחוץ ("פתח באמצעות משימה" מההורדות, או שיתוף).
+       מסלול שחזור עצמאי, שלא עובר דרך <input type="file"> של ה-WebView.
+       תמיד שואל לפני שהוא דורס — ייבוא מחליף את כל הנתונים. */
+    window.__import = function(text){
+      if (!text) return false;
+      let p = null;
+      try { p = JSON.parse(text); } catch(e){ p = null; }
+      if (!p || typeof p !== 'object' || !Array.isArray(p.tasks)){
+        UI.toast('זה לא נראה כמו קובץ גיבוי של משימה');
+        return false;
+      }
+      const n = p.tasks.length;
+      const ev = Array.isArray(p.events) ? p.events.length : 0;
+      Modal.open({ title:'לשחזר מהגיבוי?',
+        body:`<div class="note">הקובץ מכיל <b>${n}</b> משימות ו-<b>${ev}</b> אירועים.
+              שחזור <b>מחליף</b> את כל מה שקיים עכשיו באפליקציה.</div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label:'שחזר',kind:'p',act:()=>{
+                    try { Store.import(text); Modal.shut(); UI.toast('שוחזר · ' + n + ' משימות');
+                          UI.render(); }
+                    catch(x){ Modal.shut(); UI.toast('הקובץ פגום'); }
+                 }}]});
+      return true;
+    };
 
     /* ההתראה של אנדרואיד מוסרת את המזהה, והאפליקציה פותחת את החלון
        המלא עם התיאור, התמונה ותת-המשימות — לא רק שורה בשורת הסטטוס. */
