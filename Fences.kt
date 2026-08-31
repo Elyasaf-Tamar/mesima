@@ -62,24 +62,48 @@ object Fences {
         return PendingIntent.getBroadcast(ctx, 0xF3CE, i, flags)
     }
 
+    /** רדיוס אפקטיבי מינימלי. מתחת לזה אנדרואיד לא מבטיח כלום:
+     *  דיוק GPS ליד מבנים הוא 20–50 מטר, ומרווח הבדיקה כשתי דקות.
+     *  שומרים את הרדיוס שהמשתמש בחר לתצוגה, ומרחיבים רק את הגדר עצמה. */
+    private const val MIN_RADIUS = 140.0
+
+    /** תוצאת הרישום האחרון — ל-UI, כדי שיגיד אמת ולא ניחוש. */
+    private const val LAST = "last"
+
+    fun lastResult(ctx: Context): String =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(LAST, "") ?: ""
+
+    private fun remember(ctx: Context, msg: String) =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString(LAST, msg).apply()
+
     /** מוחק את כל הגדרים ורושם מחדש את הרשימה שנשמרה. */
     fun reapply(ctx: Context, onResult: ((Boolean, String) -> Unit)? = null) {
         val arr = load(ctx)
         val client = LocationServices.getGeofencingClient(ctx)
 
-        client.removeGeofences(pendingIntent(ctx))
+        val done = { ok: Boolean, msg: String ->
+            remember(ctx, if (ok) msg else "שגיאה: $msg")
+            onResult?.invoke(ok, msg)
+            Unit
+        }
 
-        if (arr.length() == 0) { onResult?.invoke(true, "אין גדרים"); return }
-        if (!hasPermission(ctx))  { onResult?.invoke(false, "חסרה הרשאת מיקום ברקע"); return }
+        if (arr.length() == 0) {
+            client.removeGeofences(pendingIntent(ctx))
+            done(true, "אין גדרים"); return
+        }
+        if (!hasPermission(ctx)) { done(false, "חסרה הרשאת מיקום ברקע"); return }
 
         val fences = ArrayList<Geofence>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val delayMs = (o.optInt("delayMin", 0)) * 60_000
+            val lat = o.optDouble("lat", Double.NaN)
+            val lng = o.optDouble("lng", Double.NaN)
+            if (lat.isNaN() || lng.isNaN()) continue
+            val radius = maxOf(o.optDouble("radius", 200.0), MIN_RADIUS)
             val b = Geofence.Builder()
                 .setRequestId(o.optString("id"))
-                .setCircularRegion(o.optDouble("lat"), o.optDouble("lng"),
-                                   o.optDouble("radius", 200.0).toFloat())
+                .setCircularRegion(lat, lng, radius.toFloat())
                 .setExpirationDuration(Geofence.NEVER_EXPIRE)
             if (delayMs > 0) {
                 // אנדרואיד ממתין את העיכוב בעצמו ומודיע רק בסופו
@@ -90,7 +114,10 @@ object Fences {
             }
             fences.add(b.build())
         }
-        if (fences.isEmpty()) { onResult?.invoke(true, "אין גדרים"); return }
+        if (fences.isEmpty()) {
+            client.removeGeofences(pendingIntent(ctx))
+            done(true, "אין גדרים"); return
+        }
 
         val req = GeofencingRequest.Builder()
             // אם כבר נמצאים בפנים בזמן הרישום — לדווח מיד
@@ -99,12 +126,20 @@ object Fences {
             .addGeofences(fences)
             .build()
 
-        try {
-            client.addGeofences(req, pendingIntent(ctx))
-                .addOnSuccessListener { onResult?.invoke(true, "נרשמו ${fences.size} גדרים") }
-                .addOnFailureListener { e -> onResult?.invoke(false, e.message ?: "כשל ברישום") }
-        } catch (se: SecurityException) {
-            onResult?.invoke(false, "הרשאה נדחתה")
+        // המחיקה והרישום הם שתי משימות אסינכרוניות. קודם הן נשלחו
+        // אחת אחרי השנייה בלי להמתין, ומחיקה שהסתיימה מאוחר הייתה מוחקת
+        // את הגדרים שזה עתה נרשמו — ואז תזכורת המיקום פשוט לא ירתה.
+        val add = {
+            try {
+                client.addGeofences(req, pendingIntent(ctx))
+                    .addOnSuccessListener { done(true, "נרשמו ${fences.size} גדרים") }
+                    .addOnFailureListener { e -> done(false, e.message ?: "כשל ברישום") }
+                Unit
+            } catch (se: SecurityException) {
+                done(false, "הרשאה נדחתה")
+            }
         }
+        client.removeGeofences(pendingIntent(ctx))
+            .addOnCompleteListener { add() }
     }
 }

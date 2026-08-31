@@ -17,6 +17,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -33,6 +34,14 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
     private lateinit var loader: WebViewAssetLoader
+
+    /** הדף מעדכן את זה בכל רינדור: האם יש עוד שכבה לסגור לפני יציאה. */
+    @Volatile var canGoBack: Boolean = false
+    private var backCb: OnBackPressedCallback? = null
+
+    /** הדף מודיע שהוא חי ומוכן לקבל פתיחת התראה. */
+    @Volatile private var webReady = false
+    private var pendingAlarm: String? = null
 
     private val fineReq = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()) { res ->
@@ -118,7 +127,31 @@ class MainActivity : ComponentActivity() {
         setContentView(web)
         web.loadUrl(HOME)
 
+        // כפתור "חזרה" של המערכת עובר קודם לדף: הוא סוגר מודאל, יוצא
+        // מהערה, חוזר ל"היום" — ורק כשאין לו יותר מה לסגור האפליקציה נסגרת.
+        //
+        // ההחלטה נלקחת מדגל שה-JS מעדכן בכל רינדור (canGoBack), ולא מתשובה
+        // אסינכרונית של evaluateJavascript. גרסה קודמת שאלה את הדף בכל לחיצה
+        // וחיכתה לתשובה; אם התשובה איחרה או חזרה null, הקולבק כיבה את עצמו
+        // והאפליקציה נסגרה באמצע מסלול — בדיוק הבאג של "יציאה מתוך הערה".
+        backCb = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (canGoBack) {
+                    web.evaluateJavascript("window.__back&&window.__back()", null)
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, backCb!!)
+
+        handleAlarmIntent(intent)
+
         Fences.reapply(this)
+        // רישום מחדש של תזכורות השעה מהרשימה השמורה. ה-JS ידרוס אותה
+        // ברגע שהוא נטען, אבל ככה הן חיות גם אם ה-WebView נכשל
+        Sched.reapply(this)
         // בדיקת עדכון שקטה בכל פתיחה
         if (Updater.sourceUrl(this).isNotBlank()) Updater.check(this) { _, _ -> notifyJs() }
     }
@@ -139,9 +172,36 @@ class MainActivity : ComponentActivity() {
         runOnUiThread { web.evaluateJavascript("window.dispatchEvent(new Event('native-perms'))", null) }
     }
 
-    override fun onResume() { super.onResume(); notifyJs() }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAlarmIntent(intent)
+    }
 
-    override fun onBackPressed() {
-        if (web.canGoBack()) web.goBack() else super.onBackPressed()
+    /** התראה שנלחצה מביאה איתה מזהה. הדף פותח עליו את חלון התזכורת
+     *  המלא — כותרת, תיאור, תמונה ותת-משימות — ולא רק נפתח בעמוד הבית. */
+    private fun handleAlarmIntent(i: Intent?) {
+        val id = i?.getStringExtra("taskId") ?: return
+        i.removeExtra("taskId")
+        if (webReady) fireAlarmJs(id) else pendingAlarm = id
+    }
+
+    private fun fireAlarmJs(id: String) = runOnUiThread {
+        val safe = org.json.JSONObject.quote(id)
+        web.evaluateJavascript("window.__alarm&&window.__alarm($safe)", null)
+    }
+
+    /** נקרא מה-JS דרך הגשר ברגע שהדף מוכן. */
+    fun webIsReady() = runOnUiThread {
+        webReady = true
+        pendingAlarm?.let { fireAlarmJs(it); pendingAlarm = null }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // קולבק שכיבה את עצמו ביציאה קודמת חייב לחזור לפעולה, אחרת
+        // הלחיצה הבאה על "חזרה" תעקוף את הדף לגמרי.
+        backCb?.isEnabled = true
+        notifyJs()
     }
 }

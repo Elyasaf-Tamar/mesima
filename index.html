@@ -803,7 +803,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '3.1 · 2026-08-31';
+const BUILD = '3.2 · 2026-08-31';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -2369,6 +2369,16 @@ const Native = (() => {
     /* אנדרואיד צריך לדעת מראש אם לכפתור החזרה יש עוד מה לסגור.
        שאלה אסינכרונית בכל לחיצה יצרה מרוץ שסגר את האפליקציה באמצע מסלול. */
     canBack(v){ try { A().setCanBack(!!v); } catch(e){} },
+    /* בדיקה עצמית — עוברת באותו מסלול בדיוק של תזכורת אמיתית */
+    /** מסירה מיידית, בלי ההשהיה — ומחזירה כמה נרשמו בפועל */
+    syncNow(){
+      if (!A()) return -1;
+      try { return A().syncAlarms(JSON.stringify(alarmList())); } catch(e){ return -1; }
+    },
+    testNotify(){ try { return A().testNotify(); } catch(e){ return 'no bridge'; } },
+    testAlarm(sec){ try { return A().testAlarm(sec); } catch(e){ return 0; } },
+    askFullScreen(){ try { A().requestFullScreen(); } catch(e){} },
+    openChannel(){ try { A().openChannelSettings(); } catch(e){} },
     ready(){ try { A().ready(); } catch(e){} },
     setSource(u){ try { A().setSourceUrl(u); } catch(e){} },
     checkUpdate(){ try { A().checkUpdate(); } catch(e){} },
@@ -3282,10 +3292,55 @@ const UI = (() => {
         ${perm(a.exact !== false, 'התראות ותזכורות',
                a.exact !== false ? 'תזכורות שעה יורות בשנייה המדויקת'
                : 'בלי זה אנדרואיד ידחה תזכורות בכמה דקות כדי לחסוך סוללה','exact')}
-        <div class="set"><div class="sb"><div class="st">תזכורות שעה רשומות</div>
-          <div class="sd">${a.scheduled||0} רשומות במערכת${
-            when ? ' · הקרובה ' + esc(when) : ''}</div></div></div>`;
+        ${(() => {
+          const withTime = Store.all.tasks.filter(t => !t.archived &&
+            ((t.reminder && t.reminder.type === 'time') || Store.isHabit(t))).length;
+          const computed = Native.alarmList().length;
+          return `<div class="set"><div class="sb"><div class="st">שרשרת התזכורות</div>
+            <div class="sd">משימות עם שעה: <b>${withTime}</b><br>
+              האפליקציה חישבה קדימה: <b>${computed}</b><br>
+              המערכת רשמה בפועל: <b>${a.scheduled||0}</b>${
+              when ? '<br>הקרובה: ' + esc(when) : ''}</div></div>
+            <button class="txtbtn" data-nat="resync">רענן</button></div>`;
+        })()}
+        ${(Native.alarmList().length && !(a.scheduled||0)) ? `
+          <div class="notice">האפליקציה חישבה תזכורות אבל המערכת לא רשמה אף אחת.
+            זה אומר שהמסירה לאנדרואיד נכשלת — לחץ על <b>"בדוק התראה עכשיו"</b> למטה
+            כדי לראות איפה זה נתקע.</div>` : ''}
+        ${(() => {
+          const withTime = Store.all.tasks.filter(t => !t.archived &&
+            ((t.reminder && t.reminder.type === 'time') || Store.isHabit(t))).length;
+          if (!withTime) return `<div class="notice">אף משימה לא מחזיקה <b>שעה</b>.
+            תזכורת נרשמת רק כשיש שעה — תאריך לבד לא מספיק. פתח משימה ←
+            "ערוך משימה" ← התראה ← חד-פעמית, ומלא את שדה השעה.</div>`;
+          if (!Native.alarmList().length) return `<div class="notice">יש משימות עם שעה,
+            אבל כל השעות שלהן כבר עברו. תזכורת נרשמת רק קדימה.</div>`;
+          return '';
+        })()}`;
       })()}
+
+      <h2 class="sh">בדיקת התראות</h2>
+      ${perm(n.fullScreen !== false, 'התראה במסך מלא',
+             n.fullScreen !== false
+               ? 'התזכורת יכולה לקפוץ מעל מה שפתוח'
+               : 'בלי זה אנדרואיד לא ירשה פופ-אפ מלא — רק שורה בשורת הסטטוס','fullscreen')}
+      ${(() => {
+        const c = n.channel || {};
+        if (c.exists === false) return `<div class="set"><div class="sb">
+          <div class="st">ערוץ ההתראות</div>
+          <div class="sd">עוד לא נוצר — יווצר בהתראה הראשונה</div></div></div>`;
+        const ok = !c.blocked && (c.importance == null || c.importance >= 4);
+        return `<div class="set"><div class="sb"><div class="st">ערוץ ההתראות</div>
+          <div class="sd">${c.blocked ? 'מושתק לגמרי בהגדרות הטלפון'
+            : ok ? 'פעיל, עם קפיצה וצליל'
+                 : 'פעיל אבל בלי קפיצה — צריך "התראה" ולא "שקט"'}</div></div>
+          ${ok ? '' : `<button class="txtbtn" data-nat="chan">פתח</button>`}</div>`;
+      })()}
+      <div class="notice">שתי הבדיקות האלה עוברות בדיוק באותו מסלול של תזכורת אמיתית.
+        אם הן עובדות — הצינור תקין והבעיה בנתונים. אם לא — הבעיה בהרשאות.</div>
+      <button class="btn wide" data-nat="testnow">בדוק התראה עכשיו</button>
+      <button class="btn wide" data-nat="test60" style="margin-top:8px">
+        תזכורת מבחן בעוד דקה</button>
       <div class="set"><div class="sb"><div class="st">תזכורות מקום רשומות</div>
         <div class="sd">${n.fences||0} מתוך ${Native.fenceCount()} רשומות במערכת${
           n.fencesResult ? ' · ' + esc(n.fencesResult) : ''}</div></div></div>
@@ -6279,6 +6334,20 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
          batt:()=>Native.battery(), samsung:()=>Native.samsung(),
          alarms:()=>Native.showAlarms(),
          exact:()=>Native.askExact(),
+         fullscreen:()=>Native.askFullScreen(),
+         chan:()=>Native.openChannel(),
+         resync:()=>{ const n2 = Native.syncNow();
+                      UI.toast(n2 < 0 ? 'הגשר לא הגיב' : n2 + ' תזכורות נרשמו');
+                      UI.render(); },
+         testnow:()=>{
+           const r = Native.testNotify();
+           UI.toast(r === 'sent' ? 'נשלחה התראה — תסתכל למעלה' : ('שגיאה: ' + r));
+         },
+         test60:()=>{
+           const at = Native.testAlarm(60);
+           UI.toast(at ? 'תזכורת מבחן ב-' + new Date(at).toTimeString().slice(0,5)
+                       : 'המערכת לא קיבלה את התזכורת');
+         },
          check:()=>{
            const base = srcNow();
            if (!/^https:\/\//.test(base)){ UI.toast('קודם שמור כתובת https'); return; }

@@ -6,12 +6,19 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- חלון תזכורת מלא מעל מה שפתוח. אנדרואיד 14+ מגביל את זה לאפליקציות
+         שעון/שיחות; אם ההרשאה נשללת ההתראה נשארת heads-up רגילה. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- כתיבת שעון מעורר לאפליקציית השעון של הטלפון (הרשאת התקנה, בלי דיאלוג) -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- תזכורת בשנייה המדויקת. USE_EXACT_ALARM ניתנת בהתקנה לאפליקציית תזכורות;
+         SCHEDULE_EXACT_ALARM היא הנתיב שהמשתמש מאשר ידנית במכשירים ישנים יותר -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
@@ -56,7 +63,13 @@
             android:exported="false"
             android:enabled="true" />
 
-        <!-- geofences נמחקים באתחול ובעדכון האפליקציה — חובה לרשום מחדש -->
+        <!-- אנדרואיד מעיר את המקלט הזה בשעה שנקבעה גם כשהאפליקציה מתה -->
+        <receiver
+            android:name=".AlarmReceiver"
+            android:exported="false"
+            android:enabled="true" />
+
+        <!-- geofences ותזכורות שעה נמחקים באתחול ובעדכון האפליקציה — חובה לרשום מחדש -->
         <receiver
             android:name=".BootReceiver"
             android:exported="true"

@@ -24,7 +24,20 @@ import org.json.JSONObject
 class WebBridge(private val act: Activity) {
 
     @JavascriptInterface
-    fun version(): String = "0.4"
+    fun version(): String = "0.9"
+
+    /** הדף מדווח אם יש לו עוד שכבה לסגור. כפתור החזרה של המערכת
+     *  מסתמך על זה, ולכן ההחלטה מיידית ולא תלויה בקריאה אסינכרונית. */
+    @JavascriptInterface
+    fun setCanBack(v: Boolean) {
+        (act as? MainActivity)?.canGoBack = v
+    }
+
+    /** הדף נטען וסיים לצייר — אפשר למסור לו התראה שנלחצה. */
+    @JavascriptInterface
+    fun ready() {
+        (act as? MainActivity)?.webIsReady()
+    }
 
     /** מצב ההרשאות והמערכת, כדי שה-UI יוכל להציג אמת ולא ניחוש. */
     @JavascriptInterface
@@ -34,6 +47,10 @@ class WebBridge(private val act: Activity) {
         o.put("locationBackground", Fences.hasPermission(act))
         o.put("notifications", androidx.core.app.NotificationManagerCompat.from(act).areNotificationsEnabled())
         o.put("fences", Fences.load(act).length())
+        o.put("fencesResult", Fences.lastResult(act))
+        o.put("alarms", Sched.state(act))
+        o.put("fullScreen", Notif.canFullScreen(act))
+        o.put("channel", Notif.channelState(act))
         val pm = act.getSystemService(Context.POWER_SERVICE) as PowerManager
         o.put("batteryUnrestricted", pm.isIgnoringBatteryOptimizations(act.packageName))
         o.put("sdk", Build.VERSION.SDK_INT)
@@ -85,6 +102,83 @@ class WebBridge(private val act: Activity) {
                 Toast.makeText(act, "נשמר בהורדות: " + name, Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(act, "שגיאה בשמירה", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /**
+     * מקבל את כל תזכורות השעה הקרובות בבת אחת ורושם אותן ב-AlarmManager.
+     * ה-JS מחשב את המופעים; כאן רק רושמים. מחזיר כמה נרשמו בפועל.
+     */
+    @JavascriptInterface
+    fun syncAlarms(json: String): Int {
+        Sched.save(act, json)
+        return Sched.reapply(act)
+    }
+
+    /** האם המערכת מרשה תזכורת בשנייה המדויקת. */
+    @JavascriptInterface
+    fun canExactAlarms(): Boolean = Sched.canExact(act)
+
+    /* ---------------- בדיקה עצמית של ההתראות ----------------
+       שלושת אלה הופכים את "לא מקבל התראות" משאלה לתשובה. */
+
+    /** מפרסם התראה אמיתית עכשיו, בלי AlarmManager באמצע. */
+    @JavascriptInterface
+    fun testNotify(): String {
+        return try {
+            Notif.show(act, "selftest-now", "בדיקת התראה",
+                       "אם אתה רואה את זה — ההתראות של משימה עובדות")
+            "sent"
+        } catch (e: Exception) { "error: " + (e.message ?: "?") }
+    }
+
+    /** רושם תזכורת אמיתית בעוד N שניות, דרך המסלול המלא. */
+    @JavascriptInterface
+    fun testAlarm(seconds: Int): Long = Sched.testIn(act, seconds)
+
+    /** האם מותר לנו להקפיץ חלון מלא מעל מה שפתוח (אנדרואיד 14+). */
+    @JavascriptInterface
+    fun canFullScreen(): Boolean = Notif.canFullScreen(act)
+
+    /** פותח את מסך ההרשאה של "התראות במסך מלא". */
+    @JavascriptInterface
+    fun requestFullScreen() = act.runOnUiThread {
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                act.startActivity(Intent(
+                    "android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT",
+                    Uri.parse("package:" + act.packageName)))
+            } else openChannelSettings()
+        } catch (e: Exception) { openChannelSettings() }
+    }
+
+    /** פותח את הגדרות ערוץ ההתראות של האפליקציה. */
+    @JavascriptInterface
+    fun openChannelSettings() = act.runOnUiThread {
+        try {
+            act.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, act.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, Notif.CHAN))
+        } catch (e: Exception) {
+            try {
+                act.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, act.packageName))
+            } catch (x: Exception) {}
+        }
+    }
+
+    /** פותח את מסך ההרשאה של "התראות ותזכורות" עבור האפליקציה. */
+    @JavascriptInterface
+    fun requestExactAlarms() {
+        act.runOnUiThread {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@runOnUiThread
+            try {
+                act.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                         Uri.parse("package:" + act.packageName)))
+            } catch (e: Exception) {
+                try { act.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)) }
+                catch (e2: Exception) { openAppSettings() }
             }
         }
     }

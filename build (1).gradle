@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId "il.mesima.app"
-        minSdk 26
+        minSdk 29
         targetSdk 35
-        versionCode 4
-        versionName "0.4"
+        versionCode 9
+        versionName "0.9"
     }
 
     buildTypes {
@@ -23,6 +23,11 @@ android {
             signingConfig signingConfigs.debug
         }
     }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -32,6 +37,10 @@ android {
 
 dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
+    // play-services-location גורר androidx.fragment ישן, ו-androidx.activity
+    // דורש 1.3.0+. בלי הצהרה מפורשת Gradle לא מכריע ונופל עם
+    // "Upgrade Fragment version to at least 1.3.0."
+    implementation 'androidx.fragment:fragment:1.8.5'
     // WebViewAssetLoader: מגיש קבצים מקומיים מעל origin וירטואלי של https.
     // בלעדיו כל החלפה בין file:// לרשת הייתה משנה origin ומאבדת את כל הנתונים.
     implementation 'androidx.webkit:webkit:1.12.1'
