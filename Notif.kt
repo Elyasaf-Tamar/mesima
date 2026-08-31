@@ -13,11 +13,19 @@ import androidx.core.app.NotificationManagerCompat
 import org.json.JSONObject
 
 object Notif {
-    const val CHAN = "mesima.reminders"
+    /* מזהה הערוץ נושא מספר גרסה בכוונה. אנדרואיד לא מרשה להעלות את
+       החשיבות של ערוץ קיים — אם הוא נוצר פעם כ"שקט", או שהמשתמש השתיק
+       אותו, שום עדכון קוד לא יחזיר לו קפיצה וצליל. שינוי המזהה יוצר
+       ערוץ חדש נקי בחשיבות HIGH, וזו הדרך היחידה. */
+    const val CHAN = "mesima.reminders.v2"
+    private const val CHAN_OLD = "mesima.reminders"
 
     fun channel(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val mgr = ctx.getSystemService(NotificationManager::class.java)
+        /* הערוץ הישן נשאר ברשימת ההגדרות ומבלבל — מוחקים אותו פעם אחת */
+        try { if (mgr.getNotificationChannel(CHAN_OLD) != null) mgr.deleteNotificationChannel(CHAN_OLD) }
+        catch (e: Exception) {}
         if (mgr.getNotificationChannel(CHAN) != null) return
         val ch = NotificationChannel(CHAN, ctx.getString(R.string.chan_reminders),
                                      NotificationManager.IMPORTANCE_HIGH)

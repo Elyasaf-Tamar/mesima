@@ -803,7 +803,9 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '3.2 · 2026-08-31';
+const BUILD = '3.3 · 2026-08-31';
+/* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
+const NEED_APK = '1.0';
 
 /* ------------------------------- Store ---------------------------------- */
 const Store = (() => {
@@ -2375,6 +2377,21 @@ const Native = (() => {
       if (!A()) return -1;
       try { return A().syncAlarms(JSON.stringify(alarmList())); } catch(e){ return -1; }
     },
+    /* גרסת מעטפת האנדרואיד. מעטפת ישנה לא מכירה את המתודה הזאת ולכן
+       מחזירה '' — וזה בדיוק הסימן שצריך להתקין APK חדש. */
+    version(){ try { return String(A().version() || ''); } catch(e){ return ''; } },
+    /* משווה 0.9 מול 0.8 כמספרים, לא כמחרוזות */
+    apkOld(){
+      const v = this.version();
+      if (!this.on) return false;
+      if (!v) return true;
+      const a = v.split('.').map(Number), b = NEED_APK.split('.').map(Number);
+      for (let i = 0; i < Math.max(a.length, b.length); i++){
+        const x = a[i]||0, y = b[i]||0;
+        if (x !== y) return x < y;
+      }
+      return false;
+    },
     testNotify(){ try { return A().testNotify(); } catch(e){ return 'no bridge'; } },
     testAlarm(sec){ try { return A().testAlarm(sec); } catch(e){ return 0; } },
     askFullScreen(){ try { A().requestFullScreen(); } catch(e){} },
@@ -3274,6 +3291,15 @@ const UI = (() => {
 
       ${Native.on ? `
       <h2 class="sh">הרשאות מערכת</h2>
+      ${Native.apkOld() ? `
+        <div class="notice warn"><b>המעטפת של האפליקציה ישנה.</b><br>
+          הדף מתעדכן לבד מהאינטרנט, אבל קובץ ה-APK לא — והוא זה שמפעיל את
+          ההתראות. הדף הזה (${esc(BUILD)}) מבקש מהמעטפת פעולות שקיימות רק
+          מגרסה <b dir="ltr" style="unicode-bidi:isolate">${esc(NEED_APK)}</b>,
+          והמעטפת המותקנת היא
+          <b dir="ltr" style="unicode-bidi:isolate">${esc(Native.version() || 'ישנה מ-1.0')}</b>.<br>
+          <b>כל עוד זה כתוב כאן — אף בדיקה למטה לא אמינה, ותזכורות לא ירשמו.</b>
+          צריך לבנות ולהתקין APK חדש.</div>` : ''}
       ${perm(n.locationBackground,'מיקום כל הזמן',
              n.locationBackground ? 'גדרות המיקום פעילות'
              : 'צריך "Allow all the time" — בלי זה אין תזכורות מקום ברקע','loc')}
@@ -3320,12 +3346,19 @@ const UI = (() => {
       })()}
 
       <h2 class="sh">בדיקת התראות</h2>
-      ${perm(n.fullScreen !== false, 'התראה במסך מלא',
-             n.fullScreen !== false
+      ${typeof n.fullScreen !== 'boolean'
+        ? `<div class="set"><div class="sb"><div class="st">התראה במסך מלא</div>
+             <div class="sd">לא ידוע — המעטפת המותקנת לא יודעת לענות על זה.
+               אחרי התקנת APK ${esc(NEED_APK)} תופיע כאן תשובה אמיתית.</div></div></div>`
+        : perm(n.fullScreen, 'התראה במסך מלא',
+             n.fullScreen
                ? 'התזכורת יכולה לקפוץ מעל מה שפתוח'
                : 'בלי זה אנדרואיד לא ירשה פופ-אפ מלא — רק שורה בשורת הסטטוס','fullscreen')}
       ${(() => {
-        const c = n.channel || {};
+        const c = n.channel;
+        if (!c || typeof c !== 'object') return `<div class="set"><div class="sb">
+          <div class="st">ערוץ ההתראות</div>
+          <div class="sd">לא ידוע — המעטפת המותקנת לא יודעת לענות על זה.</div></div></div>`;
         if (c.exists === false) return `<div class="set"><div class="sb">
           <div class="st">ערוץ ההתראות</div>
           <div class="sd">עוד לא נוצר — יווצר בהתראה הראשונה</div></div></div>`;
@@ -3356,7 +3389,10 @@ const UI = (() => {
 
       <h2 class="sh">עדכון האפליקציה</h2>
       <div class="set"><div class="sb"><div class="st">גרסה שרצה עכשיו</div>
-        <div class="sd" dir="ltr" style="unicode-bidi:isolate">${esc(BUILD)}</div></div></div>
+        <div class="sd">הדף: <b dir="ltr" style="unicode-bidi:isolate">${esc(BUILD)}</b>${
+          Native.on ? `<br>המעטפת (APK): <b dir="ltr" style="unicode-bidi:isolate">${
+            esc(Native.version() || 'ישנה מ-1.0')}</b>${
+            Native.apkOld() ? ' — צריך ' + esc(NEED_APK) : ''}` : ''}</div></div></div>
       ${Native.on ? `
         ${n.updatePending ? `<div class="notice"><b>ירדה גרסה חדשה.</b>
             <button class="btn p wide" data-nat="apply">טען את הגרסה החדשה</button></div>` : ''}
@@ -4213,12 +4249,16 @@ const Wire = (() => {
                  <span class="pm">רק שם לסמן</span></button>` : ''}`
             : `<button class="pick" data-m="cat"><span class="pn">העבר לקטגוריה…</span>
                  <span class="pm">${CAT[t.mission]}</span></button>`}
+          ${clockTime(t) ? `<button class="pick" data-m="clock">
+                 <span class="pn">הוסף גם לשעון הטלפון</span>
+                 <span class="pm">${esc(clockTime(t))}</span></button>` : ''}
           <button class="pick" data-m="del"><span class="pn" style="color:var(--danger)">מחק לצמיתות</span></button>`,
         buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-m]'); if(!b) return;
         const k = b.dataset.m;
         if (k==='cat'){ moveCategoryModal(id); return; }
+        if (k==='clock'){ openClock({ title:t.title, time:clockTime(t) }); Modal.shut(); return; }
         if (k==='indep'){ Store.toIndependent(id); Modal.shut(); UI.toast('עומדת בפני עצמה'); return; }
         if (k==='toitem'){
           const it = Store.toChecklistItem(id);
@@ -4371,48 +4411,25 @@ const Wire = (() => {
     }
 
     /* ================= עורך המשימה — אקורדיון (סעיפים 39–40) ================= */
-    /* ================= תור התראות השעון =================
-       ההתראות של משימה נשמרות תמיד בפנים. שעון הטלפון הוא תוספת:
-       פותחים את מסך יצירת ההתראה ומשאירים למשתמש לאשר.
-       אחת — ישר לשעון. יותר מאחת — מסך אחד שממנו פותחים בזו אחר זו,
-       כדי לא לזרוק את המשתמש בין אפליקציות. */
+    /* ================= שעון הטלפון — לפי בקשה בלבד =================
+       פעם שמירת משימה עם שעה זרקה את המשתמש לאפליקציית השעון.
+       זה כבר לא קורה: התזכורות הן של "משימה" עצמה, דרך AlarmManager
+       וההתראות שלה. שעון הטלפון נשאר רק כפעולה יזומה מתפריט המשימה,
+       למי שרוצה גם צלצול של שעון מעורר. */
     const alarmLabel = title => 'משימה — ' + title;
+
+    /** השעה שאפשר להעביר לשעון המעורר, אם יש כזאת */
+    function clockTime(t){
+      if (!t || t.kind === 'long') return '';
+      if (Store.isHabit(t)) return (t.repeat.times || [])[0] || '';
+      return (t.reminder && t.reminder.type === 'time') ? t.reminder.at : '';
+    }
 
     function openClock(item){
       if (!Native.on){ UI.toast('התראה בשעון עובדת רק באפליקציה המותקנת'); return false; }
       const ok = Native.openAlarm(item.time, alarmLabel(item.title));
       if (!ok) UI.toast('לא הצלחתי לפתוח את שעון הטלפון');
       return ok;
-    }
-
-    function runAlarmQueue(queue){
-      const q = (queue || []).filter(x => x && x.time && x.title);
-      if (!q.length) return;
-      if (!Native.on) return;                    /* בדפדפן אין שעון — בשקט */
-      if (q.length === 1){ openClock(q[0]); return; }
-      alarmSetupModal(q);
-    }
-
-    /** מסך אחד לכל ההתראות שנוצרו יחד */
-    function alarmSetupModal(q){
-      const opened = new Set();
-      const rows = () => q.map((x,i) => `
-        <div class="alrow">
-          <span class="atime">${esc(x.time)}</span>
-          <span class="at2">${esc(x.title)}</span>
-          ${opened.has(i) ? `<span class="done2">נפתח</span>` : ''}
-          <button class="btn" data-al="${i}" style="padding:8px 12px">פתח בשעון</button>
-        </div>`).join('');
-      Modal.open({ title:'יצירת התראות בשעון',
-        body:`<div class="note" style="padding-bottom:10px">התזכורות של משימה כבר נשמרו.
-                כאן אפשר ליצור גם התראות בשעון של הטלפון — אחת בכל פעם.</div>
-              <div id="alList">${rows()}</div>`,
-        buttons:[{label:'סיום',act:()=>Modal.shut()}]});
-      Modal.body.addEventListener('click', e => {
-        const b = e.target.closest('[data-al]'); if(!b) return;
-        const i = +b.dataset.al;
-        if (openClock(q[i])){ opened.add(i); document.getElementById('alList').innerHTML = rows(); }
-      });
     }
 
     /* ================= עורך המשימה ================= */
@@ -5262,14 +5279,6 @@ const Wire = (() => {
         }
         return rt;
       }
-      /** אילו התראות שעון המשימה הזאת מבקשת */
-      function alarmsOf(x){
-        if (x.kind === 'long') return [];
-        if (x.repeat) return x.repeat.times.map(tm => ({ title:x.title, time:tm }));
-        if (x.reminder && x.reminder.type === 'time') return [{ title:x.title, time:x.reminder.at }];
-        return [];
-      }
-
       function save(){
         const data = collect();
         if (!data){ UI.toast('צריך שם'); g('etTitle').focus(); return; }
@@ -5284,10 +5293,8 @@ const Wire = (() => {
           return;
         }
 
-        const queue = [];
         if (isNew){
           const created = Store.addTask({ ...data, rt:initialRt(data), parentId:o.parentId||null });
-          queue.push(...alarmsOf(data));
           /* הצ׳קליסטים הממתינים נשמרים עם שמותיהם ובסדר שנקבע */
           pendLists.forEach(c => {
             const nc = Store.addChecklist(created.id, c.name);
@@ -5303,29 +5310,20 @@ const Wire = (() => {
               const nc = Store.addChecklist(kid.id, cl.name);
               cl.items.forEach(it => Store.addChecklistItem(kid.id, nc.id, it.title, it.note));
             });
-            queue.push(...alarmsOf(c));
           });
           if (evId && Store.event(evId)) Store.linkTask(created.id, evId);
           if (o.parentId){ const p = Store.task(o.parentId); if (p && p.collapsed) Store.toggleCollapse(p.id); }
         } else {
-          const before = (t.reminder && t.reminder.type === 'time') ? t.reminder.at : '';
-          const beforeRep = Store.isHabit(t) ? t.repeat.times.join(',') : '';
           Store.updateTask(t.id, { ...data, rt:initialRt(data),
                                    log: data.kind === 'long' ? {} : (t.log||{}) });
           Store.setPlanned(t.id, data.planned);
           if ((t.eventId || '') !== (evId || '')) Store.linkTask(t.id, evId || null);
-          /* רק שינוי בשעה מצדיק לפתוח שוב את השעון */
-          const after = (data.reminder && data.reminder.type === 'time') ? data.reminder.at : '';
-          const afterRep = data.repeat ? data.repeat.times.join(',') : '';
-          if ((after && after !== before) || (afterRep && afterRep !== beforeRep))
-            queue.push(...alarmsOf(data));
         }
 
         /* ההורה חוזר אלינו — אם היינו ילד של עורך פתוח */
         if (o.back){
           Modal.shut();
           taskModal({ id:o.back.id, draft:o.back.draft });
-          runAlarmQueue(queue);
           return;
         }
         Modal.shut();
@@ -5334,7 +5332,6 @@ const Wire = (() => {
         if (isNew && nItems) extra.push(nItems + ' פריטים');
         if (isNew && pending.length)   extra.push(pending.length + ' תת-משימות');
         UI.toast(isNew ? (extra.length ? 'נוסף עם ' + extra.join(' ו-') : 'נוסף') : 'נשמר');
-        runAlarmQueue(queue);
       }
     }
     /* ================= אירועים ================= */
