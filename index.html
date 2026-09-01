@@ -323,6 +323,9 @@
   .acc[aria-expanded="true"] > .ah .ar{transform:rotate(90deg)}
   .acc .ab{display:none;padding:2px 2px 16px}
   .acc[aria-expanded="true"] .ab{display:block}
+  /* מקטע הגדרות: כותרת גדולה יותר, כי זו הניווט הראשי של המסך */
+  .setacc > .ah .an{font-size:16px;font-weight:600}
+  .setacc > .ah{padding:16px 2px}
   .fgrid{display:flex;gap:10px}
   .fgrid > *{flex:1}
 
@@ -786,6 +789,7 @@
   <div class="det" id="alDet" hidden></div>
   <div class="btns">
     <button class="btn" id="alLater">אחר כך</button>
+    <button class="btn" id="alOpen" hidden>פתח</button>
     <button class="btn p" id="alOk">הבנתי</button>
   </div>
 </div></div>
@@ -803,7 +807,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '3.4 · 2026-08-31';
+const BUILD = '3.5 · 2026-09-01';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.1';
 
@@ -958,7 +962,55 @@ const Store = (() => {
     const timed = !!(t.reminder && t.reminder.type);
     t.kind = (ticks || timed) ? 'short' : 'long';
   });
-  data.v = 8;
+  /* ---------- v8 -> v9: חריגים, התאמה סביב אירועים, וצ׳קליסט חוזר ----------
+     שלושת אלה נשמרים על האובייקטים הקיימים ולא במודל שני. פריט חוזר הוא
+     עדיין משימה עם repeat, בדיוק כמו קודם. */
+  data.tasks.forEach(t => {
+    if (t.repeat && Array.isArray(t.repeat.times)){
+      if (!Array.isArray(t.repeat.skipTypes)) t.repeat.skipTypes = [];
+      if (t.repeat.skipScope !== 'week') t.repeat.skipScope = 'day';
+      if (typeof t.repeat.around !== 'boolean') t.repeat.around = false;
+    }
+    /* פריט חוזר הוא פעולה אטומית: אין בו תת-משימות, צ׳קליסטים או הרגלים.
+       תוכן שנשמר בעבר לא נמחק — הוא משתחרר החוצה כדי שלא ייעלם. */
+    (t.checklists || []).forEach(c => {
+      if (!c.repeat) { c.repeat = null; return; }
+      if (!Array.isArray(c.repeat.days)) c.repeat.days = [];
+      if (!c.repeat.time) c.repeat.time = '20:00';
+      if (typeof c.repeat.resetMin !== 'number') c.repeat.resetMin = 360;
+      if (!Array.isArray(c.repeat.skipTypes)) c.repeat.skipTypes = [];
+      if (c.repeat.skipScope !== 'week') c.repeat.skipScope = 'day';
+    });
+  });
+  /* משימה חוזרת שהחזיקה תוכן — התוכן עובר החוצה ולא נמחק */
+  data.tasks.forEach(t => {
+    const rep = t.repeat && t.repeat.times && t.repeat.times.length;
+    if (!rep || t.kind === 'long') return;
+    const kids = data.tasks.filter(x => x.parentId === t.id);
+    kids.forEach(k => { k.parentId = t.parentId || null; });
+    if ((t.checklists || []).length && t.parentId){
+      const host = data.tasks.find(x => x.id === t.parentId);
+      if (host){ host.checklists = (host.checklists||[]).concat(t.checklists); t.checklists = []; }
+    }
+  });
+  /* ---------- v8 -> v9: "חד-פעמית" חייבת להיות פעם אחת ----------
+     תזכורת שעה בלי תאריך נרשמה עד כה בכל יום מחדש. מצמידים לה את
+     המופע הקרוב — היום אם השעה עוד לפנינו, אחרת מחר. */
+  (() => {
+    const p2 = x => String(x).padStart(2,'0');
+    const k = d => d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate());
+    const today = k(new Date());
+    const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate()+1); return k(d); })();
+    const nowHM = new Date().toTimeString().slice(0,5);
+    data.tasks.forEach(t => {
+      if (t.kind === 'long') return;
+      if (t.repeat && t.repeat.times && t.repeat.times.length) return;
+      if (!t.reminder || t.reminder.type !== 'time') return;
+      if (t.planned) return;
+      t.planned = (t.reminder.at > nowHM) ? today : tomorrow;
+    });
+  })();
+  data.v = 9;
 
   const subs = [];
   const save = () => {
@@ -1004,7 +1056,17 @@ const Store = (() => {
         img:o.img||null, archived:false, archivedAt:null, autoArch:false,
         checklists:[], sortIndex:0 };
       /* תת-משימה יורשת את המשימה-על של ההורה, אחרת היא נעלמת מהתצוגה */
-      if (t.parentId){ const p = this.task(t.parentId); if (p) t.mission = p.mission; }
+      if (t.parentId){
+        let p = this.task(t.parentId);
+        /* פריט חוזר הוא פעולה אטומית ולא מחזיק תוכן. אם מישהו מנסה לתלות
+           בו משהו, הפריט נתלה על ההורה שלו ולא נעלם בשקט. */
+        let guard = 0;
+        while (p && !this.canHoldContent(p) && guard++ < 8){
+          t.parentId = p.parentId || null;
+          p = t.parentId ? this.task(t.parentId) : null;
+        }
+        if (p) t.mission = p.mission;
+      }
       /* משימה חדשה נכנסת למקום שהעין מחפשת: שורש בראש, תת-משימה בסוף הרשימה */
       t.sortIndex = (typeof o.sortIndex === 'number') ? o.sortIndex : this.freeIndex(t);
       data.tasks.unshift(t); save(); return t;
@@ -1049,6 +1111,29 @@ const Store = (() => {
       const d = new Date(date + 'T00:00:00').getDay();
       return (t.repeat.days || []).includes(d);
     },
+    /* ---------- חריגים לפי סוג אירוע ----------
+       cfg = { skipTypes:[מזהי סוג], skipScope:'day'|'week' }
+       שומרים מזהים ולא שמות, כדי ששינוי שם של סוג אירוע לא ישבור כלום.
+       יום שדולג עליו אינו "יום חובה" — ולכן הוא לא שובר רצף ולא מזכיר. */
+    skipDates(cfg, date){
+      const ids = (cfg && cfg.skipTypes) || [];
+      if (!ids.length) return false;
+      const days = (cfg.skipScope === 'week') ? Cal.weekOf(date) : [date];
+      return days.some(k => data.events.some(e =>
+        !!e && ids.includes(e.typeId) && this.onDay(e, k)));
+    },
+    /** האם ההרגל נדרש בתאריך הזה: יום חובה, ובלי חריג פעיל */
+    habitRequired(t, date){
+      if (!this.isHabit(t)) return false;
+      if (!this.habitDay(t, date)) return false;
+      return !this.skipDates(t.repeat, date);
+    },
+    /** האם קיים חריג פעיל היום — כדי שה-UI יסביר למה ההרגל שקט */
+    habitSkipped(t, date){
+      return this.isHabit(t) && this.habitDay(t, date) && this.skipDates(t.repeat, date);
+    },
+    /** פריט חוזר הוא פעולה אטומית: בלי תת-משימות, צ׳קליסטים או הרגלים */
+    canHoldContent(t){ return !!t && !this.isHabit(t); },
     /* השעות הן ניסיונות חוזרים על אותה משימה, לא שלבים:
        סימון אחד סוגר את היום ומשתיק את השעות שנותרו. */
     habitFull(t, date){ return !!(t.log && t.log[date]); },
@@ -1070,7 +1155,9 @@ const Store = (() => {
       const t = this.task(id); if(!t || !this.isHabit(t)) return 0;
       let n = 0, k = Plan.today(), first = true, guard = 0;
       while (guard++ < 400){
-        if (this.habitDay(t, k)){
+        /* יום שדולג עליו בגלל חריג מתנהג כמו יום שאינו יום-חובה:
+           הוא לא נספר, והוא גם לא שובר את הרצף. */
+        if (this.habitRequired(t, k)){
           if (this.habitFull(t, k)) n++;
           else if (!first) break;          /* היום עוד לא נגמר — לא שובר */
         }
@@ -1080,7 +1167,7 @@ const Store = (() => {
       return n;
     },
     habitsFor(date){
-      return data.tasks.filter(t => this.isHabit(t) && !t.archived && this.habitDay(t, date));
+      return data.tasks.filter(t => this.isHabit(t) && !t.archived && this.habitRequired(t, date));
     },
 
     /**
@@ -1207,9 +1294,53 @@ const Store = (() => {
     },
     addChecklist(id, name){
       const t = this.task(id); if(!t) return null;
+      /* פריט חוזר הוא פעולה אטומית — הוא לא מחזיק תוכן */
+      if (!this.canHoldContent(t)) return null;
       if (!Array.isArray(t.checklists)) t.checklists = [];
-      const c = { id:uid(), name:String(name || '').trim() || 'צ׳קליסט', items:[] };
+      const c = { id:uid(), name:String(name || '').trim() || 'צ׳קליסט', items:[], repeat:null };
       t.checklists.push(c); save(); return c;
+    },
+    /* ---------- צ׳קליסט חוזר ----------
+       אותו אובייקט חוזר במחזורים. לא נוצר עותק חדש בכל שבוע: המחזור
+       הפתוח נשאר פתוח עד שמסמנים, ולפני המופע הבא הסימונים מתאפסים. */
+    setChecklistRepeat(id, clId, rep){
+      const c = this.checklistOf(id, clId); if(!c) return false;
+      c.repeat = rep ? {
+        days: (rep.days || []).slice(),
+        time: rep.time || '20:00',
+        resetMin: Math.max(0, +rep.resetMin || 0),
+        skipTypes: (rep.skipTypes || []).slice(),
+        skipScope: rep.skipScope === 'week' ? 'week' : 'day',
+      } : null;
+      save(); return true;
+    },
+    /** התאריך הקרוב ביותר שבו הצ׳קליסט אמור להיות פתוח, מהיום קדימה */
+    checklistNextDay(c, from){
+      const rep = c && c.repeat; if (!rep || !(rep.days||[]).length) return '';
+      let k = from || Plan.today();
+      for (let i = 0; i < 14; i++){
+        const wd = new Date(k + 'T00:00:00').getDay();
+        if (rep.days.includes(wd) && !this.skipDates(rep, k)) return k;
+        k = Plan.shift(k, 1);
+      }
+      return '';
+    },
+    /**
+     * מגלגל צ׳קליסט חוזר למחזור הבא. נקרא מה-Engine, ולכן חייב להיות
+     * זול ואידמפוטנטי: הוא מאפס פעם אחת לכל מחזור, לפי מפתח שמור.
+     */
+    rollChecklist(id, clId){
+      const c = this.checklistOf(id, clId); if(!c || !c.repeat) return false;
+      const next = this.checklistNextDay(c, Plan.today());
+      if (!next) return false;
+      const due = Cal.atMs(next, c.repeat.time);
+      const resetAt = due - (c.repeat.resetMin || 0) * 60000;
+      c.rt = c.rt || {};
+      if (Date.now() < resetAt) return false;
+      if (c.rt.cycle === next) return false;         /* המחזור הזה כבר הוכן */
+      c.rt.cycle = next;
+      c.items.forEach(x => { x.checked = false; });
+      save(); return true;
     },
     renameChecklist(id, clId, name){
       const c = this.checklistOf(id, clId); if(!c) return false;
@@ -1906,8 +2037,15 @@ const Alerts = (() => {
     } catch(e){}
   };
   return {
+    /** האם למתג "התראות מערכת" יש בכלל על מה לשלוט כאן */
+    get supported(){
+      /* במעטפת המותקנת ההתראות מגיעות מ-Kotlin, והמתג הזה לא שולט בכלום.
+         ב-WebView גם אין Notification API בכלל — ולכן המתג לא היה נדלק
+         לעולם, בלי שום הסבר. */
+      return !Native.on && typeof Notification !== 'undefined';
+    },
     async ask(){
-      if (typeof Notification === 'undefined') return false;
+      if (!this.supported) return false;
       try { return (await Notification.requestPermission()) === 'granted'; } catch(e){ return false; }
     },
     fire(item, why, kind){ vibrate(); beep(); system('משימה', item.title); UI.showAlert(item, why, kind); },
@@ -2019,8 +2157,20 @@ const Cal = (() => {
     if (!ev.endDate || ev.endDate === ev.date) return 1;
     return Math.round((atMs(ev.endDate,'00:00') - atMs(ev.date,'00:00')) / 864e5) + 1;
   }
+  /**
+   * האירוע שעוטף רגע מסוים. משמש ל"התאמה סביב אירועים": אם התזכורת
+   * החוזרת נופלת בתוך אירוע, היא לא מצלצלת באמצע — היא מוקדמת ומאוחרת.
+   * מוחזר הראשון בלבד; אירועים חופפים הם מקרה קצה שלא שווה מנגנון.
+   */
+  function covering(events, at){
+    for (const ev of (events || [])){
+      if (!ev || ev.allDay) continue;
+      if (at >= startMs(ev) && at <= endMs(ev)) return ev;
+    }
+    return null;
+  }
   return { key, MONTHS, type, atMs, startMs, endMs, durLabel, dayCount, remindAt,
-           ics, gcal, monthGrid, weekOf };
+           covering, ics, gcal, monthGrid, weekOf };
 })();
 
 /* -------------------------------- Modal --------------------------------- */
@@ -2263,7 +2413,7 @@ const Native = (() => {
     return new Date(y, mo-1, d, h||0, mi||0, 0, 0).getTime();
   };
 
-  function alarmList(days){
+  function buildAlarms(days){
     const out  = [];
     const now  = Date.now();
     const soon = now + 30000;             /* מה שקורה ממש עכשיו — Engine מטפל */
@@ -2275,15 +2425,33 @@ const Native = (() => {
     Store.all.tasks.forEach(t => {
       if (t.archived) return;
 
-      /* הרגל: כל שעה בכל יום חובה שבחלון, כל עוד היום עוד לא סומן */
+      /* הרגל: כל שעה בכל יום חובה שבחלון, כל עוד היום עוד לא סומן.
+         יום עם חריג פעיל (סוג אירוע שנבחר) אינו יום חובה — אין תזכורת,
+         והרצף לא נשבר. */
       if (Store.isHabit(t)){
         span.forEach(day => {
-          if (!Store.habitDay(t, day)) return;
+          if (!Store.habitRequired(t, day)) return;
           if (Store.habitFull(t, day)) return;      /* סימון סוגר את כל היום */
+          const evs = Store.events(day);
           t.repeat.times.forEach(hm => {
             const at = ms(day, hm);
-            if (at < soon) return;
             const more = t.repeat.times.filter(x => x > hm);
+            /* התאמה סביב אירועים: ההרגל עדיין נדרש, אבל לא באמצע האירוע.
+               התזכורת מוקדמת ל-6 שעות לפני תחילתו, ונוספת לה תזכורת
+               מעקב שעתיים אחרי סופו — שנמדדת מהסוף, לא מהשעה המקורית. */
+            const cov = t.repeat.around ? Cal.covering(evs, at) : null;
+            if (cov){
+              const prep = Cal.startMs(cov) - 6*3600000;
+              const after = Cal.endMs(cov) + 2*3600000;
+              if (prep >= soon)
+                out.push({ id:'hp_'+t.id+'_'+day+'@'+hm, at:prep, title:t.title,
+                           body:'שים לב — יש לך אירוע בזמן ההרגל הזה. תיערך בהתאם.' });
+              if (after >= soon)
+                out.push({ id:'ha_'+t.id+'_'+day+'@'+hm, at:after, title:t.title,
+                           body:'שים לב — היית אמור לעשות את זה.' });
+              return;
+            }
+            if (at < soon) return;
             out.push({ id:'h_'+t.id+'_'+day+'@'+hm, at, title:t.title,
                        body:'תזכורת יומית ' + hm +
                             (more.length ? ' · תזכורת נוספת ב-' + more[0] : '') });
@@ -2296,14 +2464,37 @@ const Native = (() => {
       const r = t.reminder;
       if (!r || r.type !== 'time') return;
 
-      /* משימה עם תאריך — מופע אחד. בלי תאריך — כל יום, בדיוק כמו Engine */
-      const dayList = t.planned ? (t.planned >= t0 ? [t.planned] : []) : span;
+      /* "חד-פעמית" היא מופע אחד, נקודה. משימה בלי תאריך מקבלת את המופע
+         הקרוב בלבד — היום אם השעה עוד לפנינו, אחרת מחר — ולא נרשמת
+         מחדש בכל יום שבחלון כפי שהיה קודם. */
+      const dayList = t.planned
+        ? (t.planned >= t0 ? [t.planned] : [])
+        : [ (r.at > nowHM) ? t0 : Plan.shift(t0, 1) ];
       dayList.forEach(day => {
         const at = ms(day, r.at);
         if (at < soon) return;
         /* היום כבר ירה? Engine מסמן firedKey ליום הנוכחי */
         if (day === t0 && t.rt && t.rt.firedKey === new Date().toDateString() + r.at) return;
         out.push({ id:'t_'+t.id+'_'+day, at, title:t.title, body:'הגיע הזמן — ' + r.at });
+      });
+    });
+
+    /* צ׳קליסט חוזר: מופע אחד לכל יום חובה שבחלון, כל עוד המחזור פתוח */
+    Store.all.tasks.forEach(t => {
+      if (t.archived) return;
+      (t.checklists || []).forEach(c => {
+        const rep = c.repeat;
+        if (!rep || !(rep.days || []).length) return;
+        span.forEach(day => {
+          const wd = new Date(day + 'T00:00:00').getDay();
+          if (!rep.days.includes(wd)) return;
+          if (Store.skipDates(rep, day)) return;      /* חריג לפי סוג אירוע */
+          const at = ms(day, rep.time);
+          if (at < soon) return;
+          const left = c.items.filter(x => !x.checked).length;
+          out.push({ id:'c_'+t.id+'_'+c.id+'_'+day, at, title:c.name,
+                     body: (left ? left + ' פריטים פתוחים' : 'מחזור חדש') + ' · ' + t.title });
+        });
       });
     });
 
@@ -2322,7 +2513,14 @@ const Native = (() => {
                      : 'מתחיל עכשיו (' + ev.time + ')' });
     });
 
-    return out.sort((a,b) => a.at - b.at).slice(0, ALARM_CAP);
+    return out.sort((a,b) => a.at - b.at);
+  }
+  /** הרשימה שנמסרת למערכת — חתוכה לתקרה שהמערכת מסוגלת להחזיק */
+  function alarmList(days){ return buildAlarms(days).slice(0, ALARM_CAP); }
+  /** כמה מופעים חושבו באמת לפני החיתוך. רק זה יודע אם נגענו בתקרה. */
+  function alarmDemand(days){
+    const all = buildAlarms(days);
+    return { wanted: all.length, cap: ALARM_CAP, over: Math.max(0, all.length - ALARM_CAP) };
   }
 
   return {
@@ -2339,7 +2537,7 @@ const Native = (() => {
     },
     fenceCount(){ return fenceList().length; },
     fenceList,
-    alarmList,
+    alarmList, alarmDemand,
     alarmCount(){ return alarmList().length; },
     /** האם המערכת מרשה תזכורת בשנייה המדויקת */
     canExact(){ try { return A() ? !!A().canExactAlarms() : false; } catch(e){ return false; } },
@@ -2872,8 +3070,12 @@ const UI = (() => {
         ? `<button class="secact" data-act="rootOrderOff">סיום</button>`
         : `<button class="secact" data-act="rootOrderOn" data-group="${group}">שנה סדר</button>`);
 
+    /* חלוקה לפי סוג היא ברירת המחדל בכל מקום. רק ב"הכל" יש טעם לכבות
+       אותה, כי שם הרשימה מערבבת קטגוריות וסדר גלובלי אחד הוא מה שמעניין. */
+    const canFlatten = filter === 'all';
+    const groupedNow = canFlatten ? grouped : true;
     let out = '';
-    if (!grouped){
+    if (!groupedNow){
       out += `<div class="sechead"><span class="secname">כל המשימות</span>
         ${orderBtn('flat', roots.length)}
         ${ord ? '' : `<button class="secact" data-act="groupOn">חלוקה לפי סוג</button>`}</div>`;
@@ -2885,7 +3087,7 @@ const UI = (() => {
         out += `<div class="sechead"${k ? ' style="margin-top:22px"' : ''}>
           <span class="secname">${a.name}</span>
           ${orderBtn(a.key, list.length)}
-          ${(k === 0 && !ord) ? `<button class="secact" data-act="groupOff">בטל חלוקה</button>` : ''}
+          ${(k === 0 && !ord && canFlatten) ? `<button class="secact" data-act="groupOff">בטל חלוקה</button>` : ''}
         </div>`;
         out += list.map((t,i) => card(t, false,
           ord && ord.group === a.key ? { i, n:list.length } : null)).join('');
@@ -3254,9 +3456,14 @@ const UI = (() => {
   /* ====================================================================
      הגדרות
      ==================================================================== */
+  /* ההגדרות נפתחות כמעט ריקות. עדכון האפליקציה ראשון, כי זה הדבר היחיד
+     שבאמת מעניין ביום רגיל; כל השאר — הרשאות שמאשרים פעם אחת, אבחון
+     תקלות, וכלים נדירים — יושב במקטעים מכווצים. שום יכולת לא נמחקה. */
+  let setOpen = { update:true, perms:false, diag:false, more:false };
+
   function renderSettings(){
     const d = Store.all, st = originState();
-    const nOk = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+    const nOk = Alerts.supported && Notification.permission === 'granted';
     const n = Native.status() || {};
     const ago = n.lastCheck ? Math.round((Date.now()-n.lastCheck)/60000) : null;
 
@@ -3269,37 +3476,46 @@ const UI = (() => {
         ${ok ? '<span class="dim small">מאושר</span>'
              : `<button class="btn" data-nat="${act}" style="padding:8px 13px">אשר</button>`}</div>`;
 
-    $('#settingsBody').innerHTML = `
-      <h2 class="sh">התראות</h2>
-      ${sw('swGeo','מעקב מיקום','נדרש לתזכורות לפי מקום ולפי מרחק נסיעה', Geo.on)}
-      ${sw('swVib','רטט','', d.prefs.vib)}
-      ${sw('swSnd','צליל','', d.prefs.snd)}
-      ${sw('swNotif','התראות מערכת',
-           typeof Notification === 'undefined' ? 'לא נתמך כאן'
-           : !st.secure ? 'דורש כתובת https'
-           : Notification.permission === 'denied' ? 'נדחה — לאפשר בהגדרות הדפדפן'
-           : 'התראות גם כשהאפליקציה ברקע', nOk && d.prefs.notif)}
+    /** מקטע מתקפל. סגור = שורה אחת. */
+    const sec = (key, name, inner, note) => `
+      <div class="acc setacc" data-set="${key}" aria-expanded="${!!setOpen[key]}">
+        <button class="ah" data-settoggle="${key}">
+          <span class="an">${name}</span>
+          ${note ? `<span class="as">${note}</span>` : ''}
+          <span class="ar">‹</span></button>
+        <div class="ab">${inner}</div>
+      </div>`;
 
-      <h2 class="sh">סוגי אירוע</h2>
-      <div id="etList">${Store.eventTypes().map(t => `
-        <div class="set" data-et="${t.id}">
-          <span class="edot" style="background:${t.color};width:10px;height:10px"></span>
-          <div class="sb"><div class="st">${esc(t.name)}</div></div>
-          <button class="link" data-act="etEdit">ערוך</button>
-        </div>`).join('')}</div>
-      <button class="btn wide" id="etNew">+ סוג אירוע חדש</button>
+    const withTime = () => Store.all.tasks.filter(t => !t.archived &&
+      ((t.reminder && t.reminder.type === 'time') || Store.isHabit(t))).length;
 
-      ${Native.on ? `
-      <h2 class="sh">הרשאות מערכת</h2>
-      ${Native.apkOld() ? `
+    /* ---------- 1. עדכון האפליקציה — ראשון, פתוח כברירת מחדל ---------- */
+    const updateBody = `
+      <div class="set"><div class="sb"><div class="st">גרסה שרצה עכשיו</div>
+        <div class="sd">הדף: <b dir="ltr" style="unicode-bidi:isolate">${esc(BUILD)}</b>${
+          Native.on ? `<br>המעטפת (APK): <b dir="ltr" style="unicode-bidi:isolate">${
+            esc(Native.version() || 'ישנה מ-' + NEED_APK)}</b>${
+            Native.apkOld() ? ' — צריך ' + esc(NEED_APK) : ''}` : ''}</div></div></div>
+      ${Native.on && Native.apkOld() ? `
         <div class="notice warn"><b>המעטפת של האפליקציה ישנה.</b><br>
           הדף מתעדכן לבד מהאינטרנט, אבל קובץ ה-APK לא — והוא זה שמפעיל את
           ההתראות. הדף הזה (${esc(BUILD)}) מבקש מהמעטפת פעולות שקיימות רק
-          מגרסה <b dir="ltr" style="unicode-bidi:isolate">${esc(NEED_APK)}</b>,
-          והמעטפת המותקנת היא
-          <b dir="ltr" style="unicode-bidi:isolate">${esc(Native.version() || 'ישנה מ-1.1')}</b>.<br>
-          <b>כל עוד זה כתוב כאן — אף בדיקה למטה לא אמינה, ותזכורות לא ירשמו.</b>
+          מגרסה <b dir="ltr" style="unicode-bidi:isolate">${esc(NEED_APK)}</b>.<br>
+          <b>כל עוד זה כתוב כאן — אבחון ההתראות לא אמין, ותזכורות לא ירשמו.</b>
           צריך לבנות ולהתקין APK חדש.</div>` : ''}
+      ${Native.on ? `
+        ${n.updatePending ? `<div class="notice"><b>ירדה גרסה חדשה.</b>
+            <button class="btn p wide" data-nat="apply">טען את הגרסה החדשה</button></div>` : ''}
+        <div class="set"><div class="sb"><div class="st">בדיקה אחרונה</div>
+          <div class="sd">${ago===null?'עוד לא נבדק':(ago<1?'לפני רגע':'לפני '+ago+' דקות')}</div></div></div>
+        <button class="btn p wide" data-nat="check">בדוק עדכון עכשיו</button>`
+      : `<div class="notice">אתה מריץ את הגרסה בדפדפן. היא לא יכולה לעקוב אחרי מיקום כשהיא
+           סגורה ולא לכתוב לשעון של הטלפון — זו מגבלת דפדפן. הגרסה המותקנת עושה את שניהם.</div>`}`;
+
+    /* ---------- 2. הרשאות והתקנה — מאשרים פעם אחת ושוכחים ---------- */
+    const permsBody = !Native.on
+      ? `<div class="notice">בדפדפן אין הרשאות מערכת לאשר.</div>`
+      : `
       ${perm(n.locationBackground,'מיקום כל הזמן',
              n.locationBackground ? 'גדרות המיקום פעילות'
              : 'צריך "Allow all the time" — בלי זה אין תזכורות מקום ברקע','loc')}
@@ -3308,52 +3524,50 @@ const UI = (() => {
       ${perm(n.batteryUnrestricted,'ללא הגבלת סוללה',
              n.batteryUnrestricted ? 'אנדרואיד לא ירדים את האפליקציה'
              : 'בלי זה סמסונג תרדים את האפליקציה אחרי כמה ימים','batt')}
+      ${perm((n.alarms||{}).exact !== false, 'התראות ותזכורות',
+             (n.alarms||{}).exact !== false ? 'תזכורות שעה יורות בשנייה המדויקת'
+             : 'בלי זה אנדרואיד ידחה תזכורות בכמה דקות כדי לחסוך סוללה','exact')}
+      ${typeof n.fullScreen !== 'boolean'
+        ? `<div class="set"><div class="sb"><div class="st">התראה במסך מלא</div>
+             <div class="sd">לא ידוע — המעטפת המותקנת לא יודעת לענות על זה.</div></div></div>`
+        : perm(n.fullScreen, 'התראה במסך מלא',
+             n.fullScreen ? 'התזכורת יכולה לקפוץ מעל מה שפתוח'
+               : 'בלי זה אנדרואיד לא ירשה פופ-אפ מלא — רק שורה בשורת הסטטוס','fullscreen')}
+      ${String(n.manufacturer||'').toLowerCase().includes('samsung') ? `
+        <div class="notice"><b>סמסונג מרדימה אפליקציות אחרי 3 ימים.</b>
+          זה הצעד הכי חשוב כאן — הוסף את "משימה" ל-Never sleeping apps.
+          <button class="btn wide" data-nat="samsung">פתח את ההגדרה</button></div>` : ''}`;
+
+    const permsNote = Native.on
+      ? (() => {
+          const need = [n.locationBackground, n.notifications, n.batteryUnrestricted]
+            .filter(x => x === false).length;
+          return need ? need + ' לאישור' : 'הכול מאושר';
+        })()
+      : '';
+
+    /* ---------- 3. אבחון התראות — כלים, מוסתרים בשימוש רגיל ---------- */
+    const diagBody = !Native.on
+      ? `<div class="notice">בדפדפן אין מה לאבחן — התראות רקע לא קיימות שם.</div>`
+      : `
       ${(() => {
         const a = n.alarms || {};
         const nx = a.next ? new Date(a.next) : null;
         const k  = nx ? Plan.key(nx) : '';
         const when = nx ? (k === Plan.today() ? '' : Plan.label(k) + ' ')
                           + nx.toTimeString().slice(0,5) : '';
-        return `
-        ${perm(a.exact !== false, 'התראות ותזכורות',
-               a.exact !== false ? 'תזכורות שעה יורות בשנייה המדויקת'
-               : 'בלי זה אנדרואיד ידחה תזכורות בכמה דקות כדי לחסוך סוללה','exact')}
-        ${(() => {
-          const withTime = Store.all.tasks.filter(t => !t.archived &&
-            ((t.reminder && t.reminder.type === 'time') || Store.isHabit(t))).length;
-          const computed = Native.alarmList().length;
-          return `<div class="set"><div class="sb"><div class="st">שרשרת התזכורות</div>
-            <div class="sd">משימות עם שעה: <b>${withTime}</b><br>
-              האפליקציה חישבה קדימה: <b>${computed}</b><br>
-              המערכת רשמה בפועל: <b>${a.scheduled||0}</b>${
-              when ? '<br>הקרובה: ' + esc(when) : ''}</div></div>
-            <button class="txtbtn" data-nat="resync">רענן</button></div>`;
-        })()}
-        ${(Native.alarmList().length && !(a.scheduled||0)) ? `
-          <div class="notice">האפליקציה חישבה תזכורות אבל המערכת לא רשמה אף אחת.
-            זה אומר שהמסירה לאנדרואיד נכשלת — לחץ על <b>"בדוק התראה עכשיו"</b> למטה
-            כדי לראות איפה זה נתקע.</div>` : ''}
-        ${(() => {
-          const withTime = Store.all.tasks.filter(t => !t.archived &&
-            ((t.reminder && t.reminder.type === 'time') || Store.isHabit(t))).length;
-          if (!withTime) return `<div class="notice">אף משימה לא מחזיקה <b>שעה</b>.
-            תזכורת נרשמת רק כשיש שעה — תאריך לבד לא מספיק. פתח משימה ←
-            "ערוך משימה" ← התראה ← חד-פעמית, ומלא את שדה השעה.</div>`;
-          if (!Native.alarmList().length) return `<div class="notice">יש משימות עם שעה,
-            אבל כל השעות שלהן כבר עברו. תזכורת נרשמת רק קדימה.</div>`;
-          return '';
-        })()}`;
+        return `<div class="set"><div class="sb"><div class="st">שרשרת התזכורות</div>
+          <div class="sd">משימות עם שעה: <b>${withTime()}</b><br>
+            האפליקציה חישבה קדימה: <b>${Native.alarmList().length}</b><br>
+            המערכת רשמה בפועל: <b>${a.scheduled||0}</b>${
+            when ? '<br>הקרובה: ' + esc(when) : ''}</div></div>
+          <button class="txtbtn" data-nat="resync">רענן</button></div>`;
       })()}
-
-      <h2 class="sh">בדיקת התראות</h2>
-      ${typeof n.fullScreen !== 'boolean'
-        ? `<div class="set"><div class="sb"><div class="st">התראה במסך מלא</div>
-             <div class="sd">לא ידוע — המעטפת המותקנת לא יודעת לענות על זה.
-               אחרי התקנת APK ${esc(NEED_APK)} תופיע כאן תשובה אמיתית.</div></div></div>`
-        : perm(n.fullScreen, 'התראה במסך מלא',
-             n.fullScreen
-               ? 'התזכורת יכולה לקפוץ מעל מה שפתוח'
-               : 'בלי זה אנדרואיד לא ירשה פופ-אפ מלא — רק שורה בשורת הסטטוס','fullscreen')}
+      ${(Native.alarmList().length && !((n.alarms||{}).scheduled||0)) ? `
+        <div class="notice">האפליקציה חישבה תזכורות אבל המערכת לא רשמה אף אחת.
+          לחץ על <b>"בדוק התראה עכשיו"</b> כדי לראות איפה זה נתקע.</div>` : ''}
+      ${!withTime() ? `<div class="notice">אף משימה לא מחזיקה <b>שעה</b>.
+        תזכורת נרשמת רק כשיש שעה — תאריך לבד לא מספיק.</div>` : ''}
       ${(() => {
         const c = n.channel;
         if (!c || typeof c !== 'object') return `<div class="set"><div class="sb">
@@ -3374,39 +3588,30 @@ const UI = (() => {
       <button class="btn wide" data-nat="testnow">בדוק התראה עכשיו</button>
       <button class="btn wide" data-nat="test60" style="margin-top:8px">
         תזכורת מבחן בעוד דקה</button>
-      <div class="set"><div class="sb"><div class="st">תזכורות מקום רשומות</div>
+      <div class="set" style="margin-top:10px"><div class="sb"><div class="st">תזכורות מקום רשומות</div>
         <div class="sd">${n.fences||0} מתוך ${Native.fenceCount()} רשומות במערכת${
           n.fencesResult ? ' · ' + esc(n.fencesResult) : ''}</div></div></div>
-      <div class="notice" style="margin-top:10px">תזכורת מקום נשענת על שירותי המיקום של
-        אנדרואיד. היא ממשיכה לעבוד כשהאפליקציה סגורה, אבל היא <b>לא מיידית</b>:
-        המערכת בודקת כל כמה דקות, ורדיוס קטן מ-140 מטר מורחב אוטומטית כי
-        מתחת לזה ה-GPS לא מדויק מספיק. חיסכון סוללה אגרסיבי יכול לעכב אותה עוד.</div>
-      ${String(n.manufacturer||'').toLowerCase().includes('samsung') ? `
-        <div class="notice" style="margin-top:12px"><b>סמסונג מרדימה אפליקציות אחרי 3 ימים.</b>
-          זה הצעד הכי חשוב כאן — הוסף את "משימה" ל-Never sleeping apps.
-          <button class="btn wide" data-nat="samsung">פתח את ההגדרה</button></div>` : ''}
-      <button class="btn wide" data-nat="alarms">פתח את השעון של הטלפון</button>` : ''}
+      <div class="notice">תזכורת מקום נשענת על שירותי המיקום של אנדרואיד. היא ממשיכה
+        לעבוד כשהאפליקציה סגורה, אבל היא <b>לא מיידית</b>: המערכת בודקת כל כמה דקות,
+        ורדיוס קטן מ-140 מטר מורחב אוטומטית.</div>
+      <button class="btn wide" data-nat="alarms">פתח את השעון של הטלפון</button>`;
 
-      <h2 class="sh">עדכון האפליקציה</h2>
-      <div class="set"><div class="sb"><div class="st">גרסה שרצה עכשיו</div>
-        <div class="sd">הדף: <b dir="ltr" style="unicode-bidi:isolate">${esc(BUILD)}</b>${
-          Native.on ? `<br>המעטפת (APK): <b dir="ltr" style="unicode-bidi:isolate">${
-            esc(Native.version() || 'ישנה מ-1.1')}</b>${
-            Native.apkOld() ? ' — צריך ' + esc(NEED_APK) : ''}` : ''}</div></div></div>
-      ${Native.on ? `
-        ${n.updatePending ? `<div class="notice"><b>ירדה גרסה חדשה.</b>
-            <button class="btn p wide" data-nat="apply">טען את הגרסה החדשה</button></div>` : ''}
-        <div class="set"><div class="sb"><div class="st">כתובת המקור</div>
-          <div class="sd">הקישור ל-index.html. משם האפליקציה מושכת עדכונים.</div>
-          <input type="text" id="srcUrl" value="${esc(cleanSrc(n.sourceUrl||''))}"
-                 inputmode="url" style="margin-top:9px"></div></div>
-        <div class="set"><div class="sb"><div class="st">בדיקה אחרונה</div>
-          <div class="sd">${ago===null?'עוד לא נבדק':(ago<1?'לפני רגע':'לפני '+ago+' דקות')}</div></div></div>
-        <button class="btn wide" data-nat="saveSrc">שמור כתובת</button>
-        <button class="btn p wide" data-nat="check">בדוק עדכון עכשיו</button>
-        <button class="btn wide" data-nat="peek">מה יש בשרת עכשיו?</button>`
-      : `<div class="notice">אתה מריץ את הגרסה בדפדפן. היא לא יכולה לעקוב אחרי מיקום כשהיא
-           סגורה ולא לכתוב לשעון של הטלפון — זו מגבלת דפדפן. הגרסה המותקנת עושה את שניהם.</div>`}
+    /* ---------- 4. עוד הגדרות — נדיר, הרסני, וטכני ---------- */
+    const moreBody = `
+      <h2 class="sh">התראות באפליקציה</h2>
+      ${sw('swGeo','מעקב מיקום','נדרש לתזכורות לפי מקום ולפי מרחק נסיעה', Geo.on)}
+      ${sw('swVib','רטט','', d.prefs.vib)}
+      ${sw('swSnd','צליל','', d.prefs.snd)}
+      ${Native.on
+        ? `<div class="set"><div class="sb"><div class="st">התראות מערכת</div>
+             <div class="sd">באפליקציה המותקנת ההתראות מגיעות מהאפליקציה עצמה,
+               והן נשלטות בשורת <b>"התראות"</b> תחת "הרשאות והתקנה".
+               המתג שהיה כאן לא שלט בכלום.</div></div></div>`
+        : sw('swNotif','התראות מערכת',
+           !Alerts.supported ? 'הדפדפן הזה לא תומך בהתראות'
+           : !st.secure ? 'דורש כתובת https'
+           : Notification.permission === 'denied' ? 'נדחה — לאפשר בהגדרות הדפדפן'
+           : 'התראות גם כשהחלון ברקע', nOk && d.prefs.notif)}
 
       <h2 class="sh">גיבוי</h2>
       <div class="set"><div class="sb"><div class="st">מצב האחסון</div>
@@ -3422,17 +3627,44 @@ const UI = (() => {
       <div class="notice">אם כפתור הייבוא לא מגיב — זה קורה כשבורר הקבצים של
         המערכת חסום — יש שתי דרכים אחרות: לפתוח את קובץ הגיבוי מההורדות עם
         "פתח באמצעות משימה", או להעתיק את תוכן הקובץ ולהדביק אותו כאן.</div>
-      <button class="btn d wide" id="btnWipe">מחיקת כל הנתונים</button>
 
-      <div class="notice" style="margin-top:22px">
+      ${Native.on ? `
+      <h2 class="sh">מקור העדכונים</h2>
+      <div class="set"><div class="sb"><div class="st">כתובת המקור</div>
+        <div class="sd">הקישור ל-index.html. משם האפליקציה מושכת עדכונים.</div>
+        <input type="text" id="srcUrl" value="${esc(cleanSrc(n.sourceUrl||''))}"
+               inputmode="url" style="margin-top:9px"></div></div>
+      <button class="btn wide" data-nat="saveSrc">שמור כתובת</button>
+      <button class="btn wide" data-nat="peek">מה יש בשרת עכשיו?</button>` : ''}
+
+      <h2 class="sh">איך זה עובד</h2>
+      <div class="notice">
         ${Native.on ? `<b>מה עובד כשהאפליקציה סגורה:</b> תזכורות לפי מקום, לפי שעה,
-          תזכורות הרגל ותזכורות אירוע — מערכת ההפעלה מחזיקה את כולן.<br>
-          <b>מה דורש שהאפליקציה תהיה פתוחה:</b> תזכורת לפי מרחק נסיעה בלבד,
-          כי היא מחייבת מעקב מיקום רציף.<br>
+          תזכורות חוזרות ותזכורות אירוע — מערכת ההפעלה מחזיקה את כולן.<br>
+          <b>מה דורש שהאפליקציה תהיה פתוחה:</b> תזכורת לפי מרחק נסיעה בלבד.<br>
           <span class="dim">האפליקציה רושמת תזכורות לשבוע קדימה. כל פתיחה שלה
           מגלגלת את החלון, וגם בלי פתיחה יש רענון עצמי פעמיים ביום.</span>`
-        : `<b>בדפדפן שום תזכורת לא עובדת כשהחלון סגור.</b> זו מגבלת דפדפן, לא באג —
-          מיקום ותזכורות רקע חסומים שם לגמרי. הגרסה המותקנת עושה את שניהם.`}</div>`;
+        : `<b>בדפדפן שום תזכורת לא עובדת כשהחלון סגור.</b> זו מגבלת דפדפן, לא באג.
+           הגרסה המותקנת עושה את שניהם.`}</div>
+
+      <h2 class="sh">מסוכן</h2>
+      <button class="btn d wide" id="btnWipe">מחיקת כל הנתונים</button>`;
+
+    /* ---------- אזהרת תקרה — רק כשבאמת מתקרבים אליה ---------- */
+    const cap = Native.on ? Native.alarmDemand() : null;
+    const capWarn = (cap && cap.wanted >= cap.cap * 0.9) ? `
+      <div class="notice warn">יש לך יותר תזכורות קרובות ממה שאנדרואיד מוכן להחזיק
+        בבת אחת (${cap.wanted} מול ${cap.cap}). התזכורות הקרובות רשומות כרגיל;
+        המאוחרות יותר יירשמו מאליהן ככל שהזמן מתקדם. אין מה לעשות עם זה —
+        זה רק כדי שתדע.</div>` : '';
+
+    $('#settingsBody').innerHTML =
+      capWarn +
+      sec('update', 'עדכון האפליקציה', updateBody,
+          Native.on && Native.apkOld() ? 'נדרש עדכון' : '') +
+      sec('perms',  'הרשאות והתקנה',   permsBody, permsNote) +
+      sec('diag',   'אבחון התראות',    diagBody) +
+      sec('more',   'עוד הגדרות',      moreBody);
   }
 
   /* ====================================================================
@@ -3563,6 +3795,10 @@ const UI = (() => {
                             : a.kind === 'place' ? 'מיקום' : 'תזכורת';
     $('#alDet').innerHTML = alertDetail(a.item, a.kind);
     $('#alDet').hidden = !$('#alDet').innerHTML;
+    /* "פתח" מוביל לפרטי המשימה — אותו מודל מנטלי כמו נגיעה בכרטיס.
+       התראה לא זורקת אותך לתוך טופס עריכה. */
+    const canOpen = a.kind === 'task' && !!Store.task(a.item.id);
+    $('#alOpen').hidden = !canOpen;
     $('#alert').classList.add('on');
   }
   function closeAlert(){ alertItem = null; nextAlert(); }
@@ -3634,6 +3870,7 @@ const UI = (() => {
     toast, undo, showAlert, closeAlert, download, esc, fmtM, fmtDate, longDate,
     CAT, DAYL, PALETTE, KIND, whereLabel, taskMeta, repeatLabel, path, monthDayList,
     originState, typing, cleanSrc, bustSrc, noteText, shrinkImage,
+    get setOpen(){ return setOpen; },
     get section(){ return section; }, set section(v){ section=v; },
     get screen(){ return screen; },   set screen(v){ screen=v; },
     get tview(){ return tview; },     set tview(v){ tview=v; },
@@ -3722,7 +3959,7 @@ const Wire = (() => {
         body:`<button class="pick" data-f="new"><span class="pn">משימה חדשה
                 <div class="dsc">משהו שעומד בפני עצמו.</div></span></button>
               ${roots.length ? `<button class="pick" data-f="into"><span class="pn">להוסיף למשימה קיימת
-                <div class="dsc">תת-משימה, הרגל או צ׳קליסט בתוך משימה שכבר יש לך.</div></span></button>` : ''}`,
+                <div class="dsc">תת-משימה או צ׳קליסט בתוך משימה שכבר יש לך.</div></span></button>` : ''}`,
         buttons:[{label:'ביטול',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-f]'); if(!b) return;
@@ -3742,6 +3979,8 @@ const Wire = (() => {
           <span class="pn">${depth ? '<span style="opacity:.45">↳ </span>' : ''}${esc(t.title)}</span>
           <span class="pm">${depth ? '' : CAT[t.mission]}</span></button>`;
       function branch(t, depth){
+        /* פריט חוזר הוא פעולה אטומית ולכן אינו יעד חוקי להוספה */
+        if (!Store.canHoldContent(t)) return '';
         const kids = Store.subtasksOf(t.id);
         const sub  = kids.map(k => branch(k, depth + 1)).filter(Boolean);
         const hit  = !q || t.title.toLowerCase().includes(q);
@@ -3768,19 +4007,19 @@ const Wire = (() => {
 
     function pickWhatToAdd(taskId){
       const t = Store.task(taskId); if(!t) return;
+      /* "הרגל" כבר אינו דבר נפרד ליצור. תת-משימה שחוזרת היא ההרגל —
+         בוחרים "חוזרת" בהתראה שלה, וזהו. שני מסלולים לאותו דבר היו
+         בדיוק סוג הכפילות שהמוצר הזה מנסה להיפטר ממנה. */
       Modal.open({ title:'להוסיף ל"' + t.title + '"',
         body:`<button class="pick" data-w="sub"><span class="pn">תת-משימה
-                <div class="dsc">פעולה שצריך לבצע כחלק מהמשימה. למשל "לכבס מדים".</div></span></button>
-              <button class="pick" data-w="hab"><span class="pn">הרגל
-                <div class="dsc">פעולה שחוזרת בימים קבועים. סימון אחד סוגר את היום.</div></span></button>
+                <div class="dsc">פעולה שצריך לבצע כחלק מהמשימה. למשל "לכבס מדים".
+                  אם היא חוזרת בימים קבועים — בחר "חוזרת" בהתראה שלה.</div></span></button>
               <button class="pick" data-w="cl"><span class="pn">צ׳קליסט
                 <div class="dsc">תוכן פשוט לסימון, עם שם משלו. למשל "ציוד לקחת".</div></span></button>`,
         buttons:[{label:'חזרה',act:()=>pickTargetTask()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-w]'); if(!b) return;
-        const w = b.dataset.w;
-        if (w === 'sub'){ taskModal({ parentId:taskId, mission:t.mission }); return; }
-        if (w === 'hab'){ taskModal({ parentId:taskId, mission:t.mission, habit:true }); return; }
+        if (b.dataset.w === 'sub'){ taskModal({ parentId:taskId, mission:t.mission }); return; }
         newChecklistModal(taskId);
       });
     }
@@ -4078,8 +4317,9 @@ const Wire = (() => {
           out += subs.map((c,i) => childLine(c, ordOn('subs'), i, subs.length, 'kid')).join('');
         }
         if (habs.length){
-          out += head('habs', 'הרגלים', habs.length,
-            [['addhabit','+ הרגל'], habs.length > 1 ? ['reorderOn3','שנה סדר'] : null]);
+          /* תצוגה בלבד. פריט חוזר נוצר כתת-משימה שההתראה שלה "חוזרת". */
+          out += head('habs', 'חוזרות', habs.length,
+            [habs.length > 1 ? ['reorderOn3','שנה סדר'] : null]);
           out += habs.map((c,i) => childLine(c, ordOn('habs'), i, habs.length, 'hab')).join('');
         }
         return out;
@@ -4129,7 +4369,6 @@ const Wire = (() => {
         if (cmd === 'orderLists'){ UI.reorder = { taskId:id, sec:'lists' }; paint(); return; }
         if (cmd === 'listmenu'){ checklistMenu(id, d.dataset.cl, paint); return; }
         if (cmd === 'addkid'){ taskModal({ parentId:id, mission:t.mission }); return; }
-        if (cmd === 'addhabit'){ taskModal({ parentId:id, mission:t.mission, habit:true }); return; }
         if (cmd === 'evopen'){ const ev = Store.event(t.eventId);
                                if (ev){ Modal.shut(); eventMenu(ev); } return; }
 
@@ -4196,10 +4435,81 @@ const Wire = (() => {
     }
 
     /** פעולות על צ׳קליסט שלם */
+    /* ---------- מחזור חוזר לצ׳קליסט ----------
+       אותו צ׳קליסט חוזר, לא עותק חדש בכל שבוע. המחזור הפתוח נשאר פתוח
+       עד שמסמנים; לפני המופע הבא הסימונים מתאפסים, ומרווח האיפוס ניתן
+       להגדרה כי לצ׳קליסטים שונים יש משמעות שונה. */
+    function checklistCycleModal(taskId, clId, done){
+      const c = Store.checklistOf(taskId, clId); if(!c) return;
+      const cur = c.repeat || { days:[], time:'20:00', resetMin:360, skipTypes:[], skipScope:'day' };
+      let days = (cur.days || []).slice();
+      let skipTypes = (cur.skipTypes || []).slice();
+      let skipScope = cur.skipScope === 'week' ? 'week' : 'day';
+      const RESETS = [[0,'בזמן המופע'],[360,'6 שעות לפני'],[720,'12 שעות לפני'],[1440,'יום לפני']];
+      const types = Store.eventTypes();
+      Modal.open({ title:'מחזור חוזר · ' + c.name, body:`
+        <label>באילו ימים</label>
+        <div class="days" id="clDays">${DAYL.map((x,i) =>
+          `<button data-d="${i}" aria-selected="${days.includes(i)}">${x}</button>`).join('')}</div>
+        <label style="margin-top:12px">באיזו שעה</label>
+        <input type="time" id="clTime" value="${esc(cur.time || '20:00')}">
+        <label style="margin-top:12px">מתי לאפס את הסימונים</label>
+        <select id="clReset">${RESETS.map(([v,lb]) =>
+          `<option value="${v}" ${v===(cur.resetMin||0)?'selected':''}>${lb}</option>`).join('')}</select>
+        <div class="ex">הצ׳קליסט לא נוצר מחדש בכל מחזור — הוא אותו צ׳קליסט.
+          מחזור שלא הספקת לסיים נשאר פתוח, והסימונים הישנים מתאפסים רק
+          לפני המופע הבא. למשל "הכנה למוצ״ש" בשבת ב-23:00 עם איפוס 6 שעות
+          לפני — הסימונים מתנקים ב-17:00.</div>
+        ${types.length ? `
+        <div class="esechead" style="margin-top:14px"><span>חריגים</span></div>
+        <div class="ex">דלג כשיש אירוע מסוג…</div>
+        <div id="clSkip" style="margin-top:6px">${types.map(x => `
+          <button class="pick" data-skt="${x.id}" aria-checked="${skipTypes.includes(x.id)}"
+                  style="border-bottom:0;padding:8px 2px">
+            <span class="bx">✓</span>
+            <span class="edot" style="background:${x.color};width:10px;height:10px"></span>
+            <span class="pn">${esc(x.name)}</span></button>`).join('')}</div>
+        <div id="clScopeWrap" ${skipTypes.length ? '' : 'hidden'}>
+          <label style="margin-top:10px">מתי לדלג</label>
+          <div class="seg" id="clScope">
+            <button data-sc="day"  aria-selected="${skipScope==='day'}">ביום האירוע</button>
+            <button data-sc="week" aria-selected="${skipScope==='week'}">בשבוע של האירוע</button>
+          </div></div>` : ''}`,
+        buttons:[
+          { label:'כבה', act:()=>{ Store.setChecklistRepeat(taskId, clId, null);
+                                   Modal.shut(); done && done(); UI.toast('המחזור כבוי'); } },
+          { label:'שמור', kind:'p', act:()=>{
+              const time = (document.getElementById('clTime')||{}).value || '20:00';
+              const resetMin = +((document.getElementById('clReset')||{}).value) || 0;
+              if (!days.length){ UI.toast('צריך לבחור לפחות יום אחד'); return; }
+              Store.setChecklistRepeat(taskId, clId, { days, time, resetMin, skipTypes, skipScope });
+              Modal.shut(); done && done(); Native.sync(); UI.toast('נשמר');
+          } }]});
+      Modal.body.addEventListener('click', e => {
+        const db = e.target.closest('#clDays button');
+        if (db){ const i = +db.dataset.d;
+                 days = days.includes(i) ? days.filter(x => x !== i) : days.concat(i);
+                 db.setAttribute('aria-selected', days.includes(i)); return; }
+        const sk = e.target.closest('[data-skt]');
+        if (sk){ const id = sk.dataset.skt;
+                 skipTypes = skipTypes.includes(id) ? skipTypes.filter(x => x !== id) : skipTypes.concat(id);
+                 sk.setAttribute('aria-checked', skipTypes.includes(id));
+                 const w = document.getElementById('clScopeWrap'); if (w) w.hidden = !skipTypes.length;
+                 return; }
+        const sc = e.target.closest('#clScope button');
+        if (sc){ skipScope = sc.dataset.sc;
+                 Modal.body.querySelectorAll('#clScope button').forEach(x =>
+                   x.setAttribute('aria-selected', x === sc)); return; }
+      });
+    }
+
     function checklistMenu(taskId, clId, done){
       const c = Store.checklistOf(taskId, clId); if(!c) return;
       Modal.open({ title:c.name,
         body:`<button class="pick" data-m="rename"><span class="pn">שנה שם</span></button>
+              <button class="pick" data-m="cycle"><span class="pn">מחזור חוזר</span>
+                <span class="pm">${c.repeat && (c.repeat.days||[]).length
+                  ? UI.repeatLabel({ days:c.repeat.days }) + ' ' + esc(c.repeat.time) : 'כבוי'}</span></button>
               <button class="pick" data-m="reset"><span class="pn">אפס סימונים</span>
                 <span class="pm">${Store.checklistStats(taskId, clId).checked || 'הכול פתוח'}</span></button>
               <button class="pick" data-m="del"><span class="pn"
@@ -4217,6 +4527,7 @@ const Wire = (() => {
                         Modal.shut(); done && done(); }}]});
           return;
         }
+        if (b.dataset.m === 'cycle'){ checklistCycleModal(taskId, clId, done); return; }
         if (b.dataset.m === 'reset'){
           Store.resetChecklist(taskId, clId); Modal.shut(); done && done();
           UI.toast('הסימונים אופסו'); return;
@@ -4454,6 +4765,12 @@ const Wire = (() => {
       let rep  = d ? d.rep
                : (t && Store.isHabit(t) ? { days:t.repeat.days.slice(), times:t.repeat.times.slice() }
                                         : (o.habit ? { days:[0,1,2,3,4], times:['20:00'] } : null));
+      /* חריגים והתאמה סביב אירועים נשמרים בתוך repeat, לא במודל נפרד */
+      let skipTypes = d ? (d.skipTypes || []).slice()
+                    : ((t && t.repeat && t.repeat.skipTypes) || []).slice();
+      let skipScope = d ? (d.skipScope || 'day')
+                    : ((t && t.repeat && t.repeat.skipScope) || 'day');
+      let around    = d ? !!d.around : !!(t && t.repeat && t.repeat.around);
       let planned = d ? d.date : (t ? t.planned : (o.planned || null));
       /* מה שטרם נשמר — קיים רק בזיכרון עד שההורה נשמר.
          pending = תת-משימות והרגלים · pendLists = צ׳קליסטים */
@@ -4654,8 +4971,48 @@ const Wire = (() => {
             ${(rep ? rep.times : ['20:00']).map(x => `<input type="time" class="ht" value="${esc(x)}">`).join('')}
             <button class="btn" id="etAddTime" style="padding:8px 11px">+ שעה</button></div>
           <div class="ex">חוזר בימים קבועים. למשל "ללמוד Fusion בכל ראשון ושלישי ב-20:00".
-            סימון אחד ביום סוגר את היום${Native.on ? ', ומשתיק את השעות שנשארו' : ''}.</div>
+            סימון אחד ביום סוגר את היום${Native.on ? ', ומשתיק את השעות שנשארו' : ''}.
+            פריט חוזר הוא פעולה אחת בפני עצמה — הוא לא מחזיק תת-משימות או צ׳קליסטים.</div>
+          ${exceptBlock()}
         </div>`;
+
+      /* ---- חריגים והתאמה סביב אירועים ----
+         שני דברים שונים בכוונה, ולכן הם מוסברים זה ליד זה:
+         חריג = לא צריך בכלל, והרצף נשמר.
+         התאמה = כן צריך, רק לא באמצע האירוע. */
+      const exceptBlock = () => {
+        const types = Store.eventTypes();
+        if (!types.length) return '';
+        return `
+        <div class="esec" id="etExcept" style="margin-top:14px">
+          <div class="esechead"><span>חריגים</span></div>
+          <div class="ex">דלג כשיש אירוע מסוג…</div>
+          <div id="etSkipTypes" style="margin-top:6px">${types.map(x => `
+            <button class="pick" data-skt="${x.id}" aria-checked="${skipTypes.includes(x.id)}"
+                    style="border-bottom:0;padding:8px 2px">
+              <span class="bx">✓</span>
+              <span class="edot" style="background:${x.color};width:10px;height:10px"></span>
+              <span class="pn">${esc(x.name)}</span></button>`).join('')}</div>
+          <div id="etSkipScopeWrap" ${skipTypes.length ? '' : 'hidden'}>
+            <label style="margin-top:10px">מתי לדלג</label>
+            <div class="seg" id="etSkipScope">
+              <button data-sc="day"  aria-selected="${skipScope==='day'}">ביום האירוע</button>
+              <button data-sc="week" aria-selected="${skipScope==='week'}">בשבוע של האירוע</button>
+            </div>
+            <div class="ex">ביום — למשל "להניח תפילין", שמדלגים עליו רק ביום חג.
+              בשבוע — למשל צ׳קליסט שבועי, שמדלגים עליו אם יש חופשה באותו שבוע.
+              יום שדילגת עליו לא שובר את הרצף.</div>
+          </div>
+          <div class="esechead" style="margin-top:14px"><span>התאמה סביב אירועים</span></div>
+          <button class="pick" id="etAround" aria-checked="${around}"
+                  style="border-bottom:0;padding:8px 2px">
+            <span class="bx">✓</span>
+            <span class="pn">אל תזכיר באמצע אירוע</span></button>
+          <div class="ex">זה לא חריג — הפעולה עדיין נדרשת. אם התזכורת נופלת בתוך
+            אירוע, היא לא תצלצל באמצע: תקבל תזכורת הכנה שש שעות לפני שהאירוע
+            מתחיל, ותזכורת מעקב שעתיים אחרי שהוא נגמר.</div>
+        </div>`;
+      };
 
       const placeBlock = () => `
         <div id="etPlaceB">
@@ -4699,15 +5056,16 @@ const Wire = (() => {
             <div class="esechead"><span>תת-משימות</span>
               <button class="secact" id="etAddKid">+ תת-משימה</button></div>
             <div id="etKids">${subs}</div></div>`;
+        /* המקטע נשאר כתצוגה של תת-משימות חוזרות. אין בו כפתור יצירה:
+           הרגל נוצר כתת-משימה שההתראה שלה "חוזרת". */
         if (hasHabs) inner += `<div class="esec">
-            <div class="esechead"><span>הרגלים</span>
-              <button class="secact" id="etAddHabit">+ הרגל</button></div>
+            <div class="esechead"><span>חוזרות</span></div>
             <div id="etHabs">${habs}</div></div>`;
         /* הוספת תוכן היא פעולה אחת שקטה, לא שלושה מקטעים ריקים.
-           היכולת נשמרת גם ביצירה, לפני השמירה הראשונה. */
+           היכולת נשמרת גם ביצירה, לפני השמירה הראשונה.
+           "+ הרגל" ירד: תת-משימה שחוזרת היא ההרגל. */
         inner += `<div class="esec addrow">
           <button class="secact" id="etAddKid">+ תת-משימה</button>
-          <button class="secact" id="etAddHabit">+ הרגל</button>
           <button class="secact" id="etAddList">+ צ׳קליסט</button>
         </div>`;
         return `<div id="etContent">${inner}</div>`;
@@ -4836,6 +5194,8 @@ const Wire = (() => {
         } else if (extra){ extra.remove(); }
         B.querySelectorAll('#etMode button').forEach(x =>
           x.setAttribute('aria-selected', x.dataset.a === mode));
+        const box = g('etContent');
+        if (box) box.hidden = (mode === 'repeat' && kind !== 'long');
         const lbl = g('etAlertLbl');
         /* לארוכת-טווח אין "התראה" — יש תאריך יעד, ושורת "מתי?" נושאת אותו
            בעצמה. תווית כפולה רק מבלבלת. */
@@ -4858,6 +5218,9 @@ const Wire = (() => {
                           (!isNew && (Store.subtasksOf(t.id).length || Store.habitsOf(t.id).length));
         const inline = (kind === 'long') || !!populated || isChild;
         (inline ? main : adv).appendChild(box);
+        /* פריט חוזר הוא פעולה אטומית: אין בו תוכן מקונן, ולכן גם אין
+           מקטע תוכן. היכולת לא נמחקה — היא פשוט לא שייכת כאן. */
+        box.hidden = (mode === 'repeat' && kind !== 'long');
         return box;
       }
 
@@ -4898,13 +5261,18 @@ const Wire = (() => {
       function syncRep(){
         const days = [...B.querySelectorAll('#etDays [aria-selected="true"]')].map(b => +b.dataset.d);
         const times = [...B.querySelectorAll('#etTimes .ht')].map(i => i.value).filter(Boolean).sort();
-        rep = (days.length && times.length) ? { days, times:[...new Set(times)] } : null;
+        rep = (days.length && times.length)
+          ? { days, times:[...new Set(times)],
+              skipTypes: skipTypes.slice(), skipScope, around }
+          : null;
       }
       /* צילום מצב הטופס — כדי לחזור אליו אחרי שיוצרים תת-משימה */
       function snapshot(){
         syncRep();
         return { title:g('etTitle').value, note:g('etNote').value, kind, cat, mode,
-                 rep: rep ? { days:rep.days.slice(), times:rep.times.slice() } : null,
+                 rep: rep ? { days:rep.days.slice(), times:rep.times.slice(),
+                              skipTypes:skipTypes.slice(), skipScope, around } : null,
+                 skipTypes:skipTypes.slice(), skipScope, around,
                  date:(g('etDate')||{}).value || '', time:(g('etTime')||{}).value || '',
                  placeId:g('etPlace') ? g('etPlace').value : '',
                  delay:g('etDelay') ? g('etDelay').value : 0,
@@ -4924,6 +5292,21 @@ const Wire = (() => {
           mission: cat, habit: asHabit, back,
         });
       }
+
+      /* "חד-פעמית" חייבת להיות פעם אחת, ולכן היא חייבת תאריך. במקום
+         לדרוש מהמשתמש להבין את זה — כשהוא מקליד שעה בלי תאריך, האפליקציה
+         בוחרת בעצמה: היום אם השעה עוד לפנינו, מחר אם היא כבר עברה. */
+      B.addEventListener('input', e => {
+        if (e.target.id !== 'etTime') return;
+        const v = e.target.value;
+        if (!v || planned || kind === 'long' || mode !== 'once') return;
+        const nowHM = new Date().toTimeString().slice(0,5);
+        setDate(v > nowHM ? Plan.today() : Plan.shift(Plan.today(), 1));
+        const ex = g('etOnceEx');
+        if (ex) ex.textContent = v > nowHM
+          ? 'קורה פעם אחת. בחרנו "היום" כי השעה עוד לפנינו — אפשר לשנות.'
+          : 'קורה פעם אחת. השעה כבר עברה היום, אז בחרנו "מחר" — אפשר לשנות.';
+      });
 
       B.addEventListener('click', e => {
         const ah = e.target.closest('.ah');
@@ -4990,6 +5373,26 @@ const Wire = (() => {
         const db = e.target.closest('#etDays button');
         if (db){ db.setAttribute('aria-selected', db.getAttribute('aria-selected') !== 'true');
                  syncRep(); refreshSummaries(); return; }
+        const skb = e.target.closest('[data-skt]');
+        if (skb){
+          const id = skb.dataset.skt;
+          skipTypes = skipTypes.includes(id) ? skipTypes.filter(x => x !== id) : skipTypes.concat(id);
+          skb.setAttribute('aria-checked', skipTypes.includes(id));
+          const wrap = g('etSkipScopeWrap'); if (wrap) wrap.hidden = !skipTypes.length;
+          syncRep(); refreshSummaries(); return;
+        }
+        const scb = e.target.closest('#etSkipScope button');
+        if (scb){
+          skipScope = scb.dataset.sc;
+          B.querySelectorAll('#etSkipScope button').forEach(x =>
+            x.setAttribute('aria-selected', x === scb));
+          syncRep(); refreshSummaries(); return;
+        }
+        if (e.target.closest('#etAround')){
+          around = !around;
+          g('etAround').setAttribute('aria-checked', around);
+          syncRep(); refreshSummaries(); return;
+        }
         if (e.target.closest('#etAddTime')){
           const inp = document.createElement('input');
           inp.type='time'; inp.className='ht'; inp.value='20:00';
@@ -5254,7 +5657,15 @@ const Wire = (() => {
         if (kind === 'long'){ return out; }          /* מיכל: תאריך יעד בלבד */
         if (mode === 'once'){
           const tm = (g('etTime') || {}).value;
-          if (tm) out.reminder = { type:'time', at:tm };
+          if (tm){
+            out.reminder = { type:'time', at:tm };
+            /* רשת ביטחון: שעה בלי תאריך תמיד מקבלת מופע אחד ומדויק,
+               גם אם המשתמש הגיע לכאן במסלול שלא עבר דרך שדה השעה. */
+            if (!out.planned){
+              const nowHM = new Date().toTimeString().slice(0,5);
+              out.planned = tm > nowHM ? Plan.today() : Plan.shift(Plan.today(), 1);
+            }
+          }
         } else if (mode === 'repeat'){
           out.repeat = rep;
         } else if (mode === 'place'){
@@ -5397,7 +5808,8 @@ const Wire = (() => {
           <div><label>עד תאריך</label><input type="date" id="evED" value="${esc(e.endDate||'')}"></div>
         </div>
         <div style="margin-bottom:14px"><label>סוג</label>
-          <div id="evTy">${typeChips(typeId)}</div></div>
+          <div id="evTy">${typeChips(typeId)}</div>
+          <button class="secact" id="evTyManage" style="margin-top:4px">נהל סוגי אירוע</button></div>
         <div style="margin-bottom:14px"><label>תזכורת לפני</label>
           <select id="evR">${[[-1,'ללא'],[0,'בזמן'],[10,'10 דק׳'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[1440,'יום']]
             .map(([v,l]) => `<option value="${v}" ${e.remindMin===v?'selected':''}>${l}</option>`).join('')}</select></div>
@@ -5428,6 +5840,27 @@ const Wire = (() => {
           allDay = !allDay;
           document.getElementById('evAll').setAttribute('aria-checked', allDay);
           document.getElementById('evTimes').hidden = allDay;
+          return;
+        }
+        if (ee.target.closest('#evTyManage')){
+          const snap = {
+            title: document.getElementById('evT').value,
+            date:  document.getElementById('evD').value,
+            time:  document.getElementById('evS').value,
+            end:   document.getElementById('evE').value,
+            endDate: document.getElementById('evED').value,
+            remindMin: +document.getElementById('evR').value,
+            note: document.getElementById('evN').value,
+          };
+          eventTypesModal(() => {
+            eventModal(isNew ? null : e);
+            setTimeout(() => {
+              const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+              set('evT', snap.title); set('evD', snap.date); set('evS', snap.time);
+              set('evE', snap.end); set('evED', snap.endDate);
+              set('evR', String(snap.remindMin)); set('evN', snap.note);
+            }, 40);
+          });
           return;
         }
         const b = ee.target.closest('[data-ty]'); if(!b) return;
@@ -5964,21 +6397,38 @@ const Wire = (() => {
      * ולכן התזכורת שלו עוברת דרך אותו מסלול של כל אירוע אחר, כולל
      * ההתראה ברקע. אין כאן מנגנון תזכורות שני.
      */
-    function planListModal(l){
-      const open = l.items.filter(i => !i.done).length;
+    function planListModal(l, keep){
+      const openItems = l.items.filter(i => !i.done);
+      /* ברירת מחדל: כל מה שפתוח. בחירה חלקית נשמרת בין מעברים למסך
+         הבחירה וחזרה, כדי שהתאריך והשעה לא יילכו לאיבוד. */
+      let picked = Array.isArray(keep && keep.picked)
+        ? keep.picked.filter(id => openItems.some(i => i.id === id))
+        : null;
+      const chosen = () => picked ? openItems.filter(i => picked.includes(i.id)) : openItems;
+      const summary = () => picked
+        ? picked.length + ' מתוך ' + openItems.length + ' פריטים'
+        : 'כל הרשימה · ' + openItems.length + ' פריטים';
+
       Modal.open({ title:'שיבוץ "' + l.name + '" ליומן', body:`
+        <div style="margin-bottom:14px"><label>מה לשבץ?</label>
+          <div class="seg" id="plWhat">
+            <button data-w="all"  aria-selected="${!picked}">כל הרשימה</button>
+            <button data-w="some" aria-selected="${!!picked}">בחירת פריטים</button>
+          </div>
+          <div class="ex" id="plWhatEx">${esc(summary())}</div></div>
         <div class="fgrid" style="margin-bottom:14px">
           <div><label>תאריך</label>
-            <input type="date" id="plD" value="${esc(Plan.today())}"></div>
-          <div><label>שעה</label><input type="time" id="plT" value="17:00"></div>
+            <input type="date" id="plD" value="${esc((keep && keep.date) || Plan.today())}"></div>
+          <div><label>שעה</label>
+            <input type="time" id="plT" value="${esc((keep && keep.time) || '17:00')}"></div>
         </div>
         <div style="margin-bottom:14px"><label>תזכורת לפני</label>
           <select id="plR">${[[-1,'ללא'],[0,'בזמן'],[15,'15 דק׳'],[30,'30 דק׳'],[60,'שעה'],[120,'שעתיים'],[1440,'יום']]
-            .map(([v,lb]) => `<option value="${v}" ${v===30?'selected':''}>${lb}</option>`).join('')}</select></div>
+            .map(([v,lb]) => `<option value="${v}" ${v===((keep&&keep.remind)!=null?keep.remind:30)?'selected':''}>${lb}</option>`).join('')}</select></div>
         <div style="margin-bottom:14px"><label>סוג</label>
-          <div id="plTy">${typeChips((Store.eventTypes()[0]||{}).id)}</div></div>
-        <div class="note">${open} פריטים פתוחים ברשימה. האירוע ביומן יקשר אליה,
-          ולחיצה עליו תפתח את הרשימה עצמה.</div>`,
+          <div id="plTy">${typeChips((keep && keep.typeId) || (Store.eventTypes()[0]||{}).id)}</div></div>
+        <div class="note">האירוע ביומן יקשר לרשימה, ולחיצה עליו תפתח את הרשימה עצמה.
+          פריטים שלא נבחרו נשארים ברשימה — הם פשוט לא נכנסים לאירוע.</div>`,
         buttons:[{label:'ביטול',act:()=>Modal.shut()},
                  {label:'שבץ',kind:'p',act:()=>{
           const g = x => document.getElementById(x);
@@ -5986,20 +6436,68 @@ const Wire = (() => {
           const time = g('plT').value || '17:00';
           const [h,m] = time.split(':').map(Number);
           const endH = String((h+1) % 24).padStart(2,'0');
+          const list = chosen();
+          if (!list.length){ UI.toast('לא נבחר אף פריט'); return; }
           const old = Store.listEvent(l.id);
           if (old) Store.delEvent(old.id);
           Store.addEvent({ title:l.name, date, time, end:endH + ':' + String(m).padStart(2,'0'),
                            typeId:planType, remindMin:+g('plR').value, listId:l.id,
-                           note:l.items.filter(i=>!i.done).map(i=>'· '+i.title).join('\n') });
+                           note:list.map(i => '· ' + i.title).join('\n') });
           Modal.shut(); UI.toast('שובץ ל' + Plan.label(date));
         }}]});
-      let planType = (Store.eventTypes()[0]||{}).id;
+      let planType = (keep && keep.typeId) || (Store.eventTypes()[0]||{}).id;
+      const snap = () => ({ date:(document.getElementById('plD')||{}).value,
+                            time:(document.getElementById('plT')||{}).value,
+                            remind:+((document.getElementById('plR')||{}).value),
+                            typeId:planType, picked });
       Modal.body.addEventListener('click', ee => {
+        const w = ee.target.closest('#plWhat button');
+        if (w){
+          if (w.dataset.w === 'all'){
+            picked = null;
+            Modal.body.querySelectorAll('#plWhat button').forEach(x =>
+              x.setAttribute('aria-selected', x === w));
+            document.getElementById('plWhatEx').textContent = summary();
+          } else {
+            pickListItems(l, picked, sel => planListModal(l, { ...snap(), picked:sel }),
+                          () => planListModal(l, snap()));
+          }
+          return;
+        }
         const b = ee.target.closest('[data-ty]'); if(!b) return;
         if (b.dataset.ty === '__new') return;         /* יצירת סוג חדש נעשית מעורך האירוע */
         planType = b.dataset.ty;
         Modal.body.querySelectorAll('[data-ty]').forEach(x =>
           x.setAttribute('aria-checked', x === b));
+      });
+    }
+
+    /**
+     * בחירת פריטים לשיבוץ. נראה כמו רשימת הקניות עצמה ולא כמו בורר טכני,
+     * כי זו אותה פעולה מוכרת — לסמן פריטים ברשימה.
+     */
+    function pickListItems(l, current, onDone, onBack){
+      const openItems = l.items.filter(i => !i.done);
+      let sel = new Set(current || openItems.map(i => i.id));
+      const rows = () => openItems.map(i => `
+        <div class="clrow${sel.has(i.id) ? ' ck' : ''}" data-pi="${i.id}">
+          <button class="cb${sel.has(i.id) ? ' on' : ''}" data-act="pick"
+                  style="width:18px;height:18px;font-size:10px;flex:0 0 auto">✓</button>
+          <button class="ct" data-act="pick"><span>${esc(i.title)}</span>
+            ${i.where ? `<span class="cn">${esc(i.where)}</span>` : ''}</button>
+        </div>`).join('');
+      Modal.open({ title:'מה לשבץ מ"' + l.name + '"', body:`
+        <div id="plItems">${rows() || '<div class="ex">אין פריטים פתוחים ברשימה.</div>'}</div>
+        <div class="ex" id="plCount" style="margin-top:10px">${sel.size} נבחרו</div>`,
+        buttons:[{label:'חזרה',act:()=>{ Modal.shut(); onBack && onBack(); }},
+                 {label:'אישור',kind:'p',act:()=>{
+                    Modal.shut(); onDone([...sel]); }}]});
+      Modal.body.addEventListener('click', e => {
+        const row = e.target.closest('[data-pi]'); if(!row) return;
+        const id = row.dataset.pi;
+        if (sel.has(id)) sel.delete(id); else sel.add(id);
+        document.getElementById('plItems').innerHTML = rows();
+        document.getElementById('plCount').textContent = sel.size + ' נבחרו';
       });
     }
 
@@ -6312,7 +6810,27 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       }
     }
 
-    function eventTypeModal(t){
+    /* ניהול סוגי אירוע — שייך לעולם האירועים, לא להגדרות האפליקציה.
+       סוג אירוע הוא תוכן שהמשתמש בונה, כמו מקום או רשימה. */
+    function eventTypesModal(back){
+      const rows = () => Store.eventTypes().map(t => `
+        <button class="pick" data-ety="${t.id}" style="border-bottom:0;padding:10px 2px">
+          <span class="edot" style="background:${t.color};width:10px;height:10px"></span>
+          <span class="pn">${esc(t.name)}</span>
+          <span class="pm">ערוך</span></button>`).join('');
+      Modal.open({ title:'סוגי אירוע',
+        body:`<div id="etyList">${rows()}</div>
+              <div class="ex" style="margin-top:10px">סוג אירוע קובע את הצבע ביומן,
+                והוא גם מה שפריט חוזר יכול לדלג עליו כחריג — למשל "חג" או "חופשה".</div>`,
+        buttons:[{label: back ? 'חזרה' : 'סגור', act:()=>{ Modal.shut(); back && back(); }},
+                 {label:'+ סוג חדש', kind:'p', act:()=>eventTypeModal(null, () => eventTypesModal(back))}]});
+      Modal.body.addEventListener('click', e => {
+        const b = e.target.closest('[data-ety]'); if(!b) return;
+        eventTypeModal(Store.eventType(b.dataset.ety), () => eventTypesModal(back));
+      });
+    }
+
+    function eventTypeModal(t, back){
       let color = t ? t.color : UI.PALETTE[0];
       Modal.open({ title: t ? 'עריכת סוג' : 'סוג אירוע חדש',
         body:`<div style="margin-bottom:14px"><label>שם</label>
@@ -6322,15 +6840,15 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
                 `<button data-c="${c}" style="background:${c}" aria-selected="${c===color}"></button>`).join('')}</div>`,
         buttons:[
           ...(t ? [{label:'מחק',act:()=>{
-                    if (Store.delEventType(t.id)){ Modal.shut(); UI.toast('נמחק'); }
+                    if (Store.delEventType(t.id)){ Modal.shut(); UI.toast('נמחק'); back && back(); }
                     else UI.toast('צריך להישאר לפחות סוג אחד'); }}]
-                : [{label:'ביטול',act:()=>Modal.shut()}]),
+                : [{label:'ביטול',act:()=>{ Modal.shut(); back && back(); }}]),
           {label:t?'שמור':'צור',kind:'p',act:()=>{
             const n = document.getElementById('etyName').value.trim();
             if (!n){ UI.toast('צריך שם'); return; }
             if (t) Store.updateEventType(t.id, { name:n, color });
             else Store.addEventType(n, color);
-            Modal.shut(); UI.toast('נשמר');
+            Modal.shut(); UI.toast('נשמר'); back && back();
           }}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-c]'); if(!b) return;
@@ -6348,16 +6866,17 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       if (e.target.closest('#swVib')){ Store.setPref('vib', !Store.all.prefs.vib); return; }
       if (e.target.closest('#swSnd')){ Store.setPref('snd', !Store.all.prefs.snd); return; }
       if (e.target.closest('#swNotif')){
-        if (Store.all.prefs.notif){ Store.setPref('notif', false); return; }
+        if (Store.all.prefs.notif){ Store.setPref('notif', false); UI.render(); return; }
+        /* מתג שלא יכול להידלק חייב להגיד למה, ולא להישאר כבוי בשקט */
+        if (!Alerts.supported){
+          UI.toast('הדפדפן הזה לא תומך בהתראות מערכת');
+          return;
+        }
         const ok = await Alerts.ask();
         Store.setPref('notif', ok);
         UI.toast(ok ? 'התראות מאושרות' : 'לא אושר');
+        UI.render();
         return;
-      }
-      if (e.target.closest('#etNew')){ eventTypeModal(null); return; }
-      const et = e.target.closest('[data-et]');
-      if (et && e.target.closest('[data-act="etEdit"]')){
-        eventTypeModal(Store.eventType(et.dataset.et)); return;
       }
       if (e.target.closest('#btnExport')){
         UI.download('mesima-backup.json', Store.export(), 'application/json');
@@ -6371,6 +6890,14 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
                 זה בלתי הפיך.</div>`,
           buttons:[{label:'ביטול',act:()=>Modal.shut()},
                    {label:'מחק הכול',kind:'p',act:()=>{ Store.wipe(); Modal.shut(); UI.toast('נמחק'); }}]});
+        return;
+      }
+      const tog = e.target.closest('[data-settoggle]');
+      if (tog){
+        const k = tog.dataset.settoggle;
+        UI.setOpen[k] = !UI.setOpen[k];
+        const a = tog.closest('.acc');
+        if (a) a.setAttribute('aria-expanded', UI.setOpen[k]);
         return;
       }
       const nat = e.target.closest('[data-nat]');
@@ -6418,6 +6945,13 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
 
     /* ================= התראות (סעיפים 51–58) ================= */
     /** "הבנתי" = ראיתי. לא מסמן בוצע, לא מארכב, לא סוגר הרגל. */
+    /* פתיחה מתוך התראה = פרטי המשימה, לא העורך */
+    $('#alOpen').addEventListener('click', () => {
+      const a = UI.alertItem;
+      const id = a && a.item && a.item.id;
+      UI.closeAlert();
+      if (id && Store.task(id)) taskDetail(id);
+    });
     $('#alOk').addEventListener('click', () => {
       const a = UI.alertItem;
       if (a && a.item && a.item.rt){ a.item.rt.ackAt = Date.now(); Store.commit(); }
@@ -6592,13 +7126,41 @@ const Engine = (() => {
          ורק אם עוד לא סימנת מספיק פעמים היום. */
       if (Store.isHabit(t) && !t.archived){
         const day = Plan.today();
-        if (!Store.habitDay(t, day)) return;
+        /* חריג לפי סוג אירוע: היום הזה פשוט אינו יום חובה. אין תזכורת,
+           והרצף לא נשבר — זו בדיוק ההבחנה מ"התאמה סביב אירועים". */
+        if (!Store.habitRequired(t, day)) return;
         t.rt = t.rt || {};
         if (t.rt.snoozeTo && now < t.rt.snoozeTo) return;
         if (Store.habitFull(t, day)) return;            /* כבר סימנת היום — שקט */
         /* התזכורות הן ניסיונות חוזרים על אותה משימה: יורים רק על השעה
            האחרונה שעברה, כדי שלא תקבל ערימה של התראות בבת אחת. */
         const nowHM = new Date().toTimeString().slice(0,5);
+        /* התאמה סביב אירועים: ההרגל עדיין נדרש, אבל לא באמצע האירוע.
+           נבדק על כל השעות ולא רק על אלה שעברו, כי תזכורת ההכנה מקדימה
+           את שעת ההרגל בשש שעות ולכן נופלת לפניה. */
+        let covered = null;
+        if (t.repeat.around){
+          const evs = Store.events(day);
+          for (const hm2 of t.repeat.times){
+            const cov = Cal.covering(evs, Cal.atMs(day, hm2));
+            if (cov){ covered = { hm:hm2, ev:cov }; break; }
+          }
+        }
+        if (covered){
+          const prep  = Cal.startMs(covered.ev) - 6*3600000;
+          const after = Cal.endMs(covered.ev) + 2*3600000;
+          const pKey = day + '@prep@' + covered.hm;
+          const aKey = day + '@after@' + covered.hm;
+          if (now >= after && t.rt.firedKey !== aKey){
+            t.rt.firedKey = aKey; changed = true;
+            Alerts.fire(t, 'שים לב — היית אמור לעשות את זה', 'task');
+          } else if (now >= prep && now < after &&
+                     t.rt.firedKey !== pKey && t.rt.firedKey !== aKey){
+            t.rt.firedKey = pKey; changed = true;
+            Alerts.fire(t, 'שים לב — יש לך אירוע בזמן ההרגל הזה. תיערך בהתאם.', 'task');
+          }
+          return;                                     /* שקט בזמן האירוע */
+        }
         const due = t.repeat.times.filter(hm => hm <= nowHM);
         if (!due.length) return;
         const hm = due[due.length-1];
@@ -6627,6 +7189,10 @@ const Engine = (() => {
         if (now >= target.getTime() && t.rt.firedKey !== key){
           if (snoozed) return;
           t.rt.firedKey = key; changed = true;
+          /* "חד-פעמית" היא פעם אחת. תזכורת בלי תאריך שירתה מתקבעת על
+             היום שבו ירתה, ולכן היא לא חוזרת מחר — וזה גם מרפא נתונים
+             ישנים שנשמרו לפני התיקון. */
+          if (!t.planned) t.planned = Plan.today();
           Alerts.fire(t, 'הגיע הזמן — '+r.at, 'task');
         }
         return;
@@ -6704,6 +7270,30 @@ const Engine = (() => {
           Alerts.fire(ev, mins > 0 ? `מתחיל בעוד ${mins} דקות (${ev.time})` : `מתחיל עכשיו (${ev.time})`, 'event');
         }
       }
+    });
+
+    /* ------- צ׳קליסטים חוזרים ------- */
+    Store.all.tasks.forEach(t => {
+      if (t.archived) return;
+      (t.checklists || []).forEach(c => {
+        const rep = c.repeat;
+        if (!rep || !(rep.days || []).length) return;
+        /* איפוס מוקדם: מכינים את המחזור הבא לפני שהוא מגיע */
+        if (Store.rollChecklist(t.id, c.id)) changed = true;
+        const day = Plan.today();
+        const wd = new Date(day + 'T00:00:00').getDay();
+        if (!rep.days.includes(wd)) return;
+        if (Store.skipDates(rep, day)) return;
+        const nowHM2 = new Date().toTimeString().slice(0,5);
+        if (nowHM2 < rep.time) return;
+        c.rt = c.rt || {};
+        const key = day + '@' + rep.time;
+        if (c.rt.firedKey === key) return;
+        c.rt.firedKey = key; changed = true;
+        const left = c.items.filter(x => !x.checked).length;
+        Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
+                    left ? left + ' פריטים פתוחים · ' + t.title : 'מחזור חדש · ' + t.title, 'task');
+      });
     });
 
     /* ------- פריטי משאלות שיצאו ------- */
