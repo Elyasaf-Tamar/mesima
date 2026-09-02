@@ -323,6 +323,23 @@
   .acc[aria-expanded="true"] > .ah .ar{transform:rotate(90deg)}
   .acc .ab{display:none;padding:2px 2px 16px}
   .acc[aria-expanded="true"] .ab{display:block}
+  /* מקטע מרכזי בעורך — לא נספח. משמש לקישור ליומן. */
+  /* תת-משימות בתוך הכרטיס — המשך של הכרטיס, לא רשימה שנייה */
+  .tsubs{margin:2px 0 0;padding-inline-start:30px}
+  .tsub{display:flex;align-items:center;gap:8px;padding:5px 0}
+  .tsub .st2{display:flex;align-items:baseline;gap:8px;flex:1;text-align:start;min-width:0}
+  .tsub .sn{font-size:13.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tsub .sm{font-size:11.5px;color:var(--muted2);flex:0 0 auto}
+  .tsub .cb.on + .st2 .sn{opacity:.5;text-decoration:line-through}
+  .tsubmore{font-size:12px;color:var(--muted2);padding:4px 0}
+  .esec.big{border:1px solid var(--line2);border-radius:12px;padding:12px;margin:16px 0}
+  .esec.big > .esechead > span{font-size:15px;font-weight:600}
+  /* פעולות התוכן של מיכל — הן הלב שלו, ולכן הן גדולות */
+  .esec.addrow.hero{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .esec.addrow.hero .secact{
+    padding:14px 10px;border:1px solid var(--line2);border-radius:12px;
+    font-size:14.5px;font-weight:550;text-align:center;
+  }
   /* מקטע הגדרות: כותרת גדולה יותר, כי זו הניווט הראשי של המסך */
   .setacc > .ah .an{font-size:16px;font-weight:600}
   .setacc > .ah{padding:16px 2px}
@@ -708,6 +725,10 @@
           <div class="bd"><div class="t">קניות</div><div class="m" id="libLists">—</div></div>
           <span class="chev">‹</span>
         </button>
+
+        <h2 class="sh" style="margin-top:24px">קיצורי אתרים</h2>
+        <div id="libLinks"></div>
+        <button class="btn wide" id="libAddLink">+ קיצור חדש</button>
       </div>
     </section>
 
@@ -807,7 +828,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '3.5 · 2026-09-01';
+const BUILD = '4.0 · 2026-09-02';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.1';
 
@@ -815,7 +836,7 @@ const NEED_APK = '1.1';
 const Store = (() => {
   const KEY = 'mesima.v1';
   const seed = () => ({ v:5, tasks:[], places:[], lists:[], events:[], notes:[],
-                        eventTypes:[],
+                        eventTypes:[], links:[],
                         prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1 } });
 
   let persist = true;
@@ -1012,6 +1033,61 @@ const Store = (() => {
   })();
   data.v = 9;
 
+  /* ---------- v9 -> v10: מיכל, פריט חוזר, ומחזור צ׳קליסט ----------
+     שום תוכן לא נמחק כאן. מה שמיכל כבר לא רשאי להחזיק עובר ל-t.parked
+     ונשאר בנתונים; מה שחסר בשדות חדשים מקבל ברירת מחדל בטוחה. */
+  if (!Array.isArray(data.links)) data.links = [];
+  data.links = data.links.filter(l => l && l.url).map(l => ({
+    id: l.id || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
+    name: String(l.name || l.url), url: String(l.url),
+  }));
+
+  data.tasks.forEach(t => {
+    if (t.parked === undefined) t.parked = null;
+    (t.checklists || []).forEach(c => {
+      if (c.repeat){
+        /* נקודת האיפוס אינה נשאלת יותר — היא קבועה על שש שעות */
+        c.repeat.resetMin = 360;
+        if (typeof c.repeat.around !== 'boolean') c.repeat.around = false;
+        if (!Array.isArray(c.repeat.skipTypes)) c.repeat.skipTypes = [];
+        if (c.repeat.skipScope !== 'week') c.repeat.skipScope = 'day';
+        if (!c.rt || typeof c.rt !== 'object') c.rt = { cycle:'', doneAt:null };
+        if (c.rt.doneAt === undefined) c.rt.doneAt = null;
+      } else {
+        /* צ׳קליסט רגיל נשאר רגיל — חזרתיות נדלקת רק במפורש */
+        c.repeat = null;
+      }
+    });
+  });
+
+  /* מיכל אינו נושא תאריך, שעה, תזכורת או קישור לאירוע. הערכים לא
+     נמחקים — הם נשמרים ב-parked כדי שאפשר יהיה לראות ולשחזר. */
+  data.tasks.forEach(t => {
+    if (t.kind !== 'long') return;
+    const had = t.planned || t.reminder || t.repeat || t.eventId;
+    if (had && !t.parked){
+      t.parked = { planned:t.planned || null, reminder:t.reminder || null,
+                   repeat:t.repeat || null, eventId:t.eventId || null, at:Date.now() };
+    }
+    t.planned = null; t.reminder = null; t.repeat = null; t.eventId = null; t.log = {};
+  });
+
+  /* מיכל בתוך מיכל אסור בכל עומק. הילד נשאר במקומו ורק הופך לקצר-טווח. */
+  (() => {
+    const byId = new Map(data.tasks.map(t => [t.id, t]));
+    const underLong = t => {
+      let p = t.parentId ? byId.get(t.parentId) : null, g = 0;
+      while (p && g++ < 16){
+        if (p.kind === 'long') return true;
+        p = p.parentId ? byId.get(p.parentId) : null;
+      }
+      return false;
+    };
+    data.tasks.forEach(t => { if (t.kind === 'long' && underLong(t)) t.kind = 'short'; });
+  })();
+
+  data.v = 10;
+
   const subs = [];
   const save = () => {
     if (persist) { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(e){ persist = false; } }
@@ -1054,7 +1130,14 @@ const Store = (() => {
         note:o.note||'', repeat:o.repeat||null, log:{}, collapsed:true,
         kind:(o.kind === 'long') ? 'long' : 'short',
         img:o.img||null, archived:false, archivedAt:null, autoArch:false,
-        checklists:[], sortIndex:0 };
+        checklists:[], parked:null, sortIndex:0 };
+      /* מיכל בתוך מיכל אסור בכל עומק. ילד של מיכל הוא תמיד קצר-טווח,
+         ולכן גם לא נשאלת עליו השאלה בשום מקום בממשק. */
+      if (t.kind === 'long' && !this.canBeLong(null, t.parentId)) t.kind = 'short';
+      if (t.kind === 'long'){
+        t.parked = this.parkSchedule(t);
+        t.reminder = null; t.repeat = null; t.planned = null; t.eventId = null;
+      }
       /* תת-משימה יורשת את המשימה-על של ההורה, אחרת היא נעלמת מהתצוגה */
       if (t.parentId){
         let p = this.task(t.parentId);
@@ -1083,11 +1166,24 @@ const Store = (() => {
     updateTask(id, patch){
       const t=this.task(id); if(!t) return;
       const rt = patch.rt;              /* אפשר לקבוע rt מפורש — למשל "אל תירה היום" */
+      const wasLong = t.kind === 'long';
       Object.assign(t, patch);
       t.rt = rt || {};
+      /* אותם שני חוקים שנאכפים ביצירה נאכפים גם בעריכה, כדי שלא תיווצר
+         דרך עוקפת דרך הטופס. */
+      if (t.kind === 'long' && !this.canBeLong(t.id, t.parentId)) t.kind = 'short';
+      if (t.kind === 'long'){
+        if (!wasLong) t.parked = this.parkSchedule(t);
+        t.reminder = null; t.repeat = null; t.planned = null; t.eventId = null;
+        t.log = {};
+      }
       save();
     },
-    setPlanned(id, date){ const t=this.task(id); if(t){ t.planned=date; save(); } },
+    setPlanned(id, date){
+      const t=this.task(id); if(!t) return;
+      if (t.kind === 'long') return;    /* מיכל לא נושא תאריך */
+      t.planned=date; save();
+    },
     toggleCollapse(id){ const t=this.task(id); if(t){ t.collapsed=!t.collapsed; save(); } },
     /** משימות שתוכננו ליום מסוים */
     plannedFor(date){ return data.tasks.filter(t => t.planned === date && !t.archived && !this.isHabit(t)); },
@@ -1095,6 +1191,7 @@ const Store = (() => {
     tasksForEvent(eventId){ return data.tasks.filter(t => t.eventId === eventId && !t.archived); },
     linkTask(taskId, eventId){
       const t = this.task(taskId); if(!t) return;
+      if (t.kind === 'long') return;    /* מיכל לא מקושר ליומן */
       t.eventId = eventId || null;
       const ev = eventId ? this.event(eventId) : null;
       if (ev && !t.planned) t.planned = ev.date;   /* נוח: המשימה נוחתת ביום האירוע */
@@ -1107,30 +1204,21 @@ const Store = (() => {
        הבדיקה מגנה גם על נתונים ישנים שנשמרו לפני התיקון. */
     isHabit(t){ return !!(t && t.kind !== 'long' &&
                           t.repeat && t.repeat.times && t.repeat.times.length); },
-    habitDay(t, date){
-      const d = new Date(date + 'T00:00:00').getDay();
-      return (t.repeat.days || []).includes(d);
-    },
+    habitDay(t, date){ return Recur.active(t.repeat, date); },
     /* ---------- חריגים לפי סוג אירוע ----------
        cfg = { skipTypes:[מזהי סוג], skipScope:'day'|'week' }
        שומרים מזהים ולא שמות, כדי ששינוי שם של סוג אירוע לא ישבור כלום.
        יום שדולג עליו אינו "יום חובה" — ולכן הוא לא שובר רצף ולא מזכיר. */
-    skipDates(cfg, date){
-      const ids = (cfg && cfg.skipTypes) || [];
-      if (!ids.length) return false;
-      const days = (cfg.skipScope === 'week') ? Cal.weekOf(date) : [date];
-      return days.some(k => data.events.some(e =>
-        !!e && ids.includes(e.typeId) && this.onDay(e, k)));
-    },
-    /** האם ההרגל נדרש בתאריך הזה: יום חובה, ובלי חריג פעיל */
+    /* חזרתיות היא מנוע אחד. Store רק מפנה אליו, כדי שלא תיווצר
+       סמנטיקה שנייה להרגל מול צ׳קליסט חוזר. */
+    skipDates(cfg, date){ return Recur.skipped(cfg, date); },
+    /** האם ההרגל נדרש בתאריך הזה: יום פעיל, ובלי חריג */
     habitRequired(t, date){
-      if (!this.isHabit(t)) return false;
-      if (!this.habitDay(t, date)) return false;
-      return !this.skipDates(t.repeat, date);
+      return this.isHabit(t) && Recur.due(t.repeat, date);
     },
     /** האם קיים חריג פעיל היום — כדי שה-UI יסביר למה ההרגל שקט */
     habitSkipped(t, date){
-      return this.isHabit(t) && this.habitDay(t, date) && this.skipDates(t.repeat, date);
+      return this.isHabit(t) && Recur.active(t.repeat, date) && Recur.skipped(t.repeat, date);
     },
     /** פריט חוזר הוא פעולה אטומית: בלי תת-משימות, צ׳קליסטים או הרגלים */
     canHoldContent(t){ return !!t && !this.isHabit(t); },
@@ -1208,13 +1296,36 @@ const Store = (() => {
     },
     /** סגירה מפורשת של פריט ארוך-טווח */
     closeProject(id){ this.finishTask(id); },
-    /** מעבר לארוך-טווח: המיכל לא נושא זמן, מיקום, נסיעה, תאריך או חזרה */
+    /**
+     * מעבר לארוך-טווח. מיכל הוא מיכל: אין לו זמן, מיקום, נסיעה, תאריך,
+     * חזרה או קישור לאירוע. מה שהיה נשמר ב-t.parked ולא נמחק, כדי
+     * שהחזרה לקצר-טווח תוכל להחזיר אותו ושום נתון לא ייעלם בשקט.
+     */
     makeLong(id){
       const t = this.task(id); if(!t) return;
-      /* תאריך יעד נשאר — הוא לא תזכורת ולא שעון, רק היום שאליו הדבר מכוון */
-      t.kind = 'long'; t.reminder = null; t.repeat = null;
+      if (t.kind !== 'long') t.parked = this.parkSchedule(t);
+      t.kind = 'long';
+      t.reminder = null; t.repeat = null; t.planned = null; t.eventId = null;
       t.log = {}; t.rt = {};
       save();
+    },
+    /** צילום של כל מה שמיכל לא רשאי להחזיק */
+    parkSchedule(t){
+      const has = t.planned || t.reminder || t.repeat || t.eventId;
+      if (!has) return null;
+      return { planned:t.planned || null, reminder:t.reminder || null,
+               repeat:t.repeat || null, eventId:t.eventId || null, at:Date.now() };
+    },
+    /** האם למשימה מותר להיות ארוכת-טווח: אסור מיכל בתוך מיכל, בכל עומק */
+    canBeLong(id, parentId){
+      const pid = parentId !== undefined ? parentId
+                : (this.task(id) || {}).parentId;
+      let p = pid ? this.task(pid) : null, guard = 0;
+      while (p && guard++ < 16){
+        if (p.kind === 'long') return false;
+        p = p.parentId ? this.task(p.parentId) : null;
+      }
+      return true;
     },
 
     /** החזרה מהארכיון — המשימה וכל מה שאורכב יחד איתה */
@@ -1308,39 +1419,56 @@ const Store = (() => {
       c.repeat = rep ? {
         days: (rep.days || []).slice(),
         time: rep.time || '20:00',
-        resetMin: Math.max(0, +rep.resetMin || 0),
+        /* נקודת האיפוס קבועה: שש שעות לפני המופע הבא. השדה נשאר בנתונים
+           כדי שרשומות ישנות ייטענו, אבל הוא כבר לא נשאל ולא משתנה. */
+        resetMin: Recur.RESET_MIN,
         skipTypes: (rep.skipTypes || []).slice(),
         skipScope: rep.skipScope === 'week' ? 'week' : 'day',
+        around: !!rep.around,
       } : null;
+      if (c.repeat) c.rt = { cycle: Recur.nextDay(c.repeat, Plan.today()), doneAt:null };
       save(); return true;
     },
     /** התאריך הקרוב ביותר שבו הצ׳קליסט אמור להיות פתוח, מהיום קדימה */
-    checklistNextDay(c, from){
-      const rep = c && c.repeat; if (!rep || !(rep.days||[]).length) return '';
-      let k = from || Plan.today();
-      for (let i = 0; i < 14; i++){
-        const wd = new Date(k + 'T00:00:00').getDay();
-        if (rep.days.includes(wd) && !this.skipDates(rep, k)) return k;
-        k = Plan.shift(k, 1);
-      }
-      return '';
-    },
+    checklistNextDay(c, from){ return Recur.nextDay(c && c.repeat, from); },
     /**
      * מגלגל צ׳קליסט חוזר למחזור הבא. נקרא מה-Engine, ולכן חייב להיות
      * זול ואידמפוטנטי: הוא מאפס פעם אחת לכל מחזור, לפי מפתח שמור.
      */
+    /**
+     * מגלגל צ׳קליסט חוזר למחזור הבא.
+     *
+     * שלוש הכרעות שמייצרות את ההתנהגות שהאפיון דורש:
+     * 1. מחזור שלא הושלם **נשאר פתוח** — לא בשעת היעד ולא בחצות. רק
+     *    נקודת האיפוס סוגרת אותו, ולכן חצות לא מסתיר כלום.
+     * 2. האיפוס קורה בדיוק שש שעות לפני המופע הבא, מ-Recur.
+     * 3. אידמפוטנטי: מפתח המחזור נשמר, ולכן סימון באמצע מחזור לא נמחק
+     *    בקריאה הבאה של המנוע.
+     */
     rollChecklist(id, clId){
       const c = this.checklistOf(id, clId); if(!c || !c.repeat) return false;
-      const next = this.checklistNextDay(c, Plan.today());
-      if (!next) return false;
-      const due = Cal.atMs(next, c.repeat.time);
-      const resetAt = due - (c.repeat.resetMin || 0) * 60000;
+      /* מחפשים את המופע שאחרי המחזור הפתוח, לא את המחזור עצמו */
+      const open = (c.rt && c.rt.cycle) || '';
+      const from = open ? Plan.shift(open, 1) : Plan.today();
+      const nx = Recur.nextOccurrence(c.repeat, from);
+      if (!nx) return false;
       c.rt = c.rt || {};
-      if (Date.now() < resetAt) return false;
-      if (c.rt.cycle === next) return false;         /* המחזור הזה כבר הוכן */
-      c.rt.cycle = next;
+      if (Date.now() < nx.resetAt) return false;     /* עוד לא הגיע האיפוס */
+      if (c.rt.cycle === nx.day) return false;       /* המחזור הזה כבר הוכן */
+      c.rt.cycle = nx.day;
+      c.rt.doneAt = null;
       c.items.forEach(x => { x.checked = false; });
       save(); return true;
+    },
+    /** המחזור הפתוח: היום שאליו הצ׳קליסט מכוון כרגע */
+    checklistCycle(c){
+      if (!c || !c.repeat) return '';
+      if (c.rt && c.rt.cycle) return c.rt.cycle;
+      return Recur.nextDay(c.repeat, Plan.today());
+    },
+    /** מחזור מושלם = כל הפריטים מסומנים. אין פעולת סיום נפרדת. */
+    checklistCycleDone(c){
+      return !!(c && c.repeat && c.items.length && c.items.every(x => x.checked));
     },
     renameChecklist(id, clId, name){
       const c = this.checklistOf(id, clId); if(!c) return false;
@@ -1397,7 +1525,14 @@ const Store = (() => {
     toggleChecklistItem(id, itemId){
       const c = this.ownerOf(id, itemId); if(!c) return null;
       const it = c.items.find(x => x.id === itemId); if(!it) return null;
-      it.checked = !it.checked; save(); return it.checked;
+      it.checked = !it.checked;
+      /* בצ׳קליסט חוזר, סימון הפריט האחרון סוגר את המחזור מעצמו.
+         אין פעולת "סיימתי" נפרדת — היא הייתה שלב שלא מוסיף מידע. */
+      if (c.repeat){
+        c.rt = c.rt || {};
+        c.rt.doneAt = this.checklistCycleDone(c) ? Date.now() : null;
+      }
+      save(); return it.checked;
     },
     /** מחיקה מחזירה את הפריט, את הצ׳קליסט שלו ואת מקומו, כדי שאפשר יהיה לבטל */
     delChecklistItem(id, itemId){
@@ -1618,6 +1753,57 @@ const Store = (() => {
     },
 
     /* ---------- הערות ---------- */
+    /* ---------- קיצורי אתרים בספרייה ----------
+       קישורים שהמשתמש שומר בעצמו. תוכן, לא הגדרה — ולכן הם חיים
+       בספרייה לצד ההערות והרשימות. */
+    links(){ return (data.links || []).slice(); },
+    addLink(name, url){
+      const u = this.cleanUrl(url); if (!u) return null;
+      if (!Array.isArray(data.links)) data.links = [];
+      const l = { id:uid(), name:String(name||'').trim() || this.hostOf(u), url:u };
+      data.links.push(l); save(); return l;
+    },
+    updateLink(id, patch){
+      const l = (data.links||[]).find(x => x.id === id); if(!l) return false;
+      if (patch.url !== undefined){
+        const u = this.cleanUrl(patch.url); if (!u) return false;
+        l.url = u;
+      }
+      if (patch.name !== undefined) l.name = String(patch.name).trim() || this.hostOf(l.url);
+      save(); return true;
+    },
+    delLink(id){
+      const i = (data.links||[]).findIndex(x => x.id === id);
+      if (i < 0) return null;
+      const gone = data.links.splice(i, 1)[0]; save();
+      return { link:gone, at:i };
+    },
+    insertLink(link, at){
+      if (!Array.isArray(data.links)) data.links = [];
+      data.links.splice(Math.min(at, data.links.length), 0, link); save();
+    },
+    moveLink(id, dir){
+      const l = data.links || [];
+      const i = l.findIndex(x => x.id === id); if (i < 0) return;
+      const j = i + dir; if (j < 0 || j >= l.length) return;
+      [l[i], l[j]] = [l[j], l[i]]; save();
+    },
+    /** רק http/https. כתובת בלי סכימה מקבלת https, וכל השאר נדחה. */
+    cleanUrl(raw){
+      let v = String(raw || '').trim();
+      if (!v) return '';
+      if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = 'https://' + v;
+      try {
+        const u = new URL(v);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+        if (!u.hostname || !u.hostname.includes('.')) return '';
+        return u.href;
+      } catch(e){ return ''; }
+    },
+    hostOf(url){
+      try { return new URL(url).hostname.replace(/^www\./, ''); } catch(e){ return url; }
+    },
+
     notes(){ return data.notes.slice().sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt-a.updatedAt); },
     note(id){ return data.notes.find(n=>n.id===id); },
     addNote(o){
@@ -2173,6 +2359,91 @@ const Cal = (() => {
            covering, ics, gcal, monthGrid, weekOf };
 })();
 
+/* -------------------------------- Recur ---------------------------------
+   מנוע חזרתיות אחד, ויחיד, לשני המושגים החוזרים באפליקציה:
+   הרגל (פעולה חוזרת אחת) וצ׳קליסט חוזר (קבוצת פריטים חוזרת).
+   שניהם מושגים נפרדים למשתמש — אבל התזמון, הימים הפעילים, מצב המחזור,
+   נקודת האיפוס, חריגי סוג אירוע וההתאמה סביב אירועים מגיעים מכאן בלבד.
+   קיומן של שתי מערכות חזרתיות היה בדיוק הכפילות שהמוצר הזה נמנע ממנה.
+
+   צורת ההגדרה המשותפת:
+     { days:[0..6], times:['08:00', …] | time:'23:00',
+       skipTypes:[מזהי סוג אירוע], skipScope:'day'|'week', around:bool }
+--------------------------------------------------------------------------- */
+const Recur = (() => {
+  /* איפוס המחזור קורה בדיוק שש שעות לפני המופע הבא. קבוע, לא מוגדר. */
+  const RESET_MIN = 360;
+  /* התאמה סביב אירוע: כמה לפני ההתחלה, וכמה אחרי הסוף */
+  const PRE_MS   = 6 * 3600000;
+  const POST_MS  = 2 * 3600000;
+
+  const norm = rep => {
+    if (!rep) return null;
+    const days = Array.isArray(rep.days) ? rep.days : [];
+    const times = Array.isArray(rep.times) ? rep.times.slice()
+                : rep.time ? [rep.time] : [];
+    return { days, times,
+             skipTypes: Array.isArray(rep.skipTypes) ? rep.skipTypes : [],
+             skipScope: rep.skipScope === 'week' ? 'week' : 'day',
+             around: !!rep.around };
+  };
+
+  const times = rep => (norm(rep) || { times:[] }).times;
+
+  /** יום פעיל לפי לוח הימים בלבד — בלי חריגים */
+  function active(rep, date){
+    const r = norm(rep);
+    if (!r || !r.days.length || !r.times.length) return false;
+    return r.days.includes(new Date(date + 'T00:00:00').getDay());
+  }
+
+  /** חריג לפי סוג אירוע. מזהים נשמרים, לא שמות. */
+  function skipped(rep, date){
+    const r = norm(rep);
+    if (!r || !r.skipTypes.length) return false;
+    const days = r.skipScope === 'week' ? Cal.weekOf(date) : [date];
+    return days.some(k => Store.all.events.some(e =>
+      !!e && r.skipTypes.includes(e.typeId) && Store.onDay(e, k)));
+  }
+
+  /** נדרש היום: יום פעיל, ובלי חריג. זו ההגדרה היחידה בכל האפליקציה. */
+  function due(rep, date){ return active(rep, date) && !skipped(rep, date); }
+
+  /** התאריך הקרוב שבו זה נדרש, מ-from קדימה (עד שבועיים) */
+  function nextDay(rep, from){
+    let k = from || Plan.today();
+    for (let i = 0; i < 14; i++){
+      if (due(rep, k)) return k;
+      k = Plan.shift(k, 1);
+    }
+    return '';
+  }
+
+  /** רגע המופע הבא, ורגע האיפוס שלו — שש שעות לפניו */
+  function nextOccurrence(rep, from){
+    const day = nextDay(rep, from);
+    if (!day) return null;
+    const hm = times(rep)[0] || '00:00';
+    const at = Cal.atMs(day, hm);
+    return { day, hm, at, resetAt: at - RESET_MIN * 60000 };
+  }
+
+  /**
+   * התאמה סביב אירוע. מחזיר null אם התזכורת לא נופלת בתוך אירוע;
+   * אחרת את רגע ההכנה ורגע המעקב. המעקב נמדד מ**סוף** האירוע.
+   * זה לא חריג: הפעולה עדיין נדרשת, רק לא באמצע האירוע.
+   */
+  function around(rep, date, hm){
+    const r = norm(rep);
+    if (!r || !r.around) return null;
+    const ev = Cal.covering(Store.events(date), Cal.atMs(date, hm));
+    if (!ev) return null;
+    return { ev, prep: Cal.startMs(ev) - PRE_MS, after: Cal.endMs(ev) + POST_MS };
+  }
+
+  return { RESET_MIN, PRE_MS, POST_MS, norm, times, active, skipped, due,
+           nextDay, nextOccurrence, around };
+})();
 /* -------------------------------- Modal --------------------------------- */
 /* גיליון תחתון כללי. משמש לבורר משימות, לסגירת חשבון ולעריכת פריט. */
 const Modal = (() => {
@@ -2430,24 +2701,19 @@ const Native = (() => {
          והרצף לא נשבר. */
       if (Store.isHabit(t)){
         span.forEach(day => {
-          if (!Store.habitRequired(t, day)) return;
+          if (!Recur.due(t.repeat, day)) return;
           if (Store.habitFull(t, day)) return;      /* סימון סוגר את כל היום */
-          const evs = Store.events(day);
-          t.repeat.times.forEach(hm => {
+          Recur.times(t.repeat).forEach(hm => {
             const at = ms(day, hm);
-            const more = t.repeat.times.filter(x => x > hm);
-            /* התאמה סביב אירועים: ההרגל עדיין נדרש, אבל לא באמצע האירוע.
-               התזכורת מוקדמת ל-6 שעות לפני תחילתו, ונוספת לה תזכורת
-               מעקב שעתיים אחרי סופו — שנמדדת מהסוף, לא מהשעה המקורית. */
-            const cov = t.repeat.around ? Cal.covering(evs, at) : null;
-            if (cov){
-              const prep = Cal.startMs(cov) - 6*3600000;
-              const after = Cal.endMs(cov) + 2*3600000;
-              if (prep >= soon)
-                out.push({ id:'hp_'+t.id+'_'+day+'@'+hm, at:prep, title:t.title,
+            const more = Recur.times(t.repeat).filter(x => x > hm);
+            /* התאמה סביב אירועים — מאותו מנוע */
+            const ar = Recur.around(t.repeat, day, hm);
+            if (ar){
+              if (ar.prep >= soon)
+                out.push({ id:'hp_'+t.id+'_'+day+'@'+hm, at:ar.prep, title:t.title,
                            body:'שים לב — יש לך אירוע בזמן ההרגל הזה. תיערך בהתאם.' });
-              if (after >= soon)
-                out.push({ id:'ha_'+t.id+'_'+day+'@'+hm, at:after, title:t.title,
+              if (ar.after >= soon)
+                out.push({ id:'ha_'+t.id+'_'+day+'@'+hm, at:ar.after, title:t.title,
                            body:'שים לב — היית אמור לעשות את זה.' });
               return;
             }
@@ -2484,12 +2750,22 @@ const Native = (() => {
       if (t.archived) return;
       (t.checklists || []).forEach(c => {
         const rep = c.repeat;
-        if (!rep || !(rep.days || []).length) return;
+        if (!rep || !Recur.times(rep).length) return;
+        if (Store.checklistCycleDone(c)) return;      /* המחזור כבר נסגר */
+        const hm = Recur.times(rep)[0];
         span.forEach(day => {
-          const wd = new Date(day + 'T00:00:00').getDay();
-          if (!rep.days.includes(wd)) return;
-          if (Store.skipDates(rep, day)) return;      /* חריג לפי סוג אירוע */
-          const at = ms(day, rep.time);
+          if (!Recur.due(rep, day)) return;
+          const ar = Recur.around(rep, day, hm);
+          if (ar){
+            if (ar.prep >= soon)
+              out.push({ id:'cp_'+t.id+'_'+c.id+'_'+day, at:ar.prep, title:c.name,
+                         body:'שים לב — יש לך אירוע בזמן הזה. תיערך בהתאם · ' + t.title });
+            if (ar.after >= soon)
+              out.push({ id:'ca_'+t.id+'_'+c.id+'_'+day, at:ar.after, title:c.name,
+                         body:'שים לב — היית אמור לעבור על זה · ' + t.title });
+            return;
+          }
+          const at = ms(day, hm);
           if (at < soon) return;
           const left = c.items.filter(x => !x.checked).length;
           out.push({ id:'c_'+t.id+'_'+c.id+'_'+day, at, title:c.name,
@@ -3153,13 +3429,11 @@ const UI = (() => {
     </button>`;
   }
 
-  /** אילו סוגי תוכן קיימים במשימה — בשמות, בלי מונים */
+  /** אילו סוגי תוכן קיימים במשימה — בשמות, בלי מונים.
+      תת-משימות והרגלים כבר מופיעים בשורות שמתחת לכרטיס, ולכן אין טעם
+      לחזור עליהם כאן. נשארים רק הצ׳קליסטים, שהתוכן שלהם חי בפרטים. */
   function contentBits(id){
-    const out = [];
-    if (Store.checklists(id).length) out.push('צ׳קליסט');
-    if (Store.subtasksOf(id).length) out.push('תת-משימות');
-    if (Store.habitsOf(id).length)   out.push('הרגלים');
-    return out;
+    return Store.checklists(id).map(c => c.name);
   }
 
   /**
@@ -3194,7 +3468,34 @@ const UI = (() => {
         <button class="hbtn" data-act="menu" style="width:28px;height:28px;font-size:15px">⋯</button>
       </div>
       ${noteBlock(t)}
+      ${subLines(t)}
       ${linkedEventLine(t)}
+    </div>`;
+  }
+
+  /**
+   * תת-משימות בתוך הכרטיס. המבנה של משימה צריך להיות מובן בלי לפתוח
+   * אותה — קודם היה כתוב "תת-משימות" בלי לומר אילו. השורות קומפקטיות
+   * בכוונה: אפשר לסמן ולפתוח, אבל לא לערוך, כדי שהמסך יישאר מסך ניווט.
+   */
+  function subLines(t){
+    const kids = [...Store.subtasksOf(t.id), ...Store.habitsOf(t.id)];
+    if (!kids.length) return '';
+    const SHOW = 4;
+    const shown = kids.slice(0, SHOW);
+    const rest  = kids.length - shown.length;
+    return `<div class="tsubs">${shown.map(c => {
+      const hab = Store.isHabit(c);
+      const done = hab ? Store.habitFull(c, Plan.today()) : !!c.archived;
+      const m = taskMeta(c, { noCat:true, noKids:true });
+      return `<div class="tsub" data-sub="${c.id}">
+        <button class="cb${hab?' hab':''}${done?' on':''}" data-act="subdone" data-sid="${c.id}"
+                style="width:16px;height:16px;font-size:9px;flex:0 0 auto">✓</button>
+        <button class="st2" data-act="subopen" data-sid="${c.id}">
+          <span class="sn">${esc(c.title)}</span>
+          ${m ? `<span class="sm">${esc(m)}</span>` : ''}</button>
+      </div>`; }).join('')}
+      ${rest > 0 ? `<button class="tsubmore" data-act="detail">ועוד ${rest}</button>` : ''}
     </div>`;
   }
 
@@ -3207,6 +3508,19 @@ const UI = (() => {
     const items = Store.openItems().length;
     $('#libLists').textContent = Store.all.lists.length
       ? Store.all.lists.length + ' רשימות · ' + items + ' פריטים פתוחים' : 'אין עדיין';
+
+    const links = Store.links();
+    $('#libLinks').innerHTML = links.length
+      ? links.map(l => `
+        <div class="row" data-link="${l.id}">
+          <button class="bd" data-act="openLink" style="text-align:start">
+            <div class="t">${esc(l.name)}</div>
+            <div class="m" dir="ltr" style="unicode-bidi:isolate">${esc(Store.hostOf(l.url))}</div>
+          </button>
+          <button class="hbtn sm" data-act="linkMenu" aria-label="עוד">⋯</button>
+        </div>`).join('')
+      : `<div class="ex" style="padding:4px 2px 10px">שמור כאן אתרים שאתה פותח הרבה —
+           לחיצה אחת ואתה שם.</div>`;
   }
 
   /* ====================================================================
@@ -3360,7 +3674,12 @@ const UI = (() => {
                  ev.allDay ? ' · כל היום' : ' · ' + esc(ev.time)}${
                  ev.remindMin >= 0 ? ' · תזכורת ' + (ev.remindMin ? ev.remindMin + ' דק׳ לפני' : 'בזמן') : ''}</div></div>
                <button class="link" id="lUnplan">הסר</button></div>`
-          : `<button class="txtbtn" id="lPlan">שבץ ליומן עם תזכורת</button>`;
+          /* שיבוץ ליומן הוא הדבר שהופך רשימה לתוכנית. הוא היה קישור טקסט
+             קטן שאיש לא ראה — עכשיו הוא הפעולה הראשית של המסך. */
+          : `<button class="btn p wide" id="lPlan" style="margin:4px 0 6px">
+               שבץ ליומן עם תזכורת</button>
+             <div class="ex" style="margin-bottom:8px">קובע מתי אתה עושה את זה,
+               ומקבל תזכורת. אפשר לשבץ את כל הרשימה או רק פריטים שתבחר.</div>`;
       })()}
       ${body}
       ${l.kind === 'errand'
@@ -4165,6 +4484,9 @@ const Wire = (() => {
       }
       if (act === 'openEv'){ const o = Store.event(actEl.dataset.ev);
                              if (o) eventMenu(o); return; }
+      /* שורות תת-המשימה שבתוך הכרטיס: סימון ופתיחה, ותו לא */
+      if (act === 'subdone'){ finish(actEl.dataset.sid); return; }
+      if (act === 'subopen'){ taskDetail(actEl.dataset.sid); return; }
       if (act === 'done'){ finish(id); return; }
       if (act === 'menu'){ taskMenu(id); return; }
       if (act === 'open' && UI.taskQ){ revealTask(id); return; }
@@ -4197,9 +4519,73 @@ const Wire = (() => {
 
     /* ================= ספרייה ================= */
     $('#s-library').addEventListener('click', e => {
+      if (e.target.closest('#libAddLink')){ linkModal(null); return; }
+      const lk = e.target.closest('[data-link]');
+      if (lk){
+        const l = Store.links().find(x => x.id === lk.dataset.link); if(!l) return;
+        const act = (e.target.closest('[data-act]') || {}).dataset?.act;
+        if (act === 'linkMenu'){ linkMenu(l); return; }
+        openLink(l.url);
+        return;
+      }
       const b = e.target.closest('[data-lib]'); if(!b) return;
       UI.screen = b.dataset.lib; UI.render();
     });
+
+    /* פתיחה בדפדפן. במעטפת המותקנת ה-WebView מוסר קישורים חיצוניים
+       החוצה בעצמו (shouldOverrideUrlLoading), ולכן אותה קריאה עובדת בשניהם. */
+    function openLink(url){
+      try { window.open(url, '_blank', 'noopener'); }
+      catch(e){ location.href = url; }
+    }
+
+    function linkModal(l){
+      Modal.open({ title: l ? 'עריכת קיצור' : 'קיצור חדש', body:`
+        <div style="margin-bottom:14px"><label>שם</label>
+          <input type="text" id="lkName" value="${l ? esc(l.name) : ''}"
+                 placeholder="למשל: מערכת השעות" autocomplete="off"></div>
+        <div style="margin-bottom:6px"><label>כתובת</label>
+          <input type="url" id="lkUrl" value="${l ? esc(l.url) : ''}" dir="ltr"
+                 inputmode="url" placeholder="example.com" autocomplete="off"></div>
+        <div class="ex">אפשר להדביק כתובת בלי https — היא תושלם לבד.
+          שם ריק יקבל את שם האתר.</div>`,
+        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                 {label: l ? 'שמור' : 'הוסף', kind:'p', act:()=>{
+            const name = document.getElementById('lkName').value;
+            const url  = document.getElementById('lkUrl').value;
+            if (!Store.cleanUrl(url)){ UI.toast('כתובת לא תקינה'); return; }
+            if (l) Store.updateLink(l.id, { name, url });
+            else   Store.addLink(name, url);
+            Modal.shut(); UI.render(); UI.toast('נשמר');
+         }}]});
+      setTimeout(() => document.getElementById('lkName')?.focus(), 80);
+    }
+
+    function linkMenu(l){
+      const links = Store.links();
+      const i = links.findIndex(x => x.id === l.id);
+      Modal.open({ title:l.name,
+        body:`<button class="pick" data-lm="open"><span class="pn">פתח</span>
+                <span class="pm" dir="ltr" style="unicode-bidi:isolate">${esc(Store.hostOf(l.url))}</span></button>
+              <button class="pick" data-lm="edit"><span class="pn">ערוך</span></button>
+              ${i > 0 ? `<button class="pick" data-lm="up"><span class="pn">הזז למעלה</span></button>` : ''}
+              ${i < links.length-1 ? `<button class="pick" data-lm="down"><span class="pn">הזז למטה</span></button>` : ''}
+              <button class="pick" data-lm="del"><span class="pn"
+                style="color:var(--danger)">מחק</span></button>`,
+        buttons:[{label:'סגור',act:()=>Modal.shut()}]});
+      Modal.body.addEventListener('click', e => {
+        const b = e.target.closest('[data-lm]'); if(!b) return;
+        const k = b.dataset.lm;
+        if (k === 'open'){ Modal.shut(); openLink(l.url); return; }
+        if (k === 'edit'){ linkModal(l); return; }
+        if (k === 'up' || k === 'down'){
+          Store.moveLink(l.id, k === 'up' ? -1 : 1); Modal.shut(); UI.render(); return;
+        }
+        const gone = Store.delLink(l.id);
+        Modal.shut(); UI.render();
+        if (gone) UI.undo('הקיצור נמחק', () => { Store.insertLink(gone.link, gone.at); UI.render(); });
+      });
+    }
 
     /* ================= ארכיון ================= */
     $('#archiveBody').addEventListener('click', e => {
@@ -4247,6 +4633,13 @@ const Wire = (() => {
         if (r.type === 'trip')  facts.push(['נסיעה', r.km + ' ק״מ רצוף']);
 
         let out = `<div class="dmeta">${esc(meta || CAT[t.mission])}</div>`;
+        /* מיכל פתוח: הפעולות שלו הן הוספת תוכן, ולכן הן יושבות בראש
+           ובגודל שמתאים לתפקיד שלהן — לא כקישור קטן בתוך כותרת מקטע. */
+        if (t.kind === 'long')
+          out += `<div class="esec addrow hero" style="margin-bottom:6px">
+            <button class="secact" data-d="addkid">+ תת-משימה</button>
+            <button class="secact" data-d="addlist">+ צ׳קליסט</button>
+          </div>`;
         /* הרגל נושא היסטוריה — היא מידע קיים, ולכן היא מוצגת כאן */
         if (Store.isHabit(t)){
           const today = Plan.today(), cells = [];
@@ -4369,6 +4762,7 @@ const Wire = (() => {
         if (cmd === 'orderLists'){ UI.reorder = { taskId:id, sec:'lists' }; paint(); return; }
         if (cmd === 'listmenu'){ checklistMenu(id, d.dataset.cl, paint); return; }
         if (cmd === 'addkid'){ taskModal({ parentId:id, mission:t.mission }); return; }
+        if (cmd === 'addlist'){ newChecklistModal(id); return; }
         if (cmd === 'evopen'){ const ev = Store.event(t.eventId);
                                if (ev){ Modal.shut(); eventMenu(ev); } return; }
 
@@ -4441,11 +4835,11 @@ const Wire = (() => {
        להגדרה כי לצ׳קליסטים שונים יש משמעות שונה. */
     function checklistCycleModal(taskId, clId, done){
       const c = Store.checklistOf(taskId, clId); if(!c) return;
-      const cur = c.repeat || { days:[], time:'20:00', resetMin:360, skipTypes:[], skipScope:'day' };
+      const cur = c.repeat || { days:[], time:'20:00', skipTypes:[], skipScope:'day', around:false };
       let days = (cur.days || []).slice();
       let skipTypes = (cur.skipTypes || []).slice();
       let skipScope = cur.skipScope === 'week' ? 'week' : 'day';
-      const RESETS = [[0,'בזמן המופע'],[360,'6 שעות לפני'],[720,'12 שעות לפני'],[1440,'יום לפני']];
+      let around = !!cur.around;
       const types = Store.eventTypes();
       Modal.open({ title:'מחזור חוזר · ' + c.name, body:`
         <label>באילו ימים</label>
@@ -4453,13 +4847,11 @@ const Wire = (() => {
           `<button data-d="${i}" aria-selected="${days.includes(i)}">${x}</button>`).join('')}</div>
         <label style="margin-top:12px">באיזו שעה</label>
         <input type="time" id="clTime" value="${esc(cur.time || '20:00')}">
-        <label style="margin-top:12px">מתי לאפס את הסימונים</label>
-        <select id="clReset">${RESETS.map(([v,lb]) =>
-          `<option value="${v}" ${v===(cur.resetMin||0)?'selected':''}>${lb}</option>`).join('')}</select>
-        <div class="ex">הצ׳קליסט לא נוצר מחדש בכל מחזור — הוא אותו צ׳קליסט.
-          מחזור שלא הספקת לסיים נשאר פתוח, והסימונים הישנים מתאפסים רק
-          לפני המופע הבא. למשל "הכנה למוצ״ש" בשבת ב-23:00 עם איפוס 6 שעות
-          לפני — הסימונים מתנקים ב-17:00.</div>
+        <div class="ex" style="margin-top:12px">הצ׳קליסט לא נוצר מחדש בכל מחזור —
+          הוא אותו צ׳קליסט. סימון כל הפריטים סוגר את המחזור לבד, בלי כפתור סיום.
+          מחזור שלא הספקת לסיים <b>נשאר פתוח</b> — גם אחרי השעה וגם אחרי חצות.
+          הסימונים מתאפסים <b>שש שעות לפני המופע הבא</b>, כדי שיהיה זמן להיערך.
+          למשל "ציוד שבועי" בשבת ב-23:00 — הסימונים מתנקים ב-17:00.</div>
         ${types.length ? `
         <div class="esechead" style="margin-top:14px"><span>חריגים</span></div>
         <div class="ex">דלג כשיש אירוע מסוג…</div>
@@ -4474,15 +4866,22 @@ const Wire = (() => {
           <div class="seg" id="clScope">
             <button data-sc="day"  aria-selected="${skipScope==='day'}">ביום האירוע</button>
             <button data-sc="week" aria-selected="${skipScope==='week'}">בשבוע של האירוע</button>
-          </div></div>` : ''}`,
+          </div></div>` : ''}
+        <div class="esechead" style="margin-top:14px"><span>התאמה סביב אירועים</span></div>
+        <button class="pick" id="clAround" aria-checked="${around}"
+                style="border-bottom:0;padding:8px 2px">
+          <span class="bx">✓</span>
+          <span class="pn">אל תזכיר באמצע אירוע</span></button>
+        <div class="ex">זה לא חריג — המחזור עדיין נדרש. אם התזכורת נופלת בתוך
+          אירוע, תקבל תזכורת הכנה שש שעות לפני שהוא מתחיל, ותזכורת מעקב
+          שעתיים אחרי שהוא נגמר.</div>`,
         buttons:[
           { label:'כבה', act:()=>{ Store.setChecklistRepeat(taskId, clId, null);
                                    Modal.shut(); done && done(); UI.toast('המחזור כבוי'); } },
           { label:'שמור', kind:'p', act:()=>{
               const time = (document.getElementById('clTime')||{}).value || '20:00';
-              const resetMin = +((document.getElementById('clReset')||{}).value) || 0;
               if (!days.length){ UI.toast('צריך לבחור לפחות יום אחד'); return; }
-              Store.setChecklistRepeat(taskId, clId, { days, time, resetMin, skipTypes, skipScope });
+              Store.setChecklistRepeat(taskId, clId, { days, time, skipTypes, skipScope, around });
               Modal.shut(); done && done(); Native.sync(); UI.toast('נשמר');
           } }]});
       Modal.body.addEventListener('click', e => {
@@ -4500,6 +4899,9 @@ const Wire = (() => {
         if (sc){ skipScope = sc.dataset.sc;
                  Modal.body.querySelectorAll('#clScope button').forEach(x =>
                    x.setAttribute('aria-selected', x === sc)); return; }
+        if (e.target.closest('#clAround')){
+          around = !around;
+          document.getElementById('clAround').setAttribute('aria-checked', around); return; }
       });
     }
 
@@ -4818,8 +5220,8 @@ const Wire = (() => {
       }
       function paintImg(){ const b = document.getElementById('etImgBox');
                            if (b) b.innerHTML = imgBox(); }
-      function repaintEvent(){ const b = document.getElementById('etEvent');
-                               if (b) b.outerHTML = eventBlock(); }
+      function repaintEvent(){ const h = document.getElementById('etEventHost');
+                               if (h) h.innerHTML = eventBlock(); }
       /* התאריך נבחר מהשורה, לא משדה ריק בלי תיאור */
       function setDate(v){
         planned = v || null;
@@ -4928,7 +5330,12 @@ const Wire = (() => {
          - סוג: נבחר ביצירה (גם לתת-משימה), מוסתר בעריכה
          - קטגוריה: רק ביצירת משימה ראשית מתוך "הכול"; אחרת יורשת
            מה-TAB או מההורה. שינוי קטגוריה קיים דרך "העבר לקטגוריה…" */
-      const showKind = isNew && !isHabitEditor;
+      /* ילד של מיכל הוא תמיד קצר-טווח — ולכן השאלה לא נשאלת בכלל.
+         זה נכון בכל עומק, לא רק לילד ישיר. */
+      const underLong = !Store.canBeLong(o.id || null,
+                          o.parentId || (t && t.parentId) || null);
+      if (underLong) kind = 'short';
+      const showKind = isNew && !isHabitEditor && !underLong;
       const showCat  = isNew && !isChild && !isHabitEditor && UI.filter === 'all';
       if (isNew && !isChild && UI.filter !== 'all') cat = UI.filter;
 
@@ -5064,7 +5471,8 @@ const Wire = (() => {
         /* הוספת תוכן היא פעולה אחת שקטה, לא שלושה מקטעים ריקים.
            היכולת נשמרת גם ביצירה, לפני השמירה הראשונה.
            "+ הרגל" ירד: תת-משימה שחוזרת היא ההרגל. */
-        inner += `<div class="esec addrow">
+        /* במיכל, הוספת תוכן היא הפעולה המרכזית — ולכן היא גדולה. */
+        inner += `<div class="esec addrow${kind === 'long' ? ' hero' : ''}">
           <button class="secact" id="etAddKid">+ תת-משימה</button>
           <button class="secact" id="etAddList">+ צ׳קליסט</button>
         </div>`;
@@ -5074,8 +5482,8 @@ const Wire = (() => {
       const eventBlock = () => {
         if (isChild) return '';
         const ev = evId ? Store.event(evId) : null;
-        return `<div class="esec" id="etEvent">
-          <div class="esechead"><span>אירוע קשור</span></div>
+        return `<div class="esec big" id="etEvent">
+          <div class="esechead"><span>אירוע ביומן</span></div>
           ${ev ? `<div class="evcur">
                     <div class="el">${esc(ev.title)}</div>
                     <div class="em">${esc(Plan.longDate(ev.date))}${ev.allDay ? '' : ' · ' + esc(ev.time)}</div>
@@ -5083,9 +5491,9 @@ const Wire = (() => {
                   <div style="display:flex;gap:14px;margin-top:6px">
                     <button class="secact" id="etEvOpen">פתח אירוע</button>
                     <button class="secact" id="etEvOff">נתק</button></div>`
-                : `<div class="ex">לא מקושר. חבר את המשימה למשהו שקורה ביומן —
-                     למשל "להכין מצגת" לאירוע "הצגת הפרויקט".</div>
-                   <button class="secact" id="etEvLink" style="margin-top:6px">קשר לאירוע</button>`}
+                : `<div class="ex">חבר את המשימה למשהו שקורה ביומן — למשל
+                     "להכין מצגת" לאירוע "הצגת הפרויקט".</div>
+                   <button class="btn wide" id="etEvLink" style="margin-top:8px">קשר לאירוע ביומן</button>`}
         </div>`;
       };
 
@@ -5121,7 +5529,7 @@ const Wire = (() => {
           </div></div>` : ''}
 
         <div style="margin-bottom:14px" id="etAlert">
-          <label id="etAlertLbl">${kind === 'long' ? 'תאריך יעד' : 'התראה'}</label>
+          <label id="etAlertLbl">התראה</label>
           <div id="etAlertBody">
             ${alertSeg()}
             <div id="etModeBody" style="margin-top:12px">
@@ -5129,8 +5537,12 @@ const Wire = (() => {
             </div>
           </div>
         </div>
+        <div class="ex" id="etLongNote" hidden>ארוכת טווח היא מיכל: היא לא נושאת
+          תאריך, שעה, תזכורת או קישור ליומן. אלה שייכים למה שיושב בתוכה.</div>
 
         ${streakBlock()}
+
+        <div id="etEventHost"></div>
 
         <div id="etMain"></div>
 
@@ -5149,7 +5561,6 @@ const Wire = (() => {
                 <button class="secact" data-advpick="trip">לפי מרחק</button></div>
               <div id="etTripHost"></div>
             </div>`}
-            ${eventBlock()}
             <div class="esec">
               <div class="esechead"><span>תמונה</span></div>
               <div class="ex">תמונה אחת מהגלריה. למשל צילום של רשימת הציוד.</div>
@@ -5169,6 +5580,9 @@ const Wire = (() => {
 
       const B = Modal.body;
       const g = x => document.getElementById(x);
+      /* קישור ליומן הוא חלק מהותי ממשימה קצרת-טווח, לא אפשרות נסתרת —
+         ולכן הוא יושב במסלול הראשי ולא תחת "אפשרויות נוספות". */
+      if (g('etEventHost')) g('etEventHost').innerHTML = eventBlock();
 
       function kindNote(){
         if (!g('etKindNote')) return;
@@ -5196,12 +5610,8 @@ const Wire = (() => {
           x.setAttribute('aria-selected', x.dataset.a === mode));
         const box = g('etContent');
         if (box) box.hidden = (mode === 'repeat' && kind !== 'long');
-        const lbl = g('etAlertLbl');
-        /* לארוכת-טווח אין "התראה" — יש תאריך יעד, ושורת "מתי?" נושאת אותו
-           בעצמה. תווית כפולה רק מבלבלת. */
-        if (lbl) lbl.hidden = kind === 'long';
         const wl = g('etWhenLbl');
-        if (wl) wl.textContent = kind === 'long' ? 'תאריך יעד' : 'מתי?';
+        if (wl) wl.textContent = 'מתי?';
       }
 
       /* ---- הצבת המקטעים: ארוכת-טווח מציגה אותם, קצרת-טווח מסתירה ---- */
@@ -5225,25 +5635,23 @@ const Wire = (() => {
       }
 
       function applyKind(){
-        /* ארוכת-טווח היא מיכל: יש לה תאריך יעד, ומיקום/נסיעה/שעה שייכים
-           לתת-המשימות שלה. שום יכולת לא נמחקת — היא רק לא רלוונטית כאן. */
-        const alertBody = g('etAlertBody');
-        if (alertBody){
-          const seg = g('etMode');
-          if (seg) seg.hidden = kind === 'long';
-          if (kind === 'long'){
-            mode = 'once';
-            if (g('etTime')) g('etTime').value = '';
-          }
-        }
-        if (g('etTimeWrap')) g('etTimeWrap').hidden = kind === 'long';
-        if (g('etOnceEx')) g('etOnceEx').textContent = kind === 'long'
-          ? 'היום שבו זה אמור לנחות. לא תזכורת — רק תאריך יעד.'
-          : 'קורה פעם אחת. למשל "להתקשר למפקד מחר ב-18:00".';
+        /* ארוכת-טווח היא מיכל, נקודה: בלי תאריך, בלי שעה, בלי תזכורת
+           ובלי קישור ליומן. כל אלה שייכים למה שיושב בתוכה. שום יכולת
+           לא נמחקת מהאפליקציה — היא פשוט לא קיימת ברמת המיכל. */
+        const isLong = kind === 'long';
+        if (isLong){ mode = 'none'; setDate(''); if (g('etTime')) g('etTime').value = ''; }
+        const alert = g('etAlert');
+        if (alert) alert.hidden = isLong;
+        const note = g('etLongNote');
+        if (note) note.hidden = !isLong;
+        if (g('etOnceEx')) g('etOnceEx').textContent =
+          'קורה פעם אחת. למשל "להתקשר למפקד מחר ב-18:00".';
         ['place','trip'].forEach(k => {
           const el = B.querySelector(`[data-adv="${k}"]`);
-          if (el) el.hidden = kind === 'long';
+          if (el) el.hidden = isLong;
         });
+        const evb = g('etEvent');
+        if (evb) evb.hidden = isLong;
         applyMode(); placeContent(); kindNote(); refreshSummaries();
       }
 
@@ -5654,7 +6062,10 @@ const Wire = (() => {
 
         /* למשימה יש תזכורת אחת. המצב שנבחר הוא זה שנשמר — בלי הכרעה
            נסתרת בין שעה למקום, שקודם השליכה בשקט תזכורת מיקום שנבחרה. */
-        if (kind === 'long'){ return out; }          /* מיכל: תאריך יעד בלבד */
+        if (kind === 'long'){                        /* מיכל: כלום מתוזמן */
+          out.planned = null; out.reminder = null; out.repeat = null;
+          return out;
+        }
         if (mode === 'once'){
           const tm = (g('etTime') || {}).value;
           if (tm){
@@ -5697,6 +6108,52 @@ const Wire = (() => {
       function save(){
         const data = collect();
         if (!data){ UI.toast('צריך שם'); g('etTitle').focus(); return; }
+
+        /* ---------- המרה להרגל ----------
+           הרגל הוא פעולה חוזרת אחת ואין בו תוכן. אם המשימה שמומרת
+           מחזיקה תת-משימות או צ׳קליסטים, האפליקציה מציעה לנקות — אומרת
+           בדיוק מה יקרה לכל סוג תוכן, ולא נוגעת בכלום בלי אישור.
+           סירוב = שום שינוי, גם לא בשדות האחרים. */
+        if (!isNew && t && data.repeat && !Store.isHabit(t)){
+          const kids = Store.children(t.id);
+          const lists = Store.checklists(t.id);
+          if (kids.length || lists.length){
+            convertToHabitModal(t, kids, lists, () => commit(data));
+            return;
+          }
+        }
+        commit(data);
+      }
+
+      /** אישור מפורש לפני שנוגעים בתוכן קיים */
+      function convertToHabitModal(t, kids, lists, go){
+        const bits = [];
+        if (kids.length)  bits.push(`<li>${kids.length} תת-משימות — יעברו לארכיון,
+          ואפשר יהיה לשחזר אותן משם.</li>`);
+        if (lists.length) bits.push(`<li>${lists.length} צ׳קליסטים — יימחקו מהמשימה.
+          מיד אחרי המחיקה תופיע אפשרות ביטול.</li>`);
+        Modal.open({ title:'להפוך ל"חוזרת"?', body:`
+          <div class="note">פריט חוזר הוא פעולה אחת בפני עצמה, ולכן הוא לא
+            יכול להחזיק תוכן בתוכו. כדי להמיר את "${esc(t.title)}" צריך לפנות
+            את מה שיושב בה:</div>
+          <ul class="ex" style="padding-inline-start:18px;line-height:1.9">${bits.join('')}</ul>
+          <div class="ex">אם תבטל — שום דבר לא ישתנה, גם לא שאר השינויים בטופס.</div>`,
+          buttons:[{label:'ביטול',act:()=>Modal.shut()},
+                   {label:'נקה והמר',kind:'p',act:()=>{
+                      /* תת-משימות עוברות לארכיון ולא נמחקות */
+                      kids.forEach(k => Store.finishTask(k.id));
+                      const gone = [];
+                      lists.slice().forEach(c => {
+                        const g2 = Store.delChecklist(t.id, c.id);
+                        if (g2) gone.push(g2);
+                      });
+                      go();
+                      if (gone.length) UI.undo(gone.length + ' צ׳קליסטים הוסרו',
+                        () => gone.forEach(g2 => Store.insertChecklist(t.id, g2.list, g2.at)));
+                   }}]});
+      }
+
+      function commit(data){
 
         /* ילד ממתין: לא נכתב ל-Store, רק חוזר להורה */
         if (o.back && !o.parentId && !o.id){
@@ -7272,22 +7729,39 @@ const Engine = (() => {
       }
     });
 
-    /* ------- צ׳קליסטים חוזרים ------- */
+    /* ------- צ׳קליסטים חוזרים -------
+       אותו מנוע חזרתיות של ההרגלים, כולל חריגים והתאמה סביב אירועים.
+       מחזור שלא הושלם נשאר פתוח — חצות לא סוגר אותו. */
     Store.all.tasks.forEach(t => {
       if (t.archived) return;
       (t.checklists || []).forEach(c => {
         const rep = c.repeat;
-        if (!rep || !(rep.days || []).length) return;
-        /* איפוס מוקדם: מכינים את המחזור הבא לפני שהוא מגיע */
+        if (!rep || !Recur.times(rep).length) return;
+        /* איפוס: שש שעות לפני המופע הבא, פעם אחת למחזור */
         if (Store.rollChecklist(t.id, c.id)) changed = true;
-        const day = Plan.today();
-        const wd = new Date(day + 'T00:00:00').getDay();
-        if (!rep.days.includes(wd)) return;
-        if (Store.skipDates(rep, day)) return;
-        const nowHM2 = new Date().toTimeString().slice(0,5);
-        if (nowHM2 < rep.time) return;
+        if (Store.checklistCycleDone(c)) return;      /* המחזור נסגר מעצמו */
+        const day = Store.checklistCycle(c);
+        if (!day || day > Plan.today()) return;       /* המופע עוד לפנינו */
+        const hm = Recur.times(rep)[0];
         c.rt = c.rt || {};
-        const key = day + '@' + rep.time;
+        const ar = Recur.around(rep, day, hm);
+        if (ar){
+          const pKey = day + '@prep', aKey = day + '@after';
+          if (now >= ar.after && c.rt.firedKey !== aKey){
+            c.rt.firedKey = aKey; changed = true;
+            Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
+                        'שים לב — היית אמור לעבור על זה · ' + t.title, 'task');
+          } else if (now >= ar.prep && now < ar.after &&
+                     c.rt.firedKey !== pKey && c.rt.firedKey !== aKey){
+            c.rt.firedKey = pKey; changed = true;
+            Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
+                        'שים לב — יש לך אירוע בזמן הזה. תיערך בהתאם · ' + t.title, 'task');
+          }
+          return;
+        }
+        /* התזכורת נשארת רלוונטית גם אחרי חצות, כל עוד המחזור פתוח */
+        if (Date.now() < Cal.atMs(day, hm)) return;
+        const key = day + '@' + hm;
         if (c.rt.firedKey === key) return;
         c.rt.firedKey = key; changed = true;
         const left = c.items.filter(x => !x.checked).length;
@@ -7312,7 +7786,12 @@ const Engine = (() => {
 
     if (changed) Store.commit();
   }
-  return { check, start(){ setInterval(check, 20000); check(); } };
+  /* start/stop סימטריים. stop קיים כדי שאפשר יהיה לבחון מסכים בלי
+     שהתראה אמיתית תקפוץ באמצע ותכסה את מה שנבדק. */
+  let timer = null;
+  return { check,
+    start(){ if (timer) clearInterval(timer); timer = setInterval(check, 20000); check(); },
+    stop(){ if (timer){ clearInterval(timer); timer = null; } } };
 })();
 
 /* -------------------------------- boot ---------------------------------- */
