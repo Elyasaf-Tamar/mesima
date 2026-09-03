@@ -324,6 +324,32 @@
   .acc .ab{display:none;padding:2px 2px 16px}
   .acc[aria-expanded="true"] .ab{display:block}
   /* מקטע מרכזי בעורך — לא נספח. משמש לקישור ליומן. */
+  /* צ׳קליסט בתוך כרטיס המשימה — נפתח במקום, ומסמנים ממנו ישר */
+  .tcls{margin-top:2px;padding-inline-start:30px}
+  .tclhead{display:flex;align-items:center;gap:8px;width:100%;padding:6px 0;text-align:start}
+  .tclhead .ar{font-size:9px;color:var(--muted2);transition:transform .18s}
+  .tcl.open .tclhead .ar{transform:rotate(-90deg)}
+  .tclhead .nm{font-size:13.5px;color:var(--muted);flex:1;
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tclhead .rp{font-size:10.5px;color:var(--accent);border:1px solid var(--line2);
+               border-radius:999px;padding:1px 7px}
+  .tclhead .pg{font-size:11.5px;color:var(--muted2);flex:0 0 auto}
+  .tclbody{padding:2px 0 6px}
+  .tclbody .clrow{padding:5px 0}
+  .tclopen{font-size:12px;color:var(--accent);padding:6px 0}
+
+  /* פרטי המשימה: תיאור ראשון, מידע מופרד, ורק אז התוכן */
+  .dnote1{margin:0 0 12px;font-size:14.5px;line-height:1.65;color:var(--fg)}
+  .dinfo{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 0;
+         border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:14px}
+  .dsep{font-size:11.5px;color:var(--muted2);letter-spacing:.04em;margin:18px 0 8px}
+
+  /* מסך הצ׳קליסט */
+  .clhead{margin-bottom:12px}
+  .clsub{font-size:12.5px;color:var(--muted2);margin-bottom:8px}
+  .clprog{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted2)}
+  .clbar{flex:1;height:4px;border-radius:2px;background:var(--line2);overflow:hidden}
+  .clbar > i{display:block;height:100%;background:var(--accent);transition:width .2s}
   /* תת-משימות בתוך הכרטיס — המשך של הכרטיס, לא רשימה שנייה */
   .tsubs{margin:2px 0 0;padding-inline-start:30px}
   .tsub{display:flex;align-items:center;gap:8px;padding:5px 0}
@@ -828,7 +854,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.0 · 2026-09-02';
+const BUILD = '4.1 · 2026-09-03';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.1';
 
@@ -1459,6 +1485,42 @@ const Store = (() => {
       c.rt.doneAt = null;
       c.items.forEach(x => { x.checked = false; });
       save(); return true;
+    },
+    /**
+     * צ׳קליסטים חוזרים שהמחזור שלהם פתוח ורלוונטי לתאריך. זה מה שהופך
+     * צ׳קליסט חוזר לאובייקט עבודה אמיתי: הוא צף במסך "היום" בזכות עצמו,
+     * גם כשהמשימה שמחזיקה אותו היא מיכל שלא מתוזמן בכלל.
+     */
+    activeChecklists(date){
+      const day = date || Plan.today();
+      const out = [];
+      data.tasks.forEach(t => {
+        if (t.archived) return;
+        (t.checklists || []).forEach(c => {
+          if (!c.repeat || !Recur.times(c.repeat).length) return;
+          if (this.checklistCycleDone(c)) return;
+          const cycle = this.checklistCycle(c);
+          if (!cycle || cycle > day) return;      /* המחזור עוד לא נפתח */
+          out.push({ task:t, cl:c, cycle,
+                     at: Recur.times(c.repeat)[0],
+                     done: c.items.filter(x => x.checked).length,
+                     total: c.items.length });
+        });
+      });
+      return out.sort((a,b) => (a.at||'').localeCompare(b.at||''));
+    },
+    /**
+     * האם המשימה היא בעצם צ׳קליסט: קצרת-טווח, צ׳קליסט אחד, ובלי
+     * תת-משימות או הרגלים. במקרה כזה הצ׳קליסט הוא הדבר שעושים,
+     * והמשימה היא רק השם שלו.
+     */
+    soleChecklist(id){
+      const t = this.task(id);
+      if (!t || t.kind === 'long' || this.isHabit(t)) return null;
+      const lists = this.checklists(id);
+      if (lists.length !== 1) return null;
+      if (this.children(id).length) return null;
+      return lists[0];
     },
     /** המחזור הפתוח: היום שאליו הצ׳קליסט מכוון כרגע */
     checklistCycle(c){
@@ -2908,6 +2970,8 @@ const UI = (() => {
   /* מצב "שינוי סדר": פועל על מקטע אחד של משימה אחת בכל רגע.
      מחוץ למצב הזה אין חיצים ואין ידיות — הממשק נשאר נקי. */
   let reorder = null;          /* { taskId, sec } או { root:true, group } */
+  /* אילו צ׳קליסטים פתוחים בכרטיס. מצב תצוגה בלבד, לא נשמר בנתונים. */
+  const openCl = new Set();
   /* חלוקת מסך המשימות לפי סוג. ברירת המחדל — מחולק. */
   let grouped = true;
   /* מסלול הניווט בתוך "היום" — כדי שכפתור החזרה יחזור צעד אחורה
@@ -3088,6 +3152,12 @@ const UI = (() => {
                   kind:'habit', ref:t });
     });
 
+    /* צ׳קליסט חוזר שהמחזור שלו פתוח מופיע כאן בזכות עצמו — גם אם
+       המשימה שמחזיקה אותו היא מיכל שלא מתוזמן בכלל. */
+    Store.activeChecklists(date).forEach(x => {
+      rows.push({ at:x.at, kind:'cl', ref:x });
+    });
+
     const timed   = rows.filter(r => r.at).sort((a,b) => a.at.localeCompare(b.at));
     const notimed = rows.filter(r => !r.at);
 
@@ -3098,7 +3168,9 @@ const UI = (() => {
         drawnNow = true;
         body += `<div class="nowline"><span class="lbl">${hm}</span><span class="ln"></span></div>`;
       }
-      body += r.kind === 'event' ? eventRow(r.ref) : taskRow(r.ref, r.at, date);
+      body += r.kind === 'event' ? eventRow(r.ref)
+            : r.kind === 'cl'      ? clTodayRow(r.ref, r.at)
+            : taskRow(r.ref, r.at, date);
     });
 
     let out = originWarn() + nowBlock(date) + overdueBlock(date);
@@ -3108,7 +3180,8 @@ const UI = (() => {
     if (body) out += `<h2 class="sh">${isToday ? 'במהלך היום' : 'לוח הזמנים'}</h2>` + body;
     if (notimed.length){
       out += `<h2 class="sh">ללא שעה</h2>` +
-             notimed.map(r => taskRow(r.ref, null, date)).join('');
+             notimed.map(r => r.kind === 'cl' ? clTodayRow(r.ref, null)
+                                              : taskRow(r.ref, null, date)).join('');
     }
     if (!body && !notimed.length && !allDay.length && !nowBlock(date) && !overdueBlock(date)){
       out += emptyToday(date);
@@ -3125,6 +3198,26 @@ const UI = (() => {
       <div class="d">אין שום דבר מתוכנן.</div>
       <button class="btn" data-act="add">+ הוסף משהו</button>
       ${n ? `<div class="m" style="margin-top:22px;color:var(--muted2)">מחר יש ${n} דברים</div>` : ''}
+    </div>`;
+  }
+
+  /**
+   * שורת צ׳קליסט חוזר ב"היום". מציגה את מה שצריך כדי להחליט: שם
+   * הצ׳קליסט, המשימה שהוא שייך לה, וכמה כבר סומן. נגיעה פותחת את
+   * הצ׳קליסט עצמו — לא את פרטי המשימה שמעליו.
+   */
+  function clTodayRow(x, at){
+    return `<div class="row clday" data-clday="${x.cl.id}" data-clt="${x.task.id}">
+      ${at ? `<div class="when">${esc(at)}</div>` : ''}
+      <span class="cb" style="border-style:dashed;opacity:.6"></span>
+      <div class="bd">
+        <div class="t">${esc(x.cl.name)}</div>
+        <div class="m">${esc(x.task.title)}</div>
+        ${x.total ? `<div class="clprog" style="margin-top:6px">
+          <div class="clbar"><i style="width:${Math.round(x.done/x.total*100)}%"></i></div>
+          <span>${x.done} מתוך ${x.total}</span></div>` : ''}
+      </div>
+      <span class="chev">‹</span>
     </div>`;
   }
 
@@ -3469,8 +3562,43 @@ const UI = (() => {
       </div>
       ${noteBlock(t)}
       ${subLines(t)}
+      ${clLines(t)}
       ${linkedEventLine(t)}
     </div>`;
+  }
+
+  /**
+   * צ׳קליסטים בתוך הכרטיס. אפשר לפתוח אותם במקום ולסמן פריטים בלי
+   * להיכנס לפרטי המשימה בכלל — זה הרי כל העניין בצ׳קליסט: לפתוח,
+   * לסמן, להמשיך.
+   */
+  function clLines(t){
+    const lists = Store.checklists(t.id);
+    if (!lists.length) return '';
+    return `<div class="tcls">${lists.map(c => {
+      const open = openCl.has(c.id);
+      const done = c.items.filter(x => x.checked).length;
+      const rep  = c.repeat;
+      return `<div class="tcl${open ? ' open' : ''}" data-cl="${c.id}">
+        <button class="tclhead" data-act="clToggle" data-clid="${c.id}"
+                aria-expanded="${open}">
+          <span class="ar">‹</span>
+          <span class="nm">${esc(c.name)}</span>
+          ${rep ? `<span class="rp">חוזר</span>` : ''}
+          <span class="pg">${c.items.length ? done + '/' + c.items.length : 'ריק'}</span>
+        </button>
+        ${open ? `<div class="tclbody">
+          ${c.items.map(x => `
+            <div class="clrow${x.checked ? ' ck' : ''}" data-cli="${x.id}" data-clid="${c.id}">
+              <button class="cb${x.checked ? ' on' : ''}" data-act="clTick"
+                      data-clid="${c.id}" data-iid="${x.id}"
+                      style="width:18px;height:18px;font-size:10px;flex:0 0 auto">✓</button>
+              <span class="ct"><span>${esc(x.title)}</span></span>
+            </div>`).join('')
+            || `<div class="secempty">הצ׳קליסט ריק.</div>`}
+          <button class="tclopen" data-act="clOpen" data-clid="${c.id}">פתח את הצ׳קליסט</button>
+        </div>` : ''}
+      </div>`; }).join('')}</div>`;
   }
 
   /**
@@ -4190,6 +4318,7 @@ const UI = (() => {
     CAT, DAYL, PALETTE, KIND, whereLabel, taskMeta, repeatLabel, path, monthDayList,
     originState, typing, cleanSrc, bustSrc, noteText, shrinkImage,
     get setOpen(){ return setOpen; },
+    get openCl(){ return openCl; },
     get section(){ return section; }, set section(v){ section=v; },
     get screen(){ return screen; },   set screen(v){ screen=v; },
     get tview(){ return tview; },     set tview(v){ tview=v; },
@@ -4343,19 +4472,65 @@ const Wire = (() => {
       });
     }
 
-    function newChecklistModal(taskId){
+    /**
+     * יצירת צ׳קליסט. "רגיל או חוזר" היא שאלה שנשאלת כאן, בזרימה, ולא
+     * פעולה נסתרת בתפריט ⋯ שצריך לגלות אחר כך. חוזר נשאר צ׳קליסט —
+     * הוא לא הופך להרגל ולא למשימה, והוא נשאר מחובר למשימה שלו.
+     */
+    function newChecklistModal(taskId, back){
+      let rep = false;
+      let days = [6];                       /* שבת — הדוגמה הנפוצה */
       Modal.open({ title:'צ׳קליסט חדש', body:`
         <div style="margin-bottom:12px"><label>שם הצ׳קליסט</label>
-          <input type="text" id="clNew" placeholder="למשל: ציוד לקחת" autocomplete="off"></div>
-        <div class="ex">צ׳קליסט הוא תוכן פשוט לסימון בתוך המשימה. אפשר להחזיק כמה
-          צ׳קליסטים באותה משימה — למשל "ציוד לקחת" ו"דברים לבדוק".</div>`,
-        buttons:[{label:'ביטול',act:()=>pickWhatToAdd(taskId)},
+          <input type="text" id="clNew" placeholder="למשל: ציוד ליום ראשון" autocomplete="off"></div>
+        <label>איזה צ׳קליסט</label>
+        <div class="seg" id="clKind">
+          <button data-ck="once" aria-selected="true">רגיל</button>
+          <button data-ck="rep"  aria-selected="false">חוזר</button>
+        </div>
+        <div class="ex" id="clKindEx">רשימה לסימון בתוך המשימה. נשארת כמו שהיא.</div>
+        <div id="clRepBox" hidden>
+          <label style="margin-top:12px">באילו ימים</label>
+          <div class="days" id="clNewDays">${DAYL.map((x,i) =>
+            `<button data-d="${i}" aria-selected="${days.includes(i)}">${x}</button>`).join('')}</div>
+          <label style="margin-top:12px">באיזו שעה</label>
+          <input type="time" id="clNewTime" value="23:00">
+          <div class="ex">אותו צ׳קליסט חוזר בכל מחזור. סימון כל הפריטים סוגר את
+            המחזור לבד, מחזור שלא הספקת נשאר פתוח, והסימונים מתאפסים שש שעות
+            לפני המופע הבא. אפשר להוסיף חריגים אחר כך מתוך הצ׳קליסט.</div>
+        </div>`,
+        buttons:[{label:'ביטול',act:()=> back ? back() : pickWhatToAdd(taskId)},
                  {label:'צור',kind:'p',act:()=>{
                     const n = document.getElementById('clNew').value.trim();
                     const c = Store.addChecklist(taskId, n || 'צ׳קליסט');
+                    if (!c){ Modal.shut(); UI.toast('אי אפשר להוסיף כאן צ׳קליסט'); return; }
+                    if (rep){
+                      const time = (document.getElementById('clNewTime')||{}).value || '23:00';
+                      if (!days.length){ UI.toast('צריך לבחור לפחות יום אחד'); return; }
+                      Store.setChecklistRepeat(taskId, c.id,
+                        { days, time, skipTypes:[], skipScope:'day', around:false });
+                      Native.sync();
+                    }
                     Modal.shut();
-                    if (c) addItemsTo(taskId, c.id, () => taskDetail(taskId));
+                    checklistView(taskId, c.id);
                  }}]});
+      Modal.body.addEventListener('click', e => {
+        const k = e.target.closest('#clKind button');
+        if (k){
+          rep = k.dataset.ck === 'rep';
+          Modal.body.querySelectorAll('#clKind button').forEach(x =>
+            x.setAttribute('aria-selected', x === k));
+          document.getElementById('clRepBox').hidden = !rep;
+          document.getElementById('clKindEx').textContent = rep
+            ? 'קבוצת פריטים שחוזרת. היא נשארת צ׳קליסט — לא הרגל ולא משימה.'
+            : 'רשימה לסימון בתוך המשימה. נשארת כמו שהיא.';
+          return;
+        }
+        const d = e.target.closest('#clNewDays button');
+        if (d){ const i = +d.dataset.d;
+                days = days.includes(i) ? days.filter(x => x !== i) : days.concat(i);
+                d.setAttribute('aria-selected', days.includes(i)); }
+      });
       setTimeout(() => document.getElementById('clNew')?.focus(), 60);
     }
 
@@ -4391,6 +4566,10 @@ const Wire = (() => {
         if (UI.noteShut.has(nid)) UI.noteShut.delete(nid); else UI.noteShut.add(nid);
         UI.render(); return; }
       if (e.target.closest('[data-act="add"]')){ $('#fab').click(); return; }
+
+      /* צ׳קליסט חוזר ב"היום" נפתח ישר לצ׳קליסט, בלי לעבור דרך ההורה */
+      const cld = e.target.closest('[data-clday]');
+      if (cld){ checklistView(cld.dataset.clt, cld.dataset.clday); return; }
 
       const mo = e.target.closest('[data-mo]');
       if (mo){
@@ -4486,21 +4665,44 @@ const Wire = (() => {
                              if (o) eventMenu(o); return; }
       /* שורות תת-המשימה שבתוך הכרטיס: סימון ופתיחה, ותו לא */
       if (act === 'subdone'){ finish(actEl.dataset.sid); return; }
-      if (act === 'subopen'){ taskDetail(actEl.dataset.sid); return; }
+      if (act === 'subopen'){ openTask(actEl.dataset.sid); return; }
+      /* צ׳קליסט נפתח בתוך הכרטיס, ומסמנים ממנו בלי לעזוב את המסך */
+      if (act === 'clToggle'){
+        const k = actEl.dataset.clid;
+        if (UI.openCl.has(k)) UI.openCl.delete(k); else UI.openCl.add(k);
+        UI.renderTasks(); return;
+      }
+      if (act === 'clTick'){
+        Store.toggleChecklistItem(id, actEl.dataset.iid);
+        UI.renderTasks(); return;
+      }
+      if (act === 'clOpen'){ checklistView(id, actEl.dataset.clid); return; }
       if (act === 'done'){ finish(id); return; }
       if (act === 'menu'){ taskMenu(id); return; }
       if (act === 'open' && UI.taskQ){ revealTask(id); return; }
       if (UI.reorder) return;
-      /* נגיעה רגילה פותחת פרטים — לא טופס עריכה, ולא חלון ביניים */
-      taskDetail(id);
+      /* נגיעה רגילה פותחת פרטים — לא טופס עריכה, ולא חלון ביניים.
+         משימה שכולה צ׳קליסט נפתחת ישר לצ׳קליסט. */
+      openTask(id);
     });
+
+    /**
+     * הפתיחה הנכונה למשימה. אם המשימה היא בעצם צ׳קליסט — כלומר קצרת
+     * טווח שכל התוכן שלה הוא צ׳קליסט אחד, בלי תת-משימות — אין סיבה
+     * להעביר את המשתמש דרך מסך פרטים כדי להגיע לפריטים.
+     */
+    function openTask(id){
+      const only = Store.soleChecklist(id);
+      if (only) checklistView(id, only.id);
+      else taskDetail(id);
+    }
 
     /** תוצאת חיפוש: פותחים את כל ההורים ומנקים את החיפוש (סעיף 36) */
     /** תוצאת חיפוש נפתחת ישר בפרטים שלה — שם באמת משתמשים בה */
     function revealTask(id){
       if (UI.closeSearch) UI.closeSearch(); else { UI.taskQ = ''; $('#tSearch').value = ''; }
       Store.commit();
-      setTimeout(() => taskDetail(id), 40);
+      setTimeout(() => openTask(id), 40);
     }
 
     /** ✓ — להרגל סימון יומי, לשאר סיום + ארכיון (סעיפים 25, 31) */
@@ -4632,14 +4834,26 @@ const Wire = (() => {
         if (r.type === 'place') facts.push(['מיקום', UI.whereLabel(r)]);
         if (r.type === 'trip')  facts.push(['נסיעה', r.km + ' ק״מ רצוף']);
 
-        let out = `<div class="dmeta">${esc(meta || CAT[t.mission])}</div>`;
-        /* מיכל פתוח: הפעולות שלו הן הוספת תוכן, ולכן הן יושבות בראש
-           ובגודל שמתאים לתפקיד שלהן — לא כקישור קטן בתוך כותרת מקטע. */
-        if (t.kind === 'long')
-          out += `<div class="esec addrow hero" style="margin-bottom:6px">
-            <button class="secact" data-d="addkid">+ תת-משימה</button>
-            <button class="secact" data-d="addlist">+ צ׳קליסט</button>
-          </div>`;
+        /* ---------- סדר המסך ----------
+           1. התיאור, ישר מתחת לשם. זה מה שמזכיר למה המשימה קיימת.
+           2. תמונה, אם יש.
+           3. שורת המידע — קטגוריה, מתי, תזכורת. היא מופרדת בקו ובתווית
+              משלה, כי כשהיא ישבה בלי הפרדה היא נקראה ככותרת של התוכן
+              שמתחתיה, והקטגוריה נראתה כאילו היא שייכת ליצירת תת-משימה.
+           4. אירוע ורצף — הקשר.
+           5. ורק אז התוכן: צ׳קליסטים, תת-משימות, חוזרות. */
+        let out = '';
+        if (t.note) out += `<div class="tnote dnote1">${esc(t.note)}</div>`;
+        if (t.img)  out += `<img class="tnimg" src="${t.img}" alt="" data-act="zoom">`;
+
+        const info = [];
+        info.push(['קטגוריה', CAT[t.mission]]);
+        const when = UI.taskMeta(t, { noKids:true, noCat:true });
+        if (when) info.push(['מתי', when]);
+        facts.forEach(f => info.push(f));
+        out += `<div class="dinfo">${info.map(([k,v]) =>
+          `<div class="dfact"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>`;
+
         /* הרגל נושא היסטוריה — היא מידע קיים, ולכן היא מוצגת כאן */
         if (Store.isHabit(t)){
           const today = Plan.today(), cells = [];
@@ -4654,11 +4868,15 @@ const Wire = (() => {
             <div class="strip">${cells.join('')}</div>
             <div class="ex">${n ? n + (n===1?' יום':' ימים') + ' ברצף' : 'עוד לא התחלת רצף'}</div>`;
         }
-        if (t.note) out += `<div class="tnote" style="margin-bottom:10px">${esc(t.note)}</div>`;
-        if (t.img)  out += `<img class="tnimg" src="${t.img}" alt="" data-act="zoom">`;
-        if (facts.length) out += `<div class="dfacts">${facts.map(([k,v]) =>
-          `<div class="dfact"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>`;
-        if (ev) out += `<div class="esec"><div class="esechead"><span>אירוע קשור</span>
+        /* מיכל פתוח: הפעולות שלו הן הוספת תוכן, ולכן הן יושבות מיד לפני
+           התוכן ובגודל שמתאים לתפקיד שלהן. */
+        if (t.kind === 'long')
+          out += `<div class="dsep">מה יש בפנים</div>
+            <div class="esec addrow hero" style="margin:0 0 10px">
+              <button class="secact" data-d="addkid">+ תת-משימה</button>
+              <button class="secact" data-d="addlist">+ צ׳קליסט</button>
+            </div>`;
+        if (ev) out += `<div class="esec"><div class="esechead"><span>אירוע ביומן</span>
             <button class="secact" data-d="evopen">פתח</button></div>
           <div class="evcur"><div class="el">${esc(ev.title)}</div>
             <div class="em">${esc(Plan.longDate(ev.date))}${ev.allDay ? '' : ' · ' + esc(ev.time)}</div></div></div>`;
@@ -4789,13 +5007,85 @@ const Wire = (() => {
           }
           if (act === 'kiddone'){ finish(kid.dataset.kid); paint(); return; }
           if (UI.reorder) return;
-          taskDetail(kid.dataset.kid); return;
+          openTask(kid.dataset.kid); return;
         }
       });
       Modal.closeGuard = () => { UI.reorder = null; return true; };
     }
 
     /** הוספת פריטים לצ׳קליסט מסוים — מקלידים ברצף ונשארים במקום */
+    /* ====================================================================
+       מסך הצ׳קליסט
+       צ׳קליסט הוא אובייקט עבודה בפני עצמו, ולכן יש לו מסך משלו: שם,
+       פריטים, סימון, והוספה — בלי טופס משימה מסביב. לכאן מגיעים
+       מהכרטיס, מ"היום", ומכל מקום שבו הצ׳קליסט הוא הדבר שעושים.
+       ==================================================================== */
+    function checklistView(taskId, clId){
+      const t = Store.task(taskId); if(!t) return;
+      const c0 = Store.checklistOf(taskId, clId); if(!c0) return;
+
+      const head = () => {
+        const c = Store.checklistOf(taskId, clId) || c0;
+        const done = c.items.filter(x => x.checked).length;
+        const rep = c.repeat;
+        const bits = [t.title];
+        if (rep) bits.push('חוזר · ' + UI.repeatLabel({ days:rep.days }) + ' ' + Recur.times(rep)[0]);
+        return `<div class="clhead">
+          <div class="clsub">${esc(bits.join(' · '))}</div>
+          ${c.items.length ? `<div class="clprog">
+            <div class="clbar"><i style="width:${Math.round(done/c.items.length*100)}%"></i></div>
+            <span>${done} מתוך ${c.items.length}</span></div>` : ''}
+          ${rep && Store.checklistCycleDone(c)
+            ? `<div class="ex">המחזור הזה הושלם. הסימונים יתאפסו שש שעות לפני המופע הבא.</div>` : ''}
+        </div>`;
+      };
+      const rows = () => {
+        const c = Store.checklistOf(taskId, clId) || c0;
+        if (!c.items.length) return `<div class="secempty">הצ׳קליסט ריק. הוסף פריט ראשון למטה.</div>`;
+        return c.items.map(x => `
+          <div class="clrow${x.checked ? ' ck' : ''}" data-cvi="${x.id}">
+            <button class="cb${x.checked ? ' on' : ''}" data-act="cvTick"
+                    style="width:20px;height:20px;font-size:11px;flex:0 0 auto">✓</button>
+            <button class="ct" data-act="cvOpen"><span>${esc(x.title)}</span>
+              ${x.note ? `<span class="cn">${esc(x.note)}</span>` : ''}</button>
+          </div>`).join('');
+      };
+      const paint = () => {
+        if (!Store.checklistOf(taskId, clId)){ Modal.shut(); return; }
+        document.getElementById('cvHead').innerHTML = head();
+        document.getElementById('cvRows').innerHTML = rows();
+        UI.render();
+      };
+
+      Modal.open({ title:c0.name, body:`
+        <div id="cvHead">${head()}</div>
+        <div id="cvRows">${rows()}</div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <input type="text" id="cvNew" placeholder="הוסף פריט…" autocomplete="off" style="flex:1">
+          <button class="btn" id="cvAdd" style="flex:0 0 auto">הוסף</button></div>`,
+        buttons:[{label:'עוד', act:()=>checklistMenu(taskId, clId, () => checklistView(taskId, clId))},
+                 {label:'סיום', kind:'p', act:()=>Modal.shut()}]});
+
+      const add = () => {
+        const i = document.getElementById('cvNew'), v = i.value.trim();
+        if (!v) return;
+        Store.addChecklistItem(taskId, clId, v, '');
+        i.value = ''; paint();
+        setTimeout(() => { const n = document.getElementById('cvNew'); n && n.focus(); }, 0);
+      };
+      Modal.body.addEventListener('click', e => {
+        if (e.target.closest('#cvAdd')){ add(); return; }
+        const row = e.target.closest('[data-cvi]'); if(!row) return;
+        const act = (e.target.closest('[data-act]') || {}).dataset?.act;
+        if (act === 'cvTick'){ Store.toggleChecklistItem(taskId, row.dataset.cvi); paint(); return; }
+        itemModal(taskId, row.dataset.cvi, paint);
+      });
+      Modal.body.addEventListener('keydown', e => {
+        if (e.target.id === 'cvNew' && e.key === 'Enter'){ e.preventDefault(); add(); }
+      });
+      setTimeout(() => { const n = document.getElementById('cvNew'); n && n.focus(); }, 80);
+    }
+
     function addItemsTo(taskId, clId, done){
       const c = Store.checklistOf(taskId, clId); if(!c) return;
       const rows = () => Store.checklist(taskId, clId).map(x =>
@@ -5502,7 +5792,10 @@ const Wire = (() => {
           <input type="text" id="etTitle" value="${esc(d ? d.title : (t ? t.title : (o.title||'')))}"
                  autocomplete="off" placeholder="${isHabitEditor ? 'למשל: לארוז תיק' : 'למשל: לקנות מטען'}"></div>
 
-        ${isChild ? `<div class="belongs">שייך ל־${esc(underName)}</div>` : ''}
+        ${isChild ? `<div class="belongs">שייך ל־${esc(underName)}</div>
+          <div class="ex" style="margin:-6px 0 12px">גם לתת-משימה יש התראה משלה.
+            "חד-פעמית" נותנת לה תאריך ושעה; "חוזרת" הופכת אותה להרגל שחוזר
+            בימים קבועים.</div>` : ''}
 
         <div style="margin-bottom:14px"><label>תיאור</label>
           <textarea id="etNote" rows="4" placeholder="פרטים, מה להביא, לינק…"
@@ -7407,7 +7700,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       const a = UI.alertItem;
       const id = a && a.item && a.item.id;
       UI.closeAlert();
-      if (id && Store.task(id)) taskDetail(id);
+      if (id && Store.task(id)) openTask(id);
     });
     $('#alOk').addEventListener('click', () => {
       const a = UI.alertItem;
