@@ -854,7 +854,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.2 · 2026-09-05';
+const BUILD = '4.3 · 2026-09-06';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.1';
 
@@ -4534,6 +4534,63 @@ const Wire = (() => {
      * פעולה נסתרת בתפריט ⋯ שצריך לגלות אחר כך. חוזר נשאר צ׳קליסט —
      * הוא לא הופך להרגל ולא למשימה, והוא נשאר מחובר למשימה שלו.
      */
+    /**
+     * שאלת ההגדרה של צ׳קליסט חדש — שם, וחד-פעמי מול רב-פעמי. משמשת גם
+     * ליצירה מתוך זרימת ה-+ וגם להוספת צ׳קליסט לתוך מיכל, כדי שהשאלה
+     * תישאל אותו דבר בשני המקומות.
+     */
+    function checklistSetupModal(done, back){
+      let rep = false;
+      let days = [6];
+      Modal.open({ title:'צ׳קליסט חדש', body:`
+        <div style="margin-bottom:12px"><label>שם הצ׳קליסט</label>
+          <input type="text" id="clNew" placeholder="למשל: ציוד ליום ראשון" autocomplete="off"></div>
+        <label>איזה צ׳קליסט</label>
+        <div class="seg" id="clKind">
+          <button data-ck="once" aria-selected="true">חד-פעמי</button>
+          <button data-ck="rep"  aria-selected="false">רב-פעמי</button>
+        </div>
+        <div class="ex" id="clKindEx">רשימה אחת לסימון. נשארת כמו שהיא.</div>
+        <div id="clRepBox" hidden>
+          <label style="margin-top:12px">באילו ימים</label>
+          <div class="days" id="clNewDays">${DAYL.map((x,i) =>
+            `<button data-d="${i}" aria-selected="${days.includes(i)}">${x}</button>`).join('')}</div>
+          <label style="margin-top:12px">באיזו שעה</label>
+          <input type="time" id="clNewTime" value="23:00">
+          <div class="ex">אותו צ׳קליסט חוזר בכל מחזור. סימון כל הפריטים סוגר את
+            המחזור לבד, מחזור שלא הספקת נשאר פתוח, והסימונים מתאפסים שש שעות
+            לפני המופע הבא.</div>
+        </div>`,
+        buttons:[{label:'ביטול',act:()=>{ Modal.shut(); back && back(); }},
+                 {label:'צור',kind:'p',act:()=>{
+                    const n = (document.getElementById('clNew').value || '').trim() || 'צ׳קליסט';
+                    if (rep && !days.length){ UI.toast('צריך לבחור לפחות יום אחד'); return; }
+                    const time = (document.getElementById('clNewTime')||{}).value || '23:00';
+                    Modal.shut();
+                    done({ name:n, repeat: rep
+                      ? { days:days.slice(), time, skipTypes:[], skipScope:'day', around:false }
+                      : null });
+                 }}]});
+      Modal.body.addEventListener('click', e => {
+        const k = e.target.closest('#clKind button');
+        if (k){
+          rep = k.dataset.ck === 'rep';
+          Modal.body.querySelectorAll('#clKind button').forEach(x =>
+            x.setAttribute('aria-selected', x === k));
+          document.getElementById('clRepBox').hidden = !rep;
+          document.getElementById('clKindEx').textContent = rep
+            ? 'קבוצת פריטים שחוזרת. היא נשארת צ׳קליסט — לא הרגל ולא משימה.'
+            : 'רשימה אחת לסימון. נשארת כמו שהיא.';
+          return;
+        }
+        const d = e.target.closest('#clNewDays button');
+        if (d){ const i = +d.dataset.d;
+                days = days.includes(i) ? days.filter(x => x !== i) : days.concat(i);
+                d.setAttribute('aria-selected', days.includes(i)); }
+      });
+      setTimeout(() => document.getElementById('clNew')?.focus(), 60);
+    }
+
     function newChecklistModal(taskId, back){
       let rep = false;
       let days = [6];                       /* שבת — הדוגמה הנפוצה */
@@ -5574,8 +5631,12 @@ const Wire = (() => {
                <button class="txtbtn" id="etImgDel">הסר תמונה</button></div>`
           : `<button class="txtbtn" id="etImgAdd">+ תמונה מהגלריה</button>`;
       }
-      function paintImg(){ const b = document.getElementById('etImgBox');
-                           if (b) b.innerHTML = imgBox(); }
+      function paintImg(){
+        ['etImgBox','etImgBox2'].forEach(id => {
+          const b = document.getElementById(id);
+          if (b && (id === 'etImgBox' || !g('etImgSolo').hidden)) b.innerHTML = imgBox();
+        });
+      }
       function repaintEvent(){ const h = document.getElementById('etEventHost');
                                if (h) h.innerHTML = eventBlock(); }
       /* התאריך נבחר מהשורה, לא משדה ריק בלי תיאור */
@@ -5733,9 +5794,12 @@ const Wire = (() => {
           <div class="times" id="etTimes">
             ${(rep ? rep.times : ['20:00']).map(x => `<input type="time" class="ht" value="${esc(x)}">`).join('')}
             <button class="btn" id="etAddTime" style="padding:8px 11px">+ שעה</button></div>
-          <div class="ex">חוזר בימים קבועים. למשל "ללמוד Fusion בכל ראשון ושלישי ב-20:00".
-            סימון אחד ביום סוגר את היום${Native.on ? ', ומשתיק את השעות שנשארו' : ''}.
-            פריט חוזר הוא פעולה אחת בפני עצמה — הוא לא מחזיק תת-משימות או צ׳קליסטים.</div>
+          <div class="ex">${kind === 'check'
+            ? 'הצ׳קליסט חוזר בימים קבועים. סימון כל הפריטים סוגר את המחזור, ' +
+              'והסימונים מתאפסים שש שעות לפני המופע הבא.'
+            : 'חוזר בימים קבועים. למשל "ללמוד Fusion בכל ראשון ושלישי ב-20:00". ' +
+              'סימון אחד ביום סוגר את היום' + (Native.on ? ', ומשתיק את השעות שנשארו' : '') +
+              '. פריט חוזר הוא פעולה אחת בפני עצמה — הוא לא מחזיק תת-משימות או צ׳קליסטים.'}</div>
           ${exceptBlock()}
         </div>`;
 
@@ -5889,14 +5953,19 @@ const Wire = (() => {
             <button data-k="short" aria-selected="${kind==='short'}">
               <span class="kn">קצרת טווח</span>
               <span class="kd">משהו שצריך לעשות ולסיים. למשל "לקנות מטען".</span></button>
-            <button data-k="check" aria-selected="${kind==='check'}">
-              <span class="kn">צ׳קליסט</span>
-              <span class="kd">רשימת פריטים לסימון. המשימה עצמה היא הרשימה. למשל "ציוד ליום ראשון".</span></button>
             <button data-k="long" aria-selected="${kind==='long'}">
               <span class="kn">ארוכת טווח</span>
               <span class="kd">משהו שנמשך לאורך זמן ויכול להכיל דברים בתוכו. למשל "ציוד לצבא".</span></button>
           </div>
           <div class="ex" id="etKindNote"></div></div>` : ''}
+
+        <!-- צ׳קליסט אינו סוג שלישי לבחור בו מראש: הוא מה שמשימה קצרה
+             הופכת להיות. ככה הבחירה נשארת בין שני דברים, וההמרה היא
+             פעולה מפורשת עם שם שאומר בדיוק מה היא עושה. -->
+        <button class="btn wide" id="etToCheck" hidden style="margin-bottom:14px">
+          הפוך משימה קצרה זאת לצ׳קליסט</button>
+        <button class="txtbtn" id="etUnCheck" hidden style="margin-bottom:14px">
+          חזור למשימה רגילה</button>
 
         <div id="etCheck" hidden>
           <label>איזה צ׳קליסט</label>
@@ -5950,7 +6019,7 @@ const Wire = (() => {
                 <button class="secact" id="etEvPick">קשר לאירוע</button></div>
               <div id="etEventHost"></div>
             </div>`}
-            <div class="esec">
+            <div class="esec" data-adv="img">
               <div class="esechead"><span>תמונה</span></div>
               <div class="ex">תמונה אחת מהגלריה. למשל צילום של רשימת הציוד.</div>
               <div id="etImgBox" style="margin-top:8px">${imgBox()}</div>
@@ -5958,6 +6027,12 @@ const Wire = (() => {
             </div>
             <div id="etAdvContent"></div>
           </div>
+        </div>
+        <!-- מיכל לא מחזיק אפשרויות מתקדמות, ולכן התמונה שלו יושבת ישר
+             במסלול הראשי במקום מאחורי מגירה שאין בה שום דבר אחר. -->
+        <div class="esec" id="etImgSolo" hidden>
+          <div class="esechead"><span>תמונה</span></div>
+          <div id="etImgBox2"></div>
         </div>
 
         ${(!isNew && t.parentId) ? `<button class="txtbtn" id="etIndep"
@@ -5998,6 +6073,16 @@ const Wire = (() => {
         });
         const evs = B.querySelector('[data-adv="event"]');
         if (evs) evs.hidden = isLong;
+        /* למיכל אין אפשרויות מתקדמות בכלל — התמונה עוברת למסלול הראשי,
+           והמגירה נעלמת. מגירה שאין בה כלום היא הבטחה שלא מתקיימת. */
+        const imgSec = B.querySelector('[data-adv="img"]');
+        if (imgSec) imgSec.hidden = isLong;
+        const solo = g('etImgSolo');
+        if (solo){
+          solo.hidden = !isLong;
+          const host = g('etImgBox2');
+          if (host && isLong && host.innerHTML.trim() === '') host.innerHTML = imgBox();
+        }
         /* אם המשתמש כבר בחר מיקום/נסיעה ואז עבר לחוזרת — הבחירה יורדת,
            ולא נשארת שמורה בשקט מאחורי מקטע מוסתר. */
         if (noPlace && (mode === 'place' || mode === 'trip')){
@@ -6007,6 +6092,16 @@ const Wire = (() => {
           B.querySelectorAll('[data-advpick]').forEach(x =>
             x.textContent = x.dataset.advpick === 'place' ? 'בחר מקום' : 'לפי מרחק');
         }
+      }
+
+      /** מגירה שאין בה כלום היא הבטחה שלא מתקיימת — אז היא לא מוצגת */
+      function syncAdvAcc(){
+        const acc = g('etAdvAcc'); if (!acc) return;
+        const host = g('etAdvContent');
+        const any = [...B.querySelectorAll('#etAdv > .esec')].some(x => !x.hidden) ||
+                    !!(host && host.children.length);
+        acc.hidden = !any;
+        if (!any) acc.setAttribute('aria-expanded','false');
       }
 
       /* ---- מצב ההתראה: מציגים בדיוק אחד, אף פעם לא שניים ---- */
@@ -6027,7 +6122,7 @@ const Wire = (() => {
         B.querySelectorAll('#etMode button').forEach(x =>
           x.setAttribute('aria-selected', x.dataset.a === mode));
         const box = g('etContent');
-        if (box) box.hidden = (mode === 'repeat' && kind !== 'long');
+        if (box) box.hidden = (mode === 'repeat' && kind !== 'long' && kind !== 'check');
         const wl = g('etWhenLbl');
         if (wl) wl.textContent = 'מתי?';
       }
@@ -6048,7 +6143,9 @@ const Wire = (() => {
         (inline ? main : adv).appendChild(box);
         /* פריט חוזר הוא פעולה אטומית: אין בו תוכן מקונן, ולכן גם אין
            מקטע תוכן. היכולת לא נמחקה — היא פשוט לא שייכת כאן. */
-        box.hidden = (mode === 'repeat' && kind !== 'long');
+        /* הכלל "פריט חוזר הוא אטומי" נכון להרגל — לא לצ׳קליסט חוזר,
+           שכל מהותו היא הפריטים שבתוכו. */
+        box.hidden = (mode === 'repeat' && kind !== 'long' && kind !== 'check');
         return box;
       }
 
@@ -6067,14 +6164,16 @@ const Wire = (() => {
         if (chkEx) chkEx.textContent = checkMode === 'rep'
           ? 'חוזר על עצמו, בדיוק כמו הרגל: ימים קבועים, שעה, דילוג לפי סוג אירוע, ואי-הפרעה באמצע אירוע.'
           : 'רשימה אחת. ברגע שתסמן את כל הפריטים היא עוברת לארכיון.';
-        if (isCheck){
-          const seg = g('etMode');
-          if (seg) seg.hidden = checkMode === 'rep';
-          if (checkMode === 'rep'){ mode = 'repeat'; }
-        } else {
-          const seg = g('etMode');
-          if (seg) seg.hidden = false;
-        }
+        /* כפתורי ההמרה: רק במקום שבו הם באמת אפשריים */
+        const toChk = g('etToCheck'), unChk = g('etUnCheck');
+        if (toChk) toChk.hidden = !(kind === 'short' && !isChild);
+        if (unChk) unChk.hidden = !isCheck;
+        /* בצ׳קליסט אין שני בוררים שחופפים: "חד-פעמי / רב-פעמי" *הוא*
+           בורר ההתראה. חד-פעמי מראה את התזכורת החד-פעמית, רב-פעמי מראה
+           את ממשק החזרה. בורר ההתראה עצמו נעלם. */
+        const seg = g('etMode');
+        if (seg) seg.hidden = isCheck;
+        if (isCheck) mode = checkMode === 'rep' ? 'repeat' : 'once';
         const alert = g('etAlert');
         if (alert) alert.hidden = isLong;
         const note = g('etLongNote');
@@ -6086,6 +6185,7 @@ const Wire = (() => {
         const oldBox = g('etContent');
         if (oldBox) oldBox.remove();
         applyMode(); placeContent(); kindNote(); refreshSummaries();
+        syncAdvAcc();
       }
 
       const sum = (id, txt) => { const el = B.querySelector(`[data-sum="${id}"]`);
@@ -6157,11 +6257,24 @@ const Wire = (() => {
         if (kb){ kind = kb.dataset.k;
                  B.querySelectorAll('#etKind button').forEach(x => x.setAttribute('aria-selected', x===kb));
                  applyKind(); return; }
+        if (e.target.closest('#etToCheck')){
+          kind = 'check';
+          checkMode = 'once'; mode = 'once';
+          applyKind(); applyMode(); applyAdv(); refreshSummaries();
+          const c = listsNow()[0];
+          if (c) setTimeout(() => addItemInline(c.id), 30);
+          return;
+        }
+        if (e.target.closest('#etUnCheck')){
+          kind = 'short'; mode = 'none';
+          applyKind(); applyMode(); applyAdv(); refreshSummaries();
+          return;
+        }
         const cm = e.target.closest('#etCheckMode button');
         if (cm){ checkMode = cm.dataset.cm;
                  B.querySelectorAll('#etCheckMode button').forEach(x =>
                    x.setAttribute('aria-selected', x===cm));
-                 mode = checkMode === 'rep' ? 'repeat' : 'none';
+                 mode = checkMode === 'rep' ? 'repeat' : 'once';
                  applyKind(); applyMode(); applyAdv(); refreshSummaries(); return; }
         const cb = e.target.closest('#etCat button');
         if (cb){ cat = cb.dataset.k;
@@ -6171,7 +6284,7 @@ const Wire = (() => {
                  if (mode !== 'repeat'){ rep = null;
                    B.querySelectorAll('#etDays button').forEach(x => x.setAttribute('aria-selected','false')); }
                  if (mode !== 'once' && g('etTime')) g('etTime').value = '';
-                 applyAdv(); applyMode(); refreshSummaries(); return; }
+                 applyAdv(); applyMode(); syncAdvAcc(); refreshSummaries(); return; }
         const adv = e.target.closest('[data-advpick]');
         if (adv){
           const which = adv.dataset.advpick;
@@ -6251,24 +6364,30 @@ const Wire = (() => {
           /* במשימה קצרת-טווח, "צ׳קליסט" אינו עוד מקטע בתוכה — הוא הופך
              את המשימה עצמה לצ׳קליסט. ככה אין שתי דרכים לאותו דבר. */
           if (kind === 'short'){
-            kind = 'check';
-            B.querySelectorAll('#etKind button').forEach(x =>
-              x.setAttribute('aria-selected', x.dataset.k === 'check'));
-            applyKind();
+            kind = 'check'; checkMode = 'once'; mode = 'once';
+            applyKind(); applyMode(); applyAdv(); refreshSummaries();
             const c = listsNow()[0];
             if (c) setTimeout(() => addItemInline(c.id), 30);
             return;
           }
-          const name = (prompt && false) ? '' : '';
-          const c = { id:'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
-                      name:'צ׳קליסט', items:[] };
-          if (isNew) pendLists.push(c);
-          else Store.addChecklist(t.id, 'צ׳קליסט');
-          const box = g('etContent');
-          if (box) box.outerHTML = contentBlock();
-          placeContent();
-          const last = listsNow()[listsNow().length-1];
-          if (last) setTimeout(() => addItemInline(last.id), 30);
+          /* צ׳קליסט בתוך מיכל נשאל אותה שאלה כמו כל צ׳קליסט אחר:
+             חד-פעמי או רב-פעמי. קודם הוא נוצר בשקט כחד-פעמי, ואת
+             החזרתיות היה צריך לגלות אחר כך בתפריט. */
+          const draft = snapshot();
+          Modal.shut();
+          checklistSetupModal(cfg => {
+            /* הפוקוס על שדה הפריט נמסר למודאל החדש דרך o, ולא נעשה
+               מכאן — הסגירה הזאת כבר לא שייכת ל-DOM שעל המסך. */
+            if (isNew){
+              const nid = 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+              draft.pendLists.push({ id:nid, name:cfg.name, items:[], repeat:cfg.repeat });
+              taskModal({ ...o, draft, focusList:nid });
+            } else {
+              const c = Store.addChecklist(t.id, cfg.name);
+              if (c && cfg.repeat) Store.setChecklistRepeat(t.id, c.id, cfg.repeat);
+              taskModal({ ...o, draft, focusList: c ? c.id : null });
+            }
+          }, () => taskModal({ ...o, draft }));
           return;
         }
         if (e.target.closest('#etAddKid')){   openChild(false); return; }
@@ -6477,6 +6596,8 @@ const Wire = (() => {
       }
       applyKind(); syncRep(); refreshSummaries();
       if (isNew && !d) setTimeout(() => g('etTitle')?.focus(), 80);
+      /* צ׳קליסט שנוצר עכשיו — פותחים לו מיד את שדה הפריט הראשון */
+      if (o.focusList) setTimeout(() => addItemInline(o.focusList), 60);
 
       /* יצירה יכולה להחזיק פריטים ותת-משימות שקיימים רק בזיכרון.
          סגירה לא תזרוק אותם בשקט — אבל טופס ריק לא מקפיץ שום שאלה. */
@@ -6656,9 +6777,12 @@ const Wire = (() => {
           /* הצ׳קליסטים הממתינים נשמרים עם שמותיהם ובסדר שנקבע */
           pendLists.forEach(c => {
             const nc = Store.addChecklist(created.id, c.name);
+            if (!nc) return;
             c.items.forEach(it => Store.addChecklistItem(created.id, nc.id, it.title, it.note));
-            if (nc) Store.checklistOf(created.id, nc.id).items.forEach((x,i) => {
+            Store.checklistOf(created.id, nc.id).items.forEach((x,i) => {
               x.checked = !!(c.items[i] && c.items[i].checked); });
+            /* חזרתיות שנבחרה עוד לפני ששמרנו את המשימה */
+            if (c.repeat) Store.setChecklistRepeat(created.id, nc.id, c.repeat);
           });
           /* ילדים שהמתינו נשמרים עכשיו, בסדר שבו נוצרו */
           pending.forEach((c, i) => {
