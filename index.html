@@ -854,7 +854,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.1 · 2026-09-03';
+const BUILD = '4.2 · 2026-09-05';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.1';
 
@@ -934,7 +934,7 @@ const Store = (() => {
 
   data.tasks.forEach(t => {
     /* מחזור חיים: קצר-טווח (נגמר) מול ארוך-טווח (מיכל שלא נגמר מעצמו) */
-    if (t.kind !== 'short' && t.kind !== 'long' && t.kind !== 'list') t.kind = 'short';
+    if (!['short','long','list','check'].includes(t.kind)) t.kind = 'short';
     /* ארכיון: כל מה שכבר סומן כבוצע עובר לארכיון ולא נעלם */
     if (t.archived === undefined){
       t.archived  = !!t.done;
@@ -1154,12 +1154,17 @@ const Store = (() => {
         createdAt:Date.now(), doneAt:null, reminder:o.reminder||null, rt:o.rt||{},
         parentId:o.parentId||null, planned:o.planned||null, eventId:o.eventId||null,
         note:o.note||'', repeat:o.repeat||null, log:{}, collapsed:true,
-        kind:(o.kind === 'long') ? 'long' : 'short',
+        kind:['long','check'].includes(o.kind) ? o.kind : 'short',
         img:o.img||null, archived:false, archivedAt:null, autoArch:false,
         checklists:[], parked:null, sortIndex:0 };
-      /* מיכל בתוך מיכל אסור בכל עומק. ילד של מיכל הוא תמיד קצר-טווח,
-         ולכן גם לא נשאלת עליו השאלה בשום מקום בממשק. */
-      if (t.kind === 'long' && !this.canBeLong(null, t.parentId)) t.kind = 'short';
+      /* מיכל בתוך מיכל אסור בכל עומק, ותת-משימה לעולם אינה מיכל.
+         ילד הוא תמיד קצר-טווח, ולכן גם לא נשאלת עליו השאלה בממשק. */
+      if (t.kind === 'long' && (t.parentId || !this.canBeLong(null, t.parentId))) t.kind = 'short';
+      /* משימת צ׳קליסט היא עלה: היא לא נתלית על אף אחד ולא נושאת מיקום */
+      if (t.kind === 'check'){
+        t.parentId = null;
+        if (t.reminder && t.reminder.type !== 'time') t.reminder = null;
+      }
       if (t.kind === 'long'){
         t.parked = this.parkSchedule(t);
         t.reminder = null; t.repeat = null; t.planned = null; t.eventId = null;
@@ -1197,7 +1202,12 @@ const Store = (() => {
       t.rt = rt || {};
       /* אותם שני חוקים שנאכפים ביצירה נאכפים גם בעריכה, כדי שלא תיווצר
          דרך עוקפת דרך הטופס. */
-      if (t.kind === 'long' && !this.canBeLong(t.id, t.parentId)) t.kind = 'short';
+      if (t.kind === 'long' && (t.parentId || !this.canBeLong(t.id, t.parentId))) t.kind = 'short';
+      if (t.kind === 'check'){
+        t.parentId = null;
+        if (t.reminder && t.reminder.type !== 'time') t.reminder = null;
+        t.repeat = null;                 /* החזרתיות יושבת על הצ׳קליסט */
+      }
       if (t.kind === 'long'){
         if (!wasLong) t.parked = this.parkSchedule(t);
         t.reminder = null; t.repeat = null; t.planned = null; t.eventId = null;
@@ -1247,7 +1257,7 @@ const Store = (() => {
       return this.isHabit(t) && Recur.active(t.repeat, date) && Recur.skipped(t.repeat, date);
     },
     /** פריט חוזר הוא פעולה אטומית: בלי תת-משימות, צ׳קליסטים או הרגלים */
-    canHoldContent(t){ return !!t && !this.isHabit(t); },
+    canHoldContent(t){ return !!t && !this.isHabit(t) && t.kind !== 'check'; },
     /* השעות הן ניסיונות חוזרים על אותה משימה, לא שלבים:
        סימון אחד סוגר את היום ומשתיק את השעות שנותרו. */
     habitFull(t, date){ return !!(t.log && t.log[date]); },
@@ -1300,6 +1310,33 @@ const Store = (() => {
 
     /* ---------- מחזור חיים וארכיון (2.0) ---------- */
     isLong(t){ return !!t && t.kind === 'long'; },
+    /**
+     * משימת צ׳קליסט: המשימה *היא* הרשימה. יש לה בדיוק צ׳קליסט אחד,
+     * ואין לה מיקום, נסיעה או תת-משימות — היא לא אירוע במרחב ולא עץ.
+     * חד-פעמית עוברת לארכיון כשמסמנים את הפריט האחרון; רב-פעמית מקבלת
+     * את אותו מנוע חזרתיות של הרגל.
+     */
+    isCheck(t){ return !!t && t.kind === 'check'; },
+    /** הצ׳קליסט של משימת צ׳קליסט — תמיד הראשון, ותמיד קיים */
+    ownChecklist(id){
+      const t = this.task(id);
+      if (!t || t.kind !== 'check') return null;
+      if (!Array.isArray(t.checklists)) t.checklists = [];
+      if (!t.checklists.length){ this.forceChecklist(id, t.title); }
+      return t.checklists[0] || null;
+    },
+    /** יצירה שעוקפת את איסור התוכן, כי כאן הצ׳קליסט הוא המשימה עצמה */
+    forceChecklist(id, name){
+      const t = this.task(id); if(!t) return null;
+      if (!Array.isArray(t.checklists)) t.checklists = [];
+      const c = { id:uid(), name:String(name||'').trim() || 'צ׳קליסט', items:[], repeat:null };
+      t.checklists.push(c); save(); return c;
+    },
+    /** האם משימת הצ׳קליסט חוזרת */
+    checkRepeats(t){
+      const c = t && t.kind === 'check' && (t.checklists||[])[0];
+      return !!(c && c.repeat && Recur.times(c.repeat).length);
+    },
     /** נשאר רק בשביל נתונים ישנים; המיגרציה ל-v7 כבר ניקתה אותם. */
     isList(t){ return !!t && t.kind === 'list'; },
 
@@ -1358,6 +1395,10 @@ const Store = (() => {
     restoreTask(id){
       const t = this.task(id); if(!t) return;
       t.archived = false; t.archivedAt = null; t.done = false; t.doneAt = null; t.autoArch = false;
+      /* שחזור משימת צ׳קליסט מנקה את הסימונים — אחרת היא הייתה חוזרת
+         מלאה ומיד נסגרת שוב בסימון הבא. */
+      if (t.kind === 'check') (t.checklists || []).forEach(c =>
+        c.items.forEach(x => { x.checked = false; }));
       this.descendants(id).forEach(c => {
         if (c.autoArch){ c.archived = false; c.archivedAt = null; c.autoArch = false; }
       });
@@ -1522,6 +1563,8 @@ const Store = (() => {
       if (this.children(id).length) return null;
       return lists[0];
     },
+    /** צ׳קליסטים חוזרים שאינם משימת צ׳קליסט בפני עצמה — לתצוגות */
+    isOwnList(t, c){ return t.kind === 'check' && (t.checklists||[])[0] === c; },
     /** המחזור הפתוח: היום שאליו הצ׳קליסט מכוון כרגע */
     checklistCycle(c){
       if (!c || !c.repeat) return '';
@@ -1594,7 +1637,15 @@ const Store = (() => {
         c.rt = c.rt || {};
         c.rt.doneAt = this.checklistCycleDone(c) ? Date.now() : null;
       }
-      save(); return it.checked;
+      save();
+      /* משימת צ׳קליסט חד-פעמית נגמרת כשסימנת את הכל — בדיוק כמו משימה
+         קצרת-טווח שסימנת אותה. לא צריך גם לסמן פריטים וגם ללחוץ ✓. */
+      const owner = this.task(id);
+      if (owner && owner.kind === 'check' && !c.repeat && !owner.archived &&
+          c.items.length && c.items.every(x => x.checked)){
+        this.finishTask(id);
+      }
+      return it.checked;
     },
     /** מחיקה מחזירה את הפריט, את הצ׳קליסט שלו ואת מקומו, כדי שאפשר יהיה לבטל */
     delChecklistItem(id, itemId){
@@ -3403,10 +3454,11 @@ const UI = (() => {
   /* אזור אחד לכל סוג. משימה ראשית מופיעה באזור אחד בלבד. */
   const AREAS = [
     { key:'long',  name:'ארוכות טווח', test:t => t.kind === 'long' },
-    { key:'habit', name:'הרגלים',      test:t => t.kind !== 'long' && Store.isHabit(t) },
-    { key:'short', name:'קצרות טווח',  test:t => t.kind !== 'long' && !Store.isHabit(t) },
+    { key:'check', name:'צ׳קליסטים',   test:t => t.kind === 'check' },
+    { key:'habit', name:'הרגלים',      test:t => t.kind !== 'long' && t.kind !== 'check' && Store.isHabit(t) },
+    { key:'short', name:'קצרות טווח',  test:t => t.kind !== 'long' && t.kind !== 'check' && !Store.isHabit(t) },
   ];
-  const areaOf = t => (AREAS.find(a => a.test(t)) || AREAS[2]).key;
+  const areaOf = t => (AREAS.find(a => a.test(t)) || AREAS[3]).key;
 
   function renderTasks(){
     $$('#tFilters button').forEach(b => b.setAttribute('aria-selected', b.dataset.f === filter));
@@ -3526,6 +3578,9 @@ const UI = (() => {
       תת-משימות והרגלים כבר מופיעים בשורות שמתחת לכרטיס, ולכן אין טעם
       לחזור עליהם כאן. נשארים רק הצ׳קליסטים, שהתוכן שלהם חי בפרטים. */
   function contentBits(id){
+    const t = Store.task(id);
+    /* במשימת צ׳קליסט הרשימה נושאת את שם המשימה — אין טעם לחזור עליו */
+    if (t && t.kind === 'check') return [];
     return Store.checklists(id).map(c => c.name);
   }
 
@@ -3579,11 +3634,13 @@ const UI = (() => {
       const open = openCl.has(c.id);
       const done = c.items.filter(x => x.checked).length;
       const rep  = c.repeat;
+      /* במשימת צ׳קליסט השם כבר מופיע ככותרת הכרטיס */
+      const own  = Store.isOwnList(t, c);
       return `<div class="tcl${open ? ' open' : ''}" data-cl="${c.id}">
         <button class="tclhead" data-act="clToggle" data-clid="${c.id}"
                 aria-expanded="${open}">
           <span class="ar">‹</span>
-          <span class="nm">${esc(c.name)}</span>
+          <span class="nm">${own ? (open ? 'סגור' : 'הצג פריטים') : esc(c.name)}</span>
           ${rep ? `<span class="rp">חוזר</span>` : ''}
           <span class="pg">${c.items.length ? done + '/' + c.items.length : 'ריק'}</span>
         </button>
@@ -4407,7 +4464,7 @@ const Wire = (() => {
         body:`<button class="pick" data-f="new"><span class="pn">משימה חדשה
                 <div class="dsc">משהו שעומד בפני עצמו.</div></span></button>
               ${roots.length ? `<button class="pick" data-f="into"><span class="pn">להוסיף למשימה קיימת
-                <div class="dsc">תת-משימה או צ׳קליסט בתוך משימה שכבר יש לך.</div></span></button>` : ''}`,
+                <div class="dsc">להוסיף למשימה ארוכת טווח תת-משימה, צ׳קליסט או הרגל.</div></span></button>` : ''}`,
         buttons:[{label:'ביטול',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-f]'); if(!b) return;
@@ -4871,11 +4928,13 @@ const Wire = (() => {
         /* מיכל פתוח: הפעולות שלו הן הוספת תוכן, ולכן הן יושבות מיד לפני
            התוכן ובגודל שמתאים לתפקיד שלהן. */
         if (t.kind === 'long')
-          out += `<div class="dsep">מה יש בפנים</div>
-            <div class="esec addrow hero" style="margin:0 0 10px">
+          out += `<div class="dsep">הוספה למשימה</div>
+            <div class="esec addrow hero" style="margin:0 0 8px">
               <button class="secact" data-d="addkid">+ תת-משימה</button>
               <button class="secact" data-d="addlist">+ צ׳קליסט</button>
-            </div>`;
+            </div>
+            <div class="ex" style="margin-bottom:14px">רוצה הרגל? הוסף
+              <b>תת-משימה</b> ובחר לה התראה <b>חוזרת</b> — זה ההרגל.</div>`;
         if (ev) out += `<div class="esec"><div class="esechead"><span>אירוע ביומן</span>
             <button class="secact" data-d="evopen">פתח</button></div>
           <div class="evcur"><div class="el">${esc(ev.title)}</div>
@@ -5450,7 +5509,9 @@ const Wire = (() => {
                    : (t && t.parentId ? Store.task(t.parentId) : null);
       const isChild = !!(o.parentId || o.pendingUnder || (t && t.parentId));
 
-      let kind = d ? d.kind : (t ? t.kind : (o.kind === 'long' ? 'long' : 'short'));
+      let kind = d ? d.kind
+               : (t ? t.kind
+                 : (o.kind === 'long' ? 'long' : o.kind === 'check' ? 'check' : 'short'));
       let cat  = d ? d.cat  : (t ? t.mission
                    : (o.mission || (parent && parent.mission) || UI.filter !== 'all' && UI.filter || 'army'));
       const r  = (t && t.reminder) || {};
@@ -5463,6 +5524,11 @@ const Wire = (() => {
       let skipScope = d ? (d.skipScope || 'day')
                     : ((t && t.repeat && t.repeat.skipScope) || 'day');
       let around    = d ? !!d.around : !!(t && t.repeat && t.repeat.around);
+      /* מצב הצ׳קליסט: חד-פעמי או רב-פעמי. הרב-פעמי נשען על אותו repeat
+         של הרגל, ולכן הוא מקבל את כל האפשרויות שלו בלי מנוע שני. */
+      const ownCl = (t && t.kind === 'check') ? (t.checklists||[])[0] : null;
+      let checkMode = d ? (d.checkMode || 'once')
+                    : (ownCl && ownCl.repeat && Recur.times(ownCl.repeat).length) ? 'rep' : 'once';
       let planned = d ? d.date : (t ? t.planned : (o.planned || null));
       /* מה שטרם נשמר — קיים רק בזיכרון עד שההורה נשמר.
          pending = תת-משימות והרגלים · pendLists = צ׳קליסטים */
@@ -5737,6 +5803,18 @@ const Wire = (() => {
       /* התוכן בעורך. מציג רק מה שקיים: צ׳קליסט שנוצר, תת-משימות שיש,
          הרגלים שיש. יצירה של חדשים עוברת דרך זרימת ההוספה. */
       const contentBlock = () => {
+        /* משימת צ׳קליסט: רשימה אחת ואין מה להוסיף מלבד פריטים */
+        if (kind === 'check'){
+          const lists = isNew ? pendLists : Store.checklists(t.id);
+          if (isNew && !lists.length)
+            pendLists.push({ id:'p'+Date.now().toString(36), name:'פריטים', items:[] });
+          const c = (isNew ? pendLists : lists)[0];
+          if (!c) return `<div id="etContent"></div>`;
+          return `<div id="etContent"><div class="esec" data-clsec="${c.id}">
+            <div class="esechead"><span>פריטים</span>
+              <button class="secact" data-etcl="${c.id}">+ פריט</button></div>
+            <div class="clbox" data-clbox="${c.id}">${itemRows(c)}</div></div></div>`;
+        }
         const lists = isNew ? pendLists : Store.checklists(t.id);
         const subs  = childRows('subs');
         const habs  = childRows('habs');
@@ -5766,24 +5844,27 @@ const Wire = (() => {
           <button class="secact" id="etAddKid">+ תת-משימה</button>
           <button class="secact" id="etAddList">+ צ׳קליסט</button>
         </div>`;
+        if (kind === 'long') inner += `<div class="ex">רוצה הרגל? הוסף
+          <b>תת-משימה</b> ובחר לה התראה <b>חוזרת</b> — זה ההרגל.</div>`;
         return `<div id="etContent">${inner}</div>`;
       };
 
+      /* מוצג רק כשבאמת נבחר אירוע — בדיוק כמו מיקום ונסיעה, שמופיעים
+         מתחת לכפתור שלהם ולא כקופסה גדולה שתמיד תופסת מקום. */
       const eventBlock = () => {
         if (isChild) return '';
         const ev = evId ? Store.event(evId) : null;
-        return `<div class="esec big" id="etEvent">
-          <div class="esechead"><span>אירוע ביומן</span></div>
-          ${ev ? `<div class="evcur">
-                    <div class="el">${esc(ev.title)}</div>
-                    <div class="em">${esc(Plan.longDate(ev.date))}${ev.allDay ? '' : ' · ' + esc(ev.time)}</div>
-                  </div>
-                  <div style="display:flex;gap:14px;margin-top:6px">
-                    <button class="secact" id="etEvOpen">פתח אירוע</button>
-                    <button class="secact" id="etEvOff">נתק</button></div>`
-                : `<div class="ex">חבר את המשימה למשהו שקורה ביומן — למשל
-                     "להכין מצגת" לאירוע "הצגת הפרויקט".</div>
-                   <button class="btn wide" id="etEvLink" style="margin-top:8px">קשר לאירוע ביומן</button>`}
+        /* בלי אירוע — כלום, בדיוק כמו מיקום ונסיעה. ההסבר מופיע אחרי
+           הבחירה, ולא כקופסה שתמיד תופסת מקום. */
+        if (!ev) return '';
+        return `<div id="etEvent">
+          <div class="evcur">
+            <div class="el">${esc(ev.title)}</div>
+            <div class="em">${esc(Plan.longDate(ev.date))}${ev.allDay ? '' : ' · ' + esc(ev.time)}</div>
+          </div>
+          <div style="display:flex;gap:14px;margin-top:6px">
+            <button class="secact" id="etEvOpen">פתח אירוע</button>
+            <button class="secact" id="etEvOff">נתק</button></div>
         </div>`;
       };
 
@@ -5808,11 +5889,23 @@ const Wire = (() => {
             <button data-k="short" aria-selected="${kind==='short'}">
               <span class="kn">קצרת טווח</span>
               <span class="kd">משהו שצריך לעשות ולסיים. למשל "לקנות מטען".</span></button>
+            <button data-k="check" aria-selected="${kind==='check'}">
+              <span class="kn">צ׳קליסט</span>
+              <span class="kd">רשימת פריטים לסימון. המשימה עצמה היא הרשימה. למשל "ציוד ליום ראשון".</span></button>
             <button data-k="long" aria-selected="${kind==='long'}">
               <span class="kn">ארוכת טווח</span>
               <span class="kd">משהו שנמשך לאורך זמן ויכול להכיל דברים בתוכו. למשל "ציוד לצבא".</span></button>
           </div>
           <div class="ex" id="etKindNote"></div></div>` : ''}
+
+        <div id="etCheck" hidden>
+          <label>איזה צ׳קליסט</label>
+          <div class="seg" id="etCheckMode">
+            <button data-cm="once" aria-selected="${checkMode==='once'}">חד-פעמי</button>
+            <button data-cm="rep"  aria-selected="${checkMode==='rep'}">רב-פעמי</button>
+          </div>
+          <div class="ex" id="etCheckEx"></div>
+        </div>
 
         ${showCat ? `
         <div style="margin-bottom:14px"><label>קטגוריה</label>
@@ -5835,8 +5928,6 @@ const Wire = (() => {
 
         ${streakBlock()}
 
-        <div id="etEventHost"></div>
-
         <div id="etMain"></div>
 
         <div class="acc" id="etAdvAcc" aria-expanded="false">
@@ -5853,6 +5944,11 @@ const Wire = (() => {
               <div class="esechead"><span>נסיעה</span>
                 <button class="secact" data-advpick="trip">לפי מרחק</button></div>
               <div id="etTripHost"></div>
+            </div>
+            <div class="esec" data-adv="event">
+              <div class="esechead"><span>אירוע ביומן</span>
+                <button class="secact" id="etEvPick">קשר לאירוע</button></div>
+              <div id="etEventHost"></div>
             </div>`}
             <div class="esec">
               <div class="esechead"><span>תמונה</span></div>
@@ -5880,8 +5976,37 @@ const Wire = (() => {
       function kindNote(){
         if (!g('etKindNote')) return;
         g('etKindNote').textContent = kind === 'long'
-          ? 'נשאר על המסך עד שתסגור אותו. הרשימה, התת-משימות וההרגלים חיים בתוכו.'
-          : 'ברגע שתסמן אותו הוא עובר לארכיון.';
+          ? 'נשאר על המסך עד שתסגור אותו. הצ׳קליסטים, התת-משימות וההרגלים חיים בתוכו.'
+          : kind === 'check'
+            ? 'רשימת פריטים לסימון. אפשר לעשות אותה חד-פעמית או שתחזור על עצמה.'
+            : '';
+      }
+
+      /**
+       * אילו אפשרויות מתקדמות רלוונטיות בכלל.
+       * מיכל — אף אחת. פריט חוזר (הרגל) — לא מיקום ולא נסיעה, כי תזכורת
+       * חוזרת ותזכורת מקום הן שתי תזכורות שונות ולמשימה יש אחת.
+       * צ׳קליסט — גם לא, כי הוא רשימת פריטים ולא אירוע במרחב.
+       */
+      function applyAdv(){
+        const isLong  = kind === 'long';
+        const isCheck = kind === 'check';
+        const noPlace = isLong || isCheck || mode === 'repeat';
+        ['place','trip'].forEach(k => {
+          const el = B.querySelector(`[data-adv="${k}"]`);
+          if (el) el.hidden = noPlace;
+        });
+        const evs = B.querySelector('[data-adv="event"]');
+        if (evs) evs.hidden = isLong;
+        /* אם המשתמש כבר בחר מיקום/נסיעה ואז עבר לחוזרת — הבחירה יורדת,
+           ולא נשארת שמורה בשקט מאחורי מקטע מוסתר. */
+        if (noPlace && (mode === 'place' || mode === 'trip')){
+          mode = 'none';
+          const ph = g('etPlaceHost'); if (ph) ph.innerHTML = '';
+          const th = g('etTripHost');  if (th) th.innerHTML = '';
+          B.querySelectorAll('[data-advpick]').forEach(x =>
+            x.textContent = x.dataset.advpick === 'place' ? 'בחר מקום' : 'לפי מרחק');
+        }
       }
 
       /* ---- מצב ההתראה: מציגים בדיוק אחד, אף פעם לא שניים ---- */
@@ -5919,7 +6044,7 @@ const Wire = (() => {
         }
         const populated = listsNow().length || pending.length ||
                           (!isNew && (Store.subtasksOf(t.id).length || Store.habitsOf(t.id).length));
-        const inline = (kind === 'long') || !!populated || isChild;
+        const inline = (kind === 'long') || kind === 'check' || !!populated || isChild;
         (inline ? main : adv).appendChild(box);
         /* פריט חוזר הוא פעולה אטומית: אין בו תוכן מקונן, ולכן גם אין
            מקטע תוכן. היכולת לא נמחקה — היא פשוט לא שייכת כאן. */
@@ -5932,19 +6057,34 @@ const Wire = (() => {
            ובלי קישור ליומן. כל אלה שייכים למה שיושב בתוכה. שום יכולת
            לא נמחקת מהאפליקציה — היא פשוט לא קיימת ברמת המיכל. */
         const isLong = kind === 'long';
+        const isCheck = kind === 'check';
         if (isLong){ mode = 'none'; setDate(''); if (g('etTime')) g('etTime').value = ''; }
+        /* משימת צ׳קליסט: הזמן שלה נקבע במצב הצ׳קליסט, לא בבורר ההתראה */
+        if (isCheck && mode === 'repeat') mode = 'none';
+        const chk = g('etCheck');
+        if (chk) chk.hidden = !isCheck;
+        const chkEx = g('etCheckEx');
+        if (chkEx) chkEx.textContent = checkMode === 'rep'
+          ? 'חוזר על עצמו, בדיוק כמו הרגל: ימים קבועים, שעה, דילוג לפי סוג אירוע, ואי-הפרעה באמצע אירוע.'
+          : 'רשימה אחת. ברגע שתסמן את כל הפריטים היא עוברת לארכיון.';
+        if (isCheck){
+          const seg = g('etMode');
+          if (seg) seg.hidden = checkMode === 'rep';
+          if (checkMode === 'rep'){ mode = 'repeat'; }
+        } else {
+          const seg = g('etMode');
+          if (seg) seg.hidden = false;
+        }
         const alert = g('etAlert');
         if (alert) alert.hidden = isLong;
         const note = g('etLongNote');
         if (note) note.hidden = !isLong;
         if (g('etOnceEx')) g('etOnceEx').textContent =
           'קורה פעם אחת. למשל "להתקשר למפקד מחר ב-18:00".';
-        ['place','trip'].forEach(k => {
-          const el = B.querySelector(`[data-adv="${k}"]`);
-          if (el) el.hidden = isLong;
-        });
-        const evb = g('etEvent');
-        if (evb) evb.hidden = isLong;
+        applyAdv();
+        /* בורר הסוג משנה את מבנה התוכן עצמו, ולכן הוא נבנה מחדש */
+        const oldBox = g('etContent');
+        if (oldBox) oldBox.remove();
         applyMode(); placeContent(); kindNote(); refreshSummaries();
       }
 
@@ -5970,7 +6110,7 @@ const Wire = (() => {
       /* צילום מצב הטופס — כדי לחזור אליו אחרי שיוצרים תת-משימה */
       function snapshot(){
         syncRep();
-        return { title:g('etTitle').value, note:g('etNote').value, kind, cat, mode,
+        return { title:g('etTitle').value, note:g('etNote').value, kind, cat, mode, checkMode,
                  rep: rep ? { days:rep.days.slice(), times:rep.times.slice(),
                               skipTypes:skipTypes.slice(), skipScope, around } : null,
                  skipTypes:skipTypes.slice(), skipScope, around,
@@ -6017,6 +6157,12 @@ const Wire = (() => {
         if (kb){ kind = kb.dataset.k;
                  B.querySelectorAll('#etKind button').forEach(x => x.setAttribute('aria-selected', x===kb));
                  applyKind(); return; }
+        const cm = e.target.closest('#etCheckMode button');
+        if (cm){ checkMode = cm.dataset.cm;
+                 B.querySelectorAll('#etCheckMode button').forEach(x =>
+                   x.setAttribute('aria-selected', x===cm));
+                 mode = checkMode === 'rep' ? 'repeat' : 'none';
+                 applyKind(); applyMode(); applyAdv(); refreshSummaries(); return; }
         const cb = e.target.closest('#etCat button');
         if (cb){ cat = cb.dataset.k;
                  B.querySelectorAll('#etCat button').forEach(x => x.setAttribute('aria-selected', x===cb)); return; }
@@ -6025,7 +6171,7 @@ const Wire = (() => {
                  if (mode !== 'repeat'){ rep = null;
                    B.querySelectorAll('#etDays button').forEach(x => x.setAttribute('aria-selected','false')); }
                  if (mode !== 'once' && g('etTime')) g('etTime').value = '';
-                 applyMode(); refreshSummaries(); return; }
+                 applyAdv(); applyMode(); refreshSummaries(); return; }
         const adv = e.target.closest('[data-advpick]');
         if (adv){
           const which = adv.dataset.advpick;
@@ -6045,7 +6191,7 @@ const Wire = (() => {
           adv.textContent = mode === which ? 'בטל' : (which === 'place' ? 'בחר מקום' : 'לפי מרחק');
           applyMode(); refreshSummaries(); return;
         }
-        if (e.target.closest('#etEvLink')){
+        if (e.target.closest('#etEvLink') || e.target.closest('#etEvPick')){
           /* אפשר לבחור אירוע כבר ביצירה: שומרים טיוטה, בוחרים,
              וחוזרים לעורך עם הבחירה בפנים. */
           const draft = snapshot();
@@ -6102,6 +6248,17 @@ const Wire = (() => {
         if (e.target.closest('#etImgAdd')){ g('etImgFile').click(); return; }
         if (e.target.closest('#etImgDel')){ img = ''; paintImg(); return; }
         if (e.target.closest('#etAddList')){
+          /* במשימה קצרת-טווח, "צ׳קליסט" אינו עוד מקטע בתוכה — הוא הופך
+             את המשימה עצמה לצ׳קליסט. ככה אין שתי דרכים לאותו דבר. */
+          if (kind === 'short'){
+            kind = 'check';
+            B.querySelectorAll('#etKind button').forEach(x =>
+              x.setAttribute('aria-selected', x.dataset.k === 'check'));
+            applyKind();
+            const c = listsNow()[0];
+            if (c) setTimeout(() => addItemInline(c.id), 30);
+            return;
+          }
           const name = (prompt && false) ? '' : '';
           const c = { id:'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
                       name:'צ׳קליסט', items:[] };
@@ -6359,6 +6516,22 @@ const Wire = (() => {
           out.planned = null; out.reminder = null; out.repeat = null;
           return out;
         }
+        /* משימת צ׳קליסט: החזרתיות יושבת על הצ׳קליסט עצמו, לא על המשימה */
+        if (kind === 'check'){
+          out.repeat = null;
+          out.checkRepeat = (checkMode === 'rep' && rep) ? rep : null;
+          if (mode === 'once'){
+            const tm = (g('etTime') || {}).value;
+            if (tm){
+              out.reminder = { type:'time', at:tm };
+              if (!out.planned){
+                const nowHM = new Date().toTimeString().slice(0,5);
+                out.planned = tm > nowHM ? Plan.today() : Plan.shift(Plan.today(), 1);
+              }
+            }
+          } else { out.reminder = null; }
+          return out;
+        }
         if (mode === 'once'){
           const tm = (g('etTime') || {}).value;
           if (tm){
@@ -6458,8 +6631,28 @@ const Wire = (() => {
           return;
         }
 
+        /* משימת צ׳קליסט מחזיקה צ׳קליסט אחד משלה, ועליו יושבת החזרתיות */
+        const applyCheck = (id, name) => {
+          const c = Store.ownChecklist(id);
+          if (!c) return;
+          if (c.name !== name && (!c.name || c.name === 'צ׳קליסט')) Store.renameChecklist(id, c.id, name);
+          Store.setChecklistRepeat(id, c.id, data.checkRepeat
+            ? { days:data.checkRepeat.days, time:data.checkRepeat.times[0],
+                skipTypes:data.checkRepeat.skipTypes, skipScope:data.checkRepeat.skipScope,
+                around:data.checkRepeat.around }
+            : null);
+        };
+
         if (isNew){
           const created = Store.addTask({ ...data, rt:initialRt(data), parentId:o.parentId||null });
+          if (data.kind === 'check'){
+            applyCheck(created.id, data.title);
+            /* הפריטים שכבר הוקלדו בטופס נכנסים לצ׳קליסט של המשימה */
+            const own = Store.ownChecklist(created.id);
+            pendLists.forEach(pc => pc.items.forEach(it =>
+              Store.addChecklistItem(created.id, own.id, it.title, it.note)));
+            pendLists.length = 0;
+          }
           /* הצ׳קליסטים הממתינים נשמרים עם שמותיהם ובסדר שנקבע */
           pendLists.forEach(c => {
             const nc = Store.addChecklist(created.id, c.name);
@@ -6481,6 +6674,7 @@ const Wire = (() => {
         } else {
           Store.updateTask(t.id, { ...data, rt:initialRt(data),
                                    log: data.kind === 'long' ? {} : (t.log||{}) });
+          if (data.kind === 'check') applyCheck(t.id, data.title);
           Store.setPlanned(t.id, data.planned);
           if ((t.eventId || '') !== (evId || '')) Store.linkTask(t.id, evId || null);
         }
