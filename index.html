@@ -58,6 +58,15 @@
 
   /* ---------------- מעטפת ---------------- */
   #app{display:flex;flex-direction:column;height:100%;max-width:640px;margin:0 auto}
+  .settings-row{display:flex;width:100%;align-items:center;justify-content:space-between;text-align:start;padding:20px 4px;border-bottom:1px solid var(--line);gap:16px}
+  .settings-row b{font-size:17px;font-weight:500}.settings-row small{display:block;color:var(--muted);margin-top:5px}
+  .settings-back{margin:6px 0 14px}.settings-row:hover{background:var(--surface)}
+  .tsub>.tnotewrap,.krow>.tnotewrap{flex-basis:100%;width:100%;margin-inline-start:26px}
+  .tcard,.tsub,.krow{position:relative}.drag-handle{position:absolute;left:0;top:4px;width:24px;height:30px;z-index:2;touch-action:none;color:var(--muted2);cursor:grab}
+  .tcard>.drag-handle{left:-15px}.drag-handle:focus-visible{outline:2px solid var(--accent)}
+  .dragging{opacity:.55;outline:1px dashed var(--accent)}.drop-target{box-shadow:0 -3px var(--accent)}
+  .desktop #app{max-width:1200px}.desktop main{padding-inline:36px}.desktop .modal{max-width:800px}
+  @media(min-width:900px){.desktop #tasksBody{max-width:960px;margin:auto}.desktop #settingsBody{max-width:680px;margin:auto}}
   header{
     flex:0 0 auto; padding:calc(12px + var(--safe-t)) 18px 10px;
     display:flex; align-items:center; gap:12px;
@@ -852,7 +861,7 @@
   <div class="sub2" id="alSub"></div>
   <div class="det" id="alDet" hidden></div>
   <div class="btns">
-    <button class="btn" id="alLater">אחר כך</button>
+    <button class="btn" id="alLater">דחה ב־15 דקות</button>
     <button class="btn" id="alOpen" hidden>פתח</button>
     <button class="btn p" id="alOk">הבנתי</button>
   </div>
@@ -872,9 +881,9 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.5 · 2026-09-06';
+const BUILD = '4.6 · 2026-09-06';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
-const NEED_APK = '1.2';
+const NEED_APK = '1.4';
 
 /* ------------------------------- Store ---------------------------------- */
 
@@ -2111,6 +2120,16 @@ const Geo = (() => {
    ולא רלוונטי לסופר או למשרד. */
 
 const Search = (() => {
+  // Verified against the branch owner's public directory, 2026-09-06.
+  // Supplements incomplete OSM coverage; never substitutes a nearby branch.
+  const verified=[{name:'סטימצקי',city:'גן שמואל',lat:32.448385,lng:34.955013,source:'https://www.steimatzky.co.il/storelocator',checked:'2026-09-06'}];
+  const cache=new Map();let nomQueue=Promise.resolve(),nomLast=0;
+  async function get(url,options={}){
+    const key=url+String(options.body||'');const hit=cache.get(key);if(hit&&Date.now()-hit.at<3600000)return hit.value;
+    const work=async()=>{if(url.includes('nominatim.')){await new Promise(r=>setTimeout(r,Math.max(0,1100-(Date.now()-nomLast))));nomLast=Date.now();}
+      const response=await fetch(url,{...options,signal:AbortSignal.timeout(12000)});if(!response.ok)throw Error('שירות החיפוש אינו זמין');const value=await response.json();cache.set(key,{at:Date.now(),value});return value;};
+    if(url.includes('nominatim.')){const p=nomQueue.then(work);nomQueue=p.catch(()=>{});return p;}return work();
+  }
   const norm = (name, city, lat, lng) => ({ name, city:city||'', lat:+lat, lng:+lng });
   const ok = r => isFinite(r.lat) && isFinite(r.lng) && Math.abs(r.lat)<=90 && Math.abs(r.lng)<=180;
 
@@ -2124,13 +2143,11 @@ const Search = (() => {
   }
 
   async function nominatim(q0, anchor, km){
-    const q = variants(q0).slice(-1)[0] || q0;
+    const q = q0;
     const url = 'https://nominatim.openstreetmap.org/search'
       + '?format=jsonv2&addressdetails=1&limit=15&accept-language=he&countrycodes=il'
       + viewbox(anchor, km) + '&q=' + encodeURIComponent(q);
-    const r = await fetch(url, { headers:{ 'Accept':'application/json' } });
-    if (!r.ok) throw new Error('nominatim ' + r.status);
-    const j = await r.json();
+    const j = await get(url);
     return (j||[]).map(it => {
       const a = it.address || {};
       const city = a.city || a.town || a.village || a.suburb || a.county || '';
@@ -2143,11 +2160,9 @@ const Search = (() => {
     /* הטיה לנקודת הייחוס — המיקום שלך, או העיר שביקשת. */
     const g = anchor;
     const bias = g ? `&lat=${g.lat.toFixed(5)}&lon=${g.lng.toFixed(5)}` : '&lat=32.1&lon=34.9';
-    const url = 'https://photon.komoot.io/api/?limit=15&lang=default' + bias
+    const url = 'https://photon.komoot.io/api/?limit=15' + bias
       + '&q=' + encodeURIComponent(q);
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('photon ' + r.status);
-    const j = await r.json();
+    const j = await get(url);
     return (j.features||[]).map(f => {
       const c = f.geometry && f.geometry.coordinates; const p = f.properties||{};
       if (!c) return null;
@@ -2158,9 +2173,7 @@ const Search = (() => {
 
   async function israelHiking(q){
     const url = 'https://israelhiking.osm.org.il/api/search/' + encodeURIComponent(q) + '?language=he';
-    const r = await fetch(url, { headers:{ 'Accept':'application/json' } });
-    if (!r.ok) throw new Error('israelhiking ' + r.status);
-    const j = await r.json();
+    const j = await get(url);
     const arr = Array.isArray(j) ? j : (j.features || j.results || []);
     const pick = (o, keys) => { for (const k of keys) if (o && o[k] != null) return o[k]; return null; };
     return arr.map(it => {
@@ -2224,11 +2237,9 @@ const Search = (() => {
       + `nwr["brand"~"${rx}",i]${around};`
       + `nwr["name:he"~"${rx}",i]${around};`
       + ');out center 40;';
-    const r = await fetch('https://overpass-api.de/api/interpreter',
+    const j = await get('https://overpass-api.de/api/interpreter',
       { method:'POST', body:'data=' + encodeURIComponent(body),
         headers:{ 'Content-Type':'application/x-www-form-urlencoded' } });
-    if (!r.ok) throw new Error('overpass ' + r.status);
-    const j = await r.json();
     return (j.elements||[]).map(el => {
       const lat = el.lat != null ? el.lat : (el.center && el.center.lat);
       const lng = el.lon != null ? el.lon : (el.center && el.center.lon);
@@ -2262,11 +2273,9 @@ const Search = (() => {
     const url = 'https://nominatim.openstreetmap.org/search'
       + '?format=jsonv2&addressdetails=1&limit=5&accept-language=he&countrycodes=il'
       + '&q=' + encodeURIComponent(name);
-    const r = await fetch(url, { headers:{ 'Accept':'application/json' } });
-    if (!r.ok) return null;
-    const j = await r.json();
+    const j = await get(url);
     const hit = (j||[]).find(it =>
-      PLACE_CATS.includes(it.category) && PLACE_TYPES.includes(it.type));
+      PLACE_CATS.includes(it.category||it.class) && PLACE_TYPES.includes(it.type));
     if (!hit) return null;
     const a = hit.address || {};
     return { lat:+hit.lat, lng:+hit.lon,
@@ -2279,6 +2288,8 @@ const Search = (() => {
    * מנסה סיומות ארוכות קודם, כדי ש"גן שמואל" ינצח את "שמואל".
    */
   async function splitQuery(q){
+    const comma=q.split(/[,،]/).map(x=>x.trim()).filter(Boolean);
+    if(comma.length>1){const anchor=await geocodeArea(comma.slice(1).join(' '));if(anchor)return {what:comma[0],anchor};}
     const w = q.trim().split(/\s+/);
     if (w.length < 2) return null;
     for (let n = Math.min(3, w.length - 1); n >= 1; n--){
@@ -2298,6 +2309,9 @@ const Search = (() => {
      * מחזיר את מה שהמנוע חושב שהכי "חשוב" בארץ, ולא את מה שביקשת.
      */
     async run(q, areaText){
+      const query=(q+' '+(areaText||'')).replace(/[,،]/g,' ').replace(/\s+/g,' ').trim();
+      const exact=verified.filter(x=>variants(x.name).some(n=>query.toLowerCase().includes(n.toLowerCase()))&&query.includes(x.city));
+      if(exact.length)return {results:exact.map(x=>({...x,dist:null})),provider:'מיקום מאתר הרשת · נבדק בספטמבר 2026',anchor:null,what:q};
       let anchor = null, what = q.trim(), src = '';
 
       if (areaText && areaText.trim()){
@@ -2323,7 +2337,7 @@ const Search = (() => {
       const settled = await Promise.allSettled([
         overpass(what, anchor, radius),
         nominatim(what + (explicit ? ' ' + src : ''), anchor, radius/1000),
-        photon(what, anchor),
+        photon(variants(what).slice(-1)[0], anchor),
         israelHiking(q)
       ]);
       const errs = [], all = [];
@@ -2343,13 +2357,14 @@ const Search = (() => {
         /* כשביקשת אזור מפורש, תוצאה במרחק 80 ק״מ היא רעש ולא תשובה */
         if (explicit){
           const inside = out.filter(r => r.dist <= radius * 1.5);
-          if (inside.length) out = inside;
+          out = inside;
         }
       }
+      if(!out.length)throw Error('לא נמצאו תוצאות באזור שביקשת');
       const provider = anchor
         ? (explicit ? 'סביב ' + src : 'לפי קרבה אליך')
         : 'ללא מיקום — לא ממוין לפי קרבה';
-      return { results: out.slice(0,12), provider, anchor, what };
+      return { results: out.slice(0,12), provider:provider+' · © OpenStreetMap contributors', anchor, what };
     },
     parseCoords(s){
       const m = String(s).match(/(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)/);
@@ -3097,7 +3112,11 @@ const UI = (() => {
   /* תת-משימות שהמשתמש פתח כדי לקרוא את התיאור. מצב תצוגה בלבד. */
   const peeked = new Set();
   /* תיאורים שהמשתמש קיפל בעצמו. ברירת המחדל היא תיאור פתוח. */
-  const noteShut = new Set();
+  const noteShut = {
+    has(id){ return (Store.all.prefs.closedDescriptions || []).includes(id); },
+    add(id){ Store.setPref('closedDescriptions', [...new Set([...(Store.all.prefs.closedDescriptions || []), id])]); },
+    delete(id){ Store.setPref('closedDescriptions', (Store.all.prefs.closedDescriptions || []).filter(x=>x!==id)); }
+  };
   /* מצב "שינוי סדר": פועל על מקטע אחד של משימה אחת בכל רגע.
      מחוץ למצב הזה אין חיצים ואין ידיות — הממשק נשאר נקי. */
   let reorder = null;          /* { taskId, sec } או { root:true, group } */
@@ -3691,7 +3710,7 @@ const UI = (() => {
         <button class="bd" data-act="detail">
           <div class="ttl">${esc(t.title)}</div>
           <div class="tmeta">${esc(meta || CAT[t.mission])}</div>
-          ${bits.length ? `<div class="tbits">${bits.join(' · ')}</div>` : ''}
+          ${bits.length ? `<div class="tbits">${bits.map(esc).join(' · ')}</div>` : ''}
         </button>
         <button class="hbtn" data-act="menu" style="width:28px;height:28px;font-size:15px">⋯</button>
       </div>
@@ -3759,7 +3778,7 @@ const UI = (() => {
         <button class="st2" data-act="subopen" data-sid="${c.id}">
           <span class="sn">${esc(c.title)}</span>
           ${m ? `<span class="sm">${esc(m)}</span>` : ''}</button>
-      ${c.note ? `<button class="sub-copy copy-note" data-copy-note-id="${c.id}" title="העתק תיאור">${esc(c.note)}</button>` : ''}
+      ${noteBlock(c)}
       </div>`; }).join('')}
       ${rest > 0 ? `<button class="tsubmore" data-act="detail">ועוד ${rest}</button>` : ''}
     </div>`;
@@ -4243,14 +4262,7 @@ const UI = (() => {
         המאוחרות יותר יירשמו מאליהן ככל שהזמן מתקדם. אין מה לעשות עם זה —
         זה רק כדי שתדע.</div>` : '';
 
-    $('#settingsBody').innerHTML =
-      capWarn +
-      sec('update', 'עדכון האפליקציה', updateBody,
-          Native.on && Native.apkOld() ? 'נדרש עדכון' : '') +
-      sec('perms',  'הרשאות והתקנה',   permsBody, permsNote) +
-      sec('diag',   'אבחון התראות',    diagBody) +
-      sec('data', 'גיבויים וארכיון', DataCare.settingsHTML()) +
-      sec('more',   'עוד הגדרות',      moreBody);
+    Settings.render({updateBody, permsBody, diagBody, moreBody, n, capWarn});
   }
 
   /* ====================================================================
@@ -4313,6 +4325,7 @@ const UI = (() => {
     if (el) el.classList.add('on');
 
     const g = $('#gps');
+    g.hidden=screen==='settings'||!!window.MesimaDesktop;
     g.classList.toggle('on', Geo.on && !!Geo.last);
     $('#gpsTxt').textContent = !Geo.on ? 'GPS כבוי'
       : (Geo.last ? (Geo.trip.meters > 200 ? (Geo.trip.meters/1000).toFixed(1) + ' ק״מ' : 'מיקום פעיל')
@@ -4374,7 +4387,7 @@ const UI = (() => {
   function nextAlert(){
     const a = alertQ.shift();
     if (!a){ alertItem = null; $('#alert').classList.remove('on'); return; }
-    alertItem = { item:a.item, kind:a.kind };
+    alertItem = { item:a.item, kind:a.kind, why:a.why };
     $('#alMsg').textContent = a.item.title;
     $('#alSub').textContent = a.why + (alertQ.length ? '  ·  ועוד ' + alertQ.length : '');
     $('#alTtl').textContent = a.kind === 'event' ? 'אירוע ביומן'
@@ -4444,6 +4457,7 @@ const UI = (() => {
   }
 
   function download(name, text, mime){
+    if(window.MesimaDesktop){window.MesimaDesktop.save(name,text);return;}
     if (Native.on && Native.save(name, text, mime)) return;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain;charset=utf-8' }));
@@ -4466,6 +4480,7 @@ const UI = (() => {
     get selDate(){ return selDate; }, set selDate(v){ selDate=v; },
     get rangeFrom(){ return rangeFrom; }, set rangeFrom(v){ rangeFrom=v; },
     peeked, noteShut, trail,
+    noteBlock,
     get reorder(){ return reorder; }, set reorder(v){ reorder=v; },
     get grouped(){ return grouped; }, set grouped(v){ grouped=v; },
     get calY(){ return calY; },       set calY(v){ calY=v; },
@@ -5840,6 +5855,7 @@ const TaskEditor = (() => {
           return;
         }
         Modal.shut();
+        Permissions.forTask(data);
         const extra = [];
         const nItems = pendLists.reduce((a,c) => a + c.items.length, 0);
         if (isNew && nItems) extra.push(nItems + ' פריטים');
@@ -6455,8 +6471,7 @@ const Wire = (() => {
            4. אירוע ורצף — הקשר.
            5. ורק אז התוכן: צ׳קליסטים, תת-משימות, חוזרות. */
         let out = '';
-        if (t.note) out += `<div class="tnote dnote1 copy-note" role="button" tabindex="0" data-copy-note-id="${t.id}" title="לחץ להעתקת התיאור">${esc(t.note)}</div>`;
-        if (t.img)  out += `<img class="tnimg" src="${t.img}" alt="" data-act="zoom">`;
+        out += UI.noteBlock(t);
 
         const info = [];
         info.push(['קטגוריה', CAT[t.mission]]);
@@ -6565,7 +6580,7 @@ const Wire = (() => {
                   style="width:18px;height:18px;font-size:10px">✓</button>
           <button class="kt" data-act="kidopen" style="text-align:start">${esc(c.title)}
             ${m ? `<div class="km">${esc(m)}</div>` : ''}</button>
-          ${c.note ? `<button class="sub-copy copy-note" data-copy-note-id="${c.id}" title="העתק תיאור">${esc(c.note)}</button>` : ''}
+          ${UI.noteBlock(c)}
         </div>`;
       }
 
@@ -6575,8 +6590,10 @@ const Wire = (() => {
         document.getElementById('mTitle').textContent = t.title;
         Modal.body.innerHTML = body();
       }
+      const repaintOrder=()=>{if(document.getElementById('modal').classList.contains('on')&&Modal.body.querySelector('[data-kid]'))paint();};
+      document.addEventListener('tasks-reordered',repaintOrder);
 
-      Modal.open({ title:t0.title, body:body(),
+      Modal.open({ title:t0.title, body:body(),close:()=>document.removeEventListener('tasks-reordered',repaintOrder),
         buttons:[{label:'עוד', act:()=>taskMenu(id)},
                  {label:'ערוך משימה', kind:'p', act:()=>taskModal({ id })}]});
 
@@ -6599,6 +6616,7 @@ const Wire = (() => {
         if (cmd === 'evopen'){ const ev = Store.event(t.eventId);
                                if (ev){ Modal.shut(); eventMenu(ev); } return; }
 
+        if (act === 'notetog'){ const nid=a.dataset.nid; if(UI.noteShut.has(nid)) UI.noteShut.delete(nid); else UI.noteShut.add(nid); paint(); return; }
         if (act === 'reorderOff'){ UI.reorder = null; paint(); return; }
         if (act === 'zoom'){ return; }   /* מטופל גלובלית */
 
@@ -7141,6 +7159,7 @@ const Wire = (() => {
               remindMin:+g('evR').value, note:g('evN').value.trim(),
               listId: e.listId || null };
             if (isNew) Store.addEvent(patch); else Store.updateEvent(e.id, patch);
+            if(patch.remindMin>=0)Permissions.forTask({reminder:{type:'time'}});
             UI.selDate = date; Modal.shut(); UI.toast(isNew ? 'נוסף ליומן' : 'נשמר');
           }}]});
 
@@ -8168,10 +8187,11 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     }
 
     $('#settingsBody').addEventListener('click', async e => {
+      if(e.target.closest('#syncEnabled')){CloudSync.enable(Store.all.prefs.syncEnabled===false);UI.render();return;}
       if (e.target.closest('#swGeo')){
         if (Geo.on){ Geo.stop(); Store.setPref('geo', false); UI.render(); return; }
         if (!UI.originState().canGeo && !Native.on){ UI.toast('המיקום חסום מהכתובת הזאת'); return; }
-        Store.setPref('geo', true); Geo.start(); UI.render(); return;
+        if(Native.on) Native.askLocation(); Store.setPref('geo', true); Geo.start(); UI.render(); return;
       }
       if (e.target.closest('#swVib')){ Store.setPref('vib', !Store.all.prefs.vib); return; }
       if (e.target.closest('#swSnd')){ Store.setPref('snd', !Store.all.prefs.snd); return; }
@@ -8202,6 +8222,8 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
                    {label:'מחק הכול',kind:'p',act:()=>{ Store.wipe(); Modal.shut(); UI.toast('נמחק'); }}]});
         return;
       }
+      const page = e.target.closest('[data-settings-page]');
+      if(page){ Settings.open(page.dataset.settingsPage); return; }
       const tog = e.target.closest('[data-settoggle]');
       if (tog){
         const k = tog.dataset.settoggle;
@@ -8271,11 +8293,14 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       const a = UI.alertItem;
       if (a && a.item){
         a.item.rt = a.item.rt || {};
-        a.item.rt.snoozeTo = Date.now() + 10*60000;
-        a.item.rt.firedAt = null;
+        a.item.rt.snoozeTo = Date.now() + 15*60000;
+        const pending={id:a.item.id,title:a.item.title,body:a.why||'תזכורת שנדחתה',at:Date.now()+900000};
+        if(window.MesimaNative?.snoozeNotification)window.MesimaNative.snoozeNotification(pending.id,pending.title,pending.body);
+        else if(window.MesimaDesktop)window.MesimaDesktop.snooze(pending);
+        else {const rows=JSON.parse(localStorage.getItem('mesima.snoozes')||'[]').filter(x=>x.id!==pending.id);rows.push(pending);localStorage.setItem('mesima.snoozes',JSON.stringify(rows));}
         Store.commit();
       }
-      UI.closeAlert(); UI.toast('נדחה ב-10 דקות'); UI.render();
+      UI.closeAlert(); UI.toast('נדחה ב־15 דקות'); UI.render();
     });
     /* לחיצה על גוף ההתראה פותחת את הפריט (סעיף 55) */
     $('#alert').addEventListener('click', e => {
@@ -8341,6 +8366,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       if (UI.reorder){ UI.reorder = null; UI.render(); return true; }
       if (UI.openNote){ closeNote(); return true; }
       if (UI.openList){ UI.openList = null; UI.render(); return true; }
+      if (UI.screen==='settings' && Settings.back()) return true;
       if (UI.screen){ UI.screen = null; UI.render(); return true; }
       if (UI.section !== 'today'){ UI.section = 'today'; UI.render(); return true; }
 
@@ -8429,6 +8455,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
 const Engine = (() => {
   function check(){
     const now = Date.now();
+    try{const rows=JSON.parse(localStorage.getItem('mesima.snoozes')||'[]'),due=rows.filter(x=>x.at<=now);if(due.length){localStorage.setItem('mesima.snoozes',JSON.stringify(rows.filter(x=>x.at>now)));due.forEach(x=>Alerts.fire(Store.task(x.id)||{id:x.id,title:x.title,rt:{}},x.body,'task'));}}catch{}
     let changed = false;
 
     /* ------- משימות ------- */
@@ -8673,7 +8700,8 @@ const Engine = (() => {
    never an implicit two-way sync or replacement of the local database. */
 const DataCare = (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const bridge = () => window.MesimaNative;
+  const bridge = () => window.MesimaNative || window.DesktopBackup;
+  let pendingDays=0;
   const available = () => typeof bridge()?.backupStatus === 'function';
   const status = () => {try{return available()?JSON.parse(bridge().backupStatus()):{};}catch{return {};}};
   const date = n => n ? new Date(n).toLocaleString('he-IL') : 'עדיין לא נוצר';
@@ -8721,7 +8749,7 @@ const DataCare = (() => {
     const s=status(), cloud=s.cloud||{};
     return `<h2 class="sh">גיבוי אוטומטי לנייד</h2>
       ${available()?`<div class="notice">בחר תיקייה ותקופת גיבוי. כל גיבוי הוא קובץ חדש הכולל גם תמונות.
-      אנדרואיד עשוי לדחות את ההרצה כדי לחסוך בסוללה.</div>
+      ${window.MesimaDesktop?'הגיבוי פועל כל עוד משימה רצה, גם כשהחלון סגור לשורת המערכת.':'אנדרואיד עשוי לדחות את ההרצה כדי לחסוך בסוללה.'}</div>
       <button class="btn wide" data-care="folder">${s.folder?'שנה תיקיית גיבוי':'בחר תיקיית גיבוי'}</button>
       <div class="sd">${s.folder?'תיקייה נבחרה':'טרם נבחרה תיקייה'} · גיבוי אחרון: ${esc(date(s.lastLocal))}</div>
       <label for="backupDays">תדירות</label><select id="backupDays">${[[0,'כבוי'],[1,'כל יום'],[7,'כל שבוע'],[30,'כל חודש (30 יום)']].map(([n,t])=>`<option value="${n}" ${s.days===n?'selected':''}>${t}</option>`).join('')}</select>
@@ -8739,7 +8767,7 @@ const DataCare = (() => {
       ${!cloud.configured?`<div class="notice">החיבור מוכן להגדרה, אך עדיין לא חובר פרויקט Firebase.
       לאחר יצירת הפרויקט והתקנת המעטפת המחוברת יופיעו כאן כניסה וגיבוי בענן.</div>`:
       `<div class="notice">גיבוי של כל הנתונים והתמונות לחשבון שלך. שחזור מחליף את המידע המקומי רק לאחר אישור.
-      הגרסה הזאת אינה מסנכרנת שינויים אוטומטית בין מכשירים.</div>
+      הסנכרון האוטומטי מעביר שינויים בנפרד מהגיבויים השמורים.</div>
       ${cloud.email?`<div class="sd" dir="ltr">${esc(cloud.email)}</div>
         <button class="btn wide" data-care="cloud-now">גבה עכשיו לענן</button>
         <button class="btn wide" data-care="cloud-list">בחר גיבוי לשחזור</button>
@@ -8787,7 +8815,9 @@ const DataCare = (() => {
       const el=e.target.closest('[data-care]');if(!el)return;
       e.preventDefault();e.stopPropagation();
       switch(el.dataset.care){
+        case 'now': {snapshot();const s=status();if(s.folder)bridge().backupNow();if(s.cloud?.email)bridge().cloudBackup();if(!s.folder&&!s.cloud?.email)UI.download('mesima-backup.json',Store.export(),'application/json');break;}
         case 'folder':bridge().chooseBackupFolder();break;
+        case 'recover-import':{const s=localStorage.getItem('mesima.before-import');if(s)UI.download('Mesima_before_restore.json',s,'application/json');break;}
         case 'local-now':snapshot();bridge().backupNow();break;
         case 'recover':{const s=localStorage.getItem('mesima.before-archive-cleanup');if(s)UI.download('Mesima_before_archive_cleanup.json',s,'application/json');break;}
         case 'login':login();break;
@@ -8797,7 +8827,7 @@ const DataCare = (() => {
       }
     },true);
     document.addEventListener('change',e=>{
-      if(e.target.id==='backupDays'){bridge().configureBackup(Number(e.target.value));UI.render();}
+      if(e.target.id==='backupDays'){const days=Number(e.target.value);if(days&&!status().folder){pendingDays=days;bridge().chooseBackupFolder();}else bridge().configureBackup(days);UI.render();}
       if(e.target.id==='archiveDays'){
         const days=Number(e.target.value), old=Number(Store.all.prefs.archiveDays||0);
         if(!days){Store.setPref('archiveDays',0);return;}
@@ -8808,19 +8838,315 @@ const DataCare = (() => {
         e.target.value=String(old);
       }
     });
-    window.addEventListener('backup-status',()=>UI.render());
+    window.addEventListener('backup-status',()=>{if(pendingDays){const days=pendingDays;pendingDays=0;if(status().folder)bridge().configureBackup(days);}UI.render();});
     window.__cloudBackups = rows => {
       Modal.open({title:'בחר גיבוי מהענן',body:rows.length?rows.map(r=>`<button class="pick" data-cloud-restore="${esc(r.id)}"><span class="pn">${esc(date(r.createdAt))}</span><span class="pm">${esc(r.taskCount)} משימות</span></button>`).join(''):'<div class="note">אין עדיין גיבויים בחשבון הזה.</div>',buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.onclick=e=>{const b=e.target.closest('[data-cloud-restore]');if(b){bridge().cloudRestore(b.dataset.cloudRestore);Modal.shut();}};
     };
   }
-  return {init,settingsHTML,expiredIds,purge,snapshot};
+  return {init,settingsHTML,expiredIds,purge,snapshot,status};
+})();
+
+/* Settings is navigation, not a stack of expanded configuration forms. */
+const Permissions = (() => {
+  function missing(){
+    if(!Native.on)return [];
+    const n=Native.status()||{}, tasks=Store.active();
+    const place=tasks.some(t=>t.reminder?.type==='place');
+    const time=Native.alarmList().length>0;
+    const out=[];
+    if((place||time) && n.notifications===false)out.push(['notif','אפשר התראות']);
+    if(place && n.locationBackground===false)out.push(['loc','אפשר תזכורות מיקום ברקע']);
+    if(time && n.alarms?.exact===false)out.push(['exact','אפשר תזכורות מדויקות']);
+    if((time||place) && n.channel?.blocked)out.push(['chan','הפעל את ערוץ ההתראות']);
+    return out;
+  }
+  function forTask(t){
+    if(!Native.on)return;
+    const n=Native.status()||{};
+    if(t.reminder||t.repeat){
+      if(n.notifications===false)Native.askNotifications();
+      else if(t.reminder?.type==='place' && !n.locationBackground)Native.askLocation();
+      else if((t.reminder?.type==='time'||t.repeat) && n.alarms?.exact===false)Native.askExact();
+    }
+  }
+  return {missing,forTask};
+})();
+const Settings = (() => {
+  let page='home';
+  const titles={home:'הגדרות',update:'עדכון האפליקציה',data:'גיבוי ונתונים',advanced:'מתקדם',auto:'גיבוי אוטומטי',cloud:'גיבוי בענן',archive:'מחיקה מהארכיון',behavior:'התנהגות האפליקציה',perms:'הרשאות מערכת',fix:'נדרשת פעולה',diag:'אבחון',restore:'ייבוא / שחזור',source:'מקור עדכונים',wipe:'מחיקת כל הנתונים'};
+  const parent={update:'home',data:'home',advanced:'home',auto:'data',cloud:'data',archive:'data',fix:'home'};
+  const row=(key,note='')=>`<button class="settings-row" data-settings-page="${key}"><span><b>${titles[key]}</b>${note?`<small>${UI.esc(note)}</small>`:''}</span><span aria-hidden="true">‹</span></button>`;
+  function section(html,title){
+    const box=document.createElement('div');box.innerHTML=html;
+    const h=[...box.querySelectorAll('h2')].find(x=>x.textContent===title);
+    if(!h)return '';
+    let s='',e=h.nextElementSibling;
+    while(e && e.tagName!=='H2'){s+=e.outerHTML;e=e.nextElementSibling;}return s;
+  }
+  const frequency=s=>s.days ? ({1:'כל יום',7:'כל שבוע',30:'כל חודש'}[s.days]||'פעיל') : 'כבוי';
+  function render({updateBody,permsBody,diagBody,moreBody,n,capWarn}){
+    const s=DataCare.status(),c=s.cloud||{},needs=Permissions.missing();
+    const backup=DataCare.settingsHTML();
+    const auto=frequency(s),cloud=c.email?'מחובר':'לא מחובר';
+    let html='';
+    if(page==='home'){
+      if(needs.length)html+=`<div class="notice warn">נדרשות ${needs.length} הגדרות מערכת <button class="btn" data-settings-page="fix">תקן</button></div>`;
+      if(!Store.canPersist)html+='<div class="notice warn">לא ניתן לשמור נתונים במכשיר הזה.</div>';
+      if(s.error)html+='<div class="notice warn">הגיבוי דורש טיפול <button class="btn" data-settings-page="auto">בדוק</button></div>';
+      if(c.email&&Store.all.prefs.syncEnabled!==false&&/שגיאת|כללי|לא תקין|השתנה|גדול/.test(CloudSync.info().message))html+='<div class="notice warn">הסנכרון דורש טיפול <button class="btn" data-settings-page="cloud">בדוק</button></div>';
+      html+=row('update',n.updatePending?'עדכון זמין':Native.on&&Native.apkOld()?'נדרשת התקנת גרסה חדשה':`גרסה ${BUILD.split(' ·')[0]}`)+row('data',`גיבוי אוטומטי: ${auto} · ענן: ${cloud}`)+row('advanced');
+    }else if(page==='data'){
+      html=row('auto',auto)+row('cloud',cloud)+row('archive',Store.all.prefs.archiveDays?`אחרי ${Store.all.prefs.archiveDays} יום`:'לעולם לא')+'<button class="btn p wide" data-care="now">גבה עכשיו</button>';
+      if(c.busy)html+='<div role="status" class="notice">הגיבוי לענן מתבצע…</div>';
+      if(c.message)html+=`<div role="status" class="notice">${UI.esc(c.message)}</div>`;
+    }else if(page==='advanced'){
+      html=['behavior','perms','diag','restore',...(Native.on?['source']:[]),'wipe'].map(x=>row(x)).join('');
+    }else if(page==='update')html=window.MesimaDesktop?'<div class="notice">גרסת מחשב '+UI.esc(BUILD)+'</div><div class="sd">עדכון מתבצע באמצעות התקנת גרסה חדשה.</div>':updateBody;
+    else if(page==='auto')html=section(backup,'גיבוי אוטומטי לנייד').replace(/<button[^>]*data-care="local-now"[\s\S]*?<\/button>/,'');
+    else if(page==='cloud')html=section(backup,'גיבוי בענן · Firebase').replace(/<button[^>]*data-care="cloud-now"[\s\S]*?<\/button>/,'')+`<div class="set"><span>סנכרון אוטומטי בין מכשירים</span><button class="sw" id="syncEnabled" aria-checked="${Store.all.prefs.syncEnabled!==false}"></button></div><div class="sd" role="status">${UI.esc(CloudSync.info().message)}</div>`;
+    else if(page==='archive')html=section(backup,'ניקוי הארכיון');
+    else if(page==='behavior')html=section(moreBody,'התראות באפליקציה');
+    else if(page==='restore')html=section(moreBody,'גיבוי ידני').replace(/<div class="set">[\s\S]*?<\/div><\/div>/g,'')+(localStorage.getItem('mesima.before-import')?'<button class="btn wide" data-care="recover-import">ייצא עותק מלפני השחזור / הסנכרון האחרון</button>':'');
+    else if(page==='source')html=section(moreBody,'מקור העדכונים');
+    else if(page==='wipe')html=section(moreBody,'מסוכן');
+    else if(page==='perms')html=permsBody;
+    else if(page==='diag')html=capWarn+diagBody;
+    else if(page==='fix')html=needs.map(([act,label])=>`<div class="set"><span>${label}</span><button class="btn" data-nat="${act}">תקן</button></div>`).join('')||'<div class="notice">הכול תקין</div>';
+    document.getElementById('settingsBody').innerHTML=(page==='home'?'':`<button class="txtbtn settings-back" data-settings-page="${parent[page]||'advanced'}">› חזרה</button><h2>${titles[page]}</h2>`)+html;
+  }
+  return {render,open(key){page=titles[key]?key:'home';UI.render();},back(){if(page==='home')return false;page=parent[page]||'advanced';UI.render();return true;}};
+})();
+
+/* Pointer handles work with touch, pen and mouse. Arrow keys provide an alternative. */
+const Reorder=(()=>{
+  let drag=null,blockClick=0;
+  const selector='.tcard[data-id],.tsub[data-sub],.krow[data-kid]';
+  const id=el=>el?.dataset.sub||el?.dataset.kid||el?.dataset.id;
+  function peers(el){
+    const t=Store.task(id(el));if(!t)return [];
+    return [...el.parentElement.querySelectorAll(':scope > '+(t.parentId?(el.matches('.tsub')?'.tsub':'.krow'):'.tcard'))].filter(x=>{
+      const b=Store.task(id(x));return b && b.parentId===t.parentId && (t.parentId?Store.isHabit(b)===Store.isHabit(t):(!UI.grouped||(b.kind===t.kind&&Store.isHabit(b)===Store.isHabit(t))));
+    });
+  }
+  function move(ids,from,to){
+    const a=ids.indexOf(from),b=ids.indexOf(to);if(a<0||b<0||a===b)return false;
+    const t=Store.task(from);if(!t)return false;
+    if(t.parentId){
+      const full=(Store.isHabit(t)?Store.habitsOf(t.parentId):Store.subtasksOf(t.parentId)).map(x=>x.id);
+      full.splice(full.indexOf(to),0,full.splice(full.indexOf(from),1)[0]);Store.orderIds(full);
+    }else{
+      const full=Store.allRoots().map(x=>x.id),slots=ids.map(x=>full.indexOf(x)).sort((x,y)=>x-y);
+      const ordered=[...ids];ordered.splice(b,0,ordered.splice(a,1)[0]);slots.forEach((slot,i)=>full[slot]=ordered[i]);Store.orderIds(full);
+    }return true;
+  }
+  function decorate(){
+    document.querySelectorAll(selector).forEach(el=>{
+      if(el.querySelector(':scope > .drag-handle')||peers(el).length<2)return;
+      const b=document.createElement('button');b.className='drag-handle';b.textContent='⠿';b.type='button';b.setAttribute('aria-label','גרור לשינוי סדר; חצים במקלדת להזזה');el.prepend(b);
+    });
+  }
+  function init(){
+    new MutationObserver(decorate).observe(document.body,{childList:true,subtree:true});decorate();
+    document.addEventListener('click',e=>{if(e.target.closest('.drag-handle')||(Date.now()<blockClick&&e.target.closest(selector))){e.preventDefault();e.stopImmediatePropagation();}},true);
+    document.addEventListener('keydown',e=>{
+      if(!e.target.matches('.drag-handle')||!['ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();e.stopImmediatePropagation();const el=e.target.closest(selector),list=peers(el),at=list.indexOf(el)+(e.key==='ArrowUp'?-1:1);
+      if(list[at]&&move(list.map(id),id(el),id(list[at]))){UI.renderTasks();document.dispatchEvent(new Event('tasks-reordered'));}
+    },true);
+    document.addEventListener('pointerdown',e=>{
+      const handle=e.target.closest('.drag-handle');if(!handle||e.button!==0)return;
+      e.preventDefault();e.stopImmediatePropagation();const el=handle.closest(selector),list=peers(el);drag={el,ids:list.map(id),target:el,handle,pointer:e.pointerId};handle.setPointerCapture(e.pointerId);el.classList.add('dragging');
+    },true);
+    document.addEventListener('pointermove',e=>{
+      if(!drag)return;e.preventDefault();
+      const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest(selector);
+      if(hit&&drag.ids.includes(id(hit))){drag.target.classList.remove('drop-target');drag.target=hit;hit.classList.add('drop-target');}
+      const box=drag.el.closest('.mbody')||document.scrollingElement;
+      if(e.clientY<80)box.scrollTop-=14;else if(e.clientY>innerHeight-100)box.scrollTop+=14;
+    },{capture:true,passive:false});
+    const end=e=>{if(!drag)return;const d=drag;drag=null;d.el.classList.remove('dragging');d.target.classList.remove('drop-target');blockClick=Date.now()+350;
+      if(e.type==='pointerup'&&move(d.ids,id(d.el),id(d.target))){UI.renderTasks();document.dispatchEvent(new Event('tasks-reordered'));UI.toast('הסדר נשמר');}
+    };
+    document.addEventListener('pointerup',end,true);document.addEventListener('pointercancel',end,true);
+  }
+  return {init,move};
+})();
+
+/* Stable extension boundary for desktop-only modules. */
+const Desktop=(()=>{
+  if(window.MesimaDesktop){
+    const d=window.MesimaDesktop;
+    window.DesktopBackup={backupStatus:()=>JSON.stringify(d.status()),saveSnapshot:text=>d.snapshot(text),chooseBackupFolder:()=>d.chooseFolder(),configureBackup:n=>d.configure(n),backupNow:()=>d.backup(),cloudSignIn:(e,p,c)=>d.cloud('login',e,p,c),cloudSignOut:()=>d.cloud('logout'),cloudBackup:()=>d.cloud('backup'),cloudList:()=>d.cloud('list'),cloudRestore:id=>d.cloud('restore',id)};
+    d.onStatus(()=>window.dispatchEvent(new Event('backup-status')));
+    d.onList(rows=>window.__cloudBackups?.(rows));d.onRestore(text=>window.__import?.(text));
+  }
+  const modules=new Map();
+  function register(id,module){if(modules.has(id))throw Error('Duplicate desktop module');modules.set(id,module);}
+  function init(){
+    if(!window.MesimaDesktop)return;
+    document.documentElement.classList.add('desktop');
+    modules.forEach(m=>m.init?.({Store,UI,Native,DataCare}));
+    window.MesimaDesktop.onOpen(()=>{UI.screen=null;UI.section='today';UI.render();});
+    Store.onChange(()=>window.MesimaDesktop.schedule(Native.alarmList()));
+    window.MesimaDesktop.schedule(Native.alarmList());
+    window.MesimaDesktop.onReminder(a=>Modal.open({title:a.title,body:`<div class="note">${UI.esc(a.body)}</div>`,buttons:[{label:'סגור',act:()=>Modal.shut()},{label:'דחה ב־15 דקות',kind:'p',act:()=>{window.MesimaDesktop.snooze(a);Modal.shut();}}]}));
+    document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key===','){e.preventDefault();UI.screen='settings';UI.render();}});
+  }
+  return {init,register};
+})();
+
+/* Per-field logical clocks, persistent deletions, optimistic cloud commits.
+   Runtime reminder state and device preferences never leave their device. */
+const SyncModel=(()=>{
+  const collections=['tasks','events','notes','lists','places','links','eventTypes'];
+  const clone=x=>JSON.parse(JSON.stringify(x));
+  const stable=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
+  const content=x=>JSON.parse(JSON.stringify(x, (key,value)=>key==='rt'?undefined:value));
+  function runtime(next,old){
+    if(!next||typeof next!=='object')return next;
+    if(Array.isArray(next))return next.map((v,i)=>runtime(v,Array.isArray(old)?(v?.id?old.find(x=>x.id===v.id):old[i]):null));
+    if(old?.rt)next.rt=clone(old.rt);
+    for(const k of Object.keys(next))if(k!=='rt')next[k]=runtime(next[k],old?.[k]);return next;
+  }
+  const newer=(a,b)=>!b||a[0]>b[0]||(a[0]===b[0]&&a[1]>b[1]);
+  const empty=()=>({schema:1,clock:0,records:{}});
+  function capture(state,data,device){
+    const next=clone(state),seen=new Set();let clock=state.clock+1,changed=false;
+    for(const type of collections)for(const row of data[type]||[]){
+      if(!row.id)continue;const key=type+'/'+row.id;seen.add(key);
+      const record=next.records[key] ||= {fields:{}};
+      const set=(name,value,deleted=false)=>{const old=record.fields[name];if(!old||old.deleted!==deleted||stable(old.value)!==stable(value)){record.fields[name]={stamp:[clock,device],value,deleted};changed=true;}};
+      set('_alive',true);
+      for(const k of new Set([...Object.keys(row),...Object.keys(record.fields)])){
+        if(k==='rt'||k==='_alive'||k==='id'||['__proto__','constructor','prototype'].includes(k))continue;
+        set(k,content(row[k]??null),!(k in row));
+      }
+    }
+    for(const [key,record]of Object.entries(next.records))if(!seen.has(key)&&record.fields._alive?.value!==false){record.fields._alive={stamp:[clock,device],value:false,deleted:false};changed=true;}
+    if(changed)next.clock=clock;return next;
+  }
+  function merge(a,b){
+    const out=clone(a);out.clock=Math.max(a.clock,b.clock);
+    for(const [key,record]of Object.entries(b.records)){
+      const dst=out.records[key] ||= {fields:{}};
+      for(const [k,v]of Object.entries(record.fields))if(newer(v.stamp,dst.fields[k]?.stamp))dst.fields[k]=clone(v);
+    }return out;
+  }
+  function materialize(state,local){
+    const out=clone(local);collections.forEach(k=>out[k]=[]);
+    for(const [key,r]of Object.entries(state.records)){
+      const at=key.indexOf('/'),type=key.slice(0,at),id=key.slice(at+1);
+      if(!collections.includes(type)||r.fields._alive?.value===false)continue;
+      const row={id},old=(local[type]||[]).find(x=>x.id===id);
+      for(const [k,f]of Object.entries(r.fields))if(!f.deleted&&k!=='_alive'&&!['__proto__','constructor','prototype'].includes(k))row[k]=clone(f.value);
+      out[type].push(runtime(row,old));
+    }return out;
+  }
+  function validate(s){
+    if(s?.schema!==1||!Number.isSafeInteger(s.clock)||s.clock<0||!s.records||typeof s.records!=='object'||Array.isArray(s.records))throw Error('נתוני סנכרון לא תקינים');
+    for(const [key,r]of Object.entries(s.records)){
+      if(!collections.includes(key.split('/')[0])||!r?.fields||typeof r.fields!=='object')throw Error('רשומת סנכרון לא תקינה');
+      for(const [k,v]of Object.entries(r.fields))if(['__proto__','constructor','prototype'].includes(k)||!Array.isArray(v.stamp)||!Number.isSafeInteger(v.stamp[0])||typeof v.stamp[1]!=='string')throw Error('חותמת סנכרון לא תקינה');
+    }return s;
+  }
+  return {empty,capture,merge,materialize,validate,stable};
+})();
+const CloudSync=(()=>{
+  let device=localStorage.getItem('mesima.deviceId');if(!device){device=crypto.randomUUID();localStorage.setItem('mesima.deviceId',device);}
+  let state=null,uid='',running=false,applying=false,timer,message='ממתין לכניסה',last=0,remoteCache=null;
+  const info=()=>({message,last,running});
+  const changed=()=>window.dispatchEvent(new Event('sync-status'));
+  async function credentials(){
+    if(window.MesimaDesktop)return window.MesimaDesktop.credentials();
+    if(!window.MesimaNative?.syncCredentials)return null;
+    return new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>{window.__syncCredentials=null;reject(Error('פג זמן ההתחברות'));},12000);
+      window.__syncCredentials=c=>{clearTimeout(timeout);window.__syncCredentials=null;resolve(c);};
+      window.MesimaNative.syncCredentials();
+    });
+  }
+  const save=()=>localStorage.setItem('mesima.sync.'+uid,JSON.stringify(state));
+  async function cleanup(c,current){
+    const key='mesima.syncCleanup.'+uid;if(Date.now()-Number(localStorage.getItem(key)||0)<3600000)return;
+    let token='';
+    for(let page=0;page<5;page++){
+      const u=`https://firebasestorage.googleapis.com/v0/b/${c.bucket}/o?prefix=${encodeURIComponent('users/'+uid+'/sync/')}&maxResults=100${token?'&pageToken='+encodeURIComponent(token):''}`;
+      const list=await(await request(u,c.token)).json();
+      for(const item of list.items||[])if(item.name!==current&&item.name.startsWith('users/'+uid+'/sync/')&&Date.parse(item.timeCreated)<Date.now()-86400000){
+        await request(`https://firebasestorage.googleapis.com/v0/b/${c.bucket}/o/${encodeURIComponent(item.name)}`,c.token,{method:'DELETE'}).catch(()=>{});
+      }
+      token=list.nextPageToken;if(!token)break;
+    }localStorage.setItem(key,String(Date.now()));
+  }
+  function localChange(){if(applying||!state)return;state=SyncModel.capture(state,Store.all,device);save();schedule();}
+  function schedule(){clearTimeout(timer);timer=setTimeout(run,8000);}
+  async function request(url,token,options={}){
+    const scheme=new URL(url).hostname==='firebasestorage.googleapis.com'?'Firebase ':'Bearer ';
+    const r=await fetch(url,{...options,headers:{Authorization:scheme+token,...options.headers},signal:AbortSignal.timeout(20000)});
+    if(!r.ok){const e=Error(r.status===403?'יש לפרסם את כללי הסנכרון החדשים ב־Firebase':`שגיאת חיבור (${r.status})`);e.status=r.status;throw e;}return r;
+  }
+  async function run(){
+    if(running||Store.all.prefs.syncEnabled===false||!navigator.onLine)return;
+    running=true;
+    try{
+      const c=await credentials();if(!c?.token){message='ממתין לכניסה';return;}
+      const bound=localStorage.getItem('mesima.syncAccount');
+      if(bound&&bound!==c.uid){message='החשבון השתנה — הפעל סנכרון מחדש כדי למזג את הנתונים';return;}
+      if(uid!==c.uid){uid=c.uid;localStorage.setItem('mesima.syncAccount',uid);const old=localStorage.getItem('mesima.sync.'+uid);state=old?SyncModel.validate(JSON.parse(old)):SyncModel.empty();state=SyncModel.capture(state,Store.all,device);save();}
+      const doc=`https://firestore.googleapis.com/v1/projects/${c.project}/databases/(default)/documents/users/${uid}/sync/state`;
+      let remote=null,remoteState=SyncModel.empty();
+      try{remote=await(await request(doc,c.token)).json();}catch(e){if(e.status!==404)throw e;}
+      if(remote){
+        const path=remote.fields?.path?.stringValue;
+        if(!new RegExp('^users/'+uid+'/sync/[0-9a-f-]{36}\\.json$').test(path))throw Error('נתיב סנכרון לא תקין');
+        if(remoteCache?.path===path)remoteState=remoteCache.state;
+        else{
+          const r=await request(`https://firebasestorage.googleapis.com/v0/b/${c.bucket}/o/${encodeURIComponent(path)}?alt=media`,c.token);
+          const text=await r.text();if(new TextEncoder().encode(text).length>20971520)throw Error('הסנכרון גדול מ־20MB');remoteState=SyncModel.validate(JSON.parse(text));remoteCache={path,state:remoteState};
+        }
+      }
+      // Capture again after network awaits so an edit made during download is included.
+      state=SyncModel.capture(state,Store.all,device);
+      const combined=SyncModel.merge(state,remoteState),text=SyncModel.stable(combined);
+      if(text!==SyncModel.stable(remoteState)){
+        if(new TextEncoder().encode(text).length>20971520)throw Error('הסנכרון גדול מ־20MB');
+        const path=`users/${uid}/sync/${crypto.randomUUID()}.json`;
+        const object=`https://firebasestorage.googleapis.com/v0/b/${c.bucket}/o/${encodeURIComponent(path)}`;
+        const boundary=crypto.randomUUID();
+        const body=`--${boundary}\r\nContent-Type: application/json; charset=utf-8\r\n\r\n${JSON.stringify({name:path,contentType:'application/json'})}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${text}\r\n--${boundary}--`;
+        await request(`https://firebasestorage.googleapis.com/v0/b/${c.bucket}/o?name=${encodeURIComponent(path)}`,c.token,{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary,'X-Goog-Upload-Protocol':'multipart'},body});
+        const condition=remote?'currentDocument.updateTime='+encodeURIComponent(remote.updateTime):'currentDocument.exists=false';
+        try{await request(doc+'?'+condition,c.token,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{path:{stringValue:path},schema:{integerValue:'1'}}})});}
+        catch(e){await request(object,c.token,{method:'DELETE'}).catch(()=>{});if([409,412,400].includes(e.status)){schedule();return;}throw e;}
+      }
+      // Defer importing while an editor is open; the next pass merges its saved work.
+      if(!document.querySelector('#modal.on')&&!document.activeElement?.isContentEditable){
+        state=SyncModel.merge(SyncModel.capture(state,Store.all,device),combined);
+        const next=SyncModel.materialize(state,Store.all);
+        if(SyncModel.stable(next)!==SyncModel.stable(Store.all)){
+          applying=true;try{Store.import(JSON.stringify(next));}finally{applying=false;}
+        }
+        save();
+      }
+      last=Date.now();message='מסונכרן';
+      // Previous sync snapshots are transient; user-created backups are untouched.
+      if(remote?.fields?.path?.stringValue)cleanup(c,remote.fields.path.stringValue).catch(()=>{});
+    }catch(e){message=e.message||'הסנכרון ממתין לחיבור';}
+    finally{running=false;changed();}
+  }
+  function init(){Store.onChange(localChange);window.addEventListener('backup-status',schedule);window.addEventListener('online',schedule);window.addEventListener('sync-status',()=>{if(UI.screen==='settings')UI.render();});setInterval(run,30000);schedule();}
+  function enable(on){Store.setPref('syncEnabled',on);if(on){localStorage.removeItem('mesima.syncAccount');uid='';state=null;schedule();}else message='הסנכרון כבוי';changed();}
+  return {init,info,run,enable};
 })();
 
 UI.init();
 Engine.start();
 
 DataCare.init();
+Reorder.init();
+Desktop.init();
+CloudSync.init();
 
 </script>
 </body>
