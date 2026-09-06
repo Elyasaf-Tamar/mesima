@@ -344,6 +344,10 @@
          border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:14px}
   .dsep{font-size:11.5px;color:var(--muted2);letter-spacing:.04em;margin:18px 0 8px}
 
+  /* שורת הוספת פריט בעורך — שדה וכפתור, לא רק שדה */
+  .newrow{display:flex;align-items:center;gap:8px}
+  .newrow .additem{flex:0 0 auto;padding:9px 12px;font-size:13px}
+
   /* מסך הצ׳קליסט */
   .clhead{margin-bottom:12px}
   .clsub{font-size:12.5px;color:var(--muted2);margin-bottom:8px}
@@ -854,7 +858,7 @@
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.3 · 2026-09-06';
+const BUILD = '4.4 · 2026-09-06';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.1';
 
@@ -1083,6 +1087,7 @@ const Store = (() => {
         /* צ׳קליסט רגיל נשאר רגיל — חזרתיות נדלקת רק במפורש */
         c.repeat = null;
       }
+      if (c.once === undefined) c.once = null;
     });
   });
 
@@ -1481,6 +1486,14 @@ const Store = (() => {
     /* ---------- צ׳קליסט חוזר ----------
        אותו אובייקט חוזר במחזורים. לא נוצר עותק חדש בכל שבוע: המחזור
        הפתוח נשאר פתוח עד שמסמנים, ולפני המופע הבא הסימונים מתאפסים. */
+    /** תזכורת אחת לצ׳קליסט חד-פעמי: תאריך ושעה, ותו לא */
+    setChecklistOnce(id, clId, at){
+      const c = this.checklistOf(id, clId); if(!c) return false;
+      c.once = (at && at.date && at.time) ? { date:at.date, time:at.time } : null;
+      c.rt = c.rt || {};
+      c.rt.firedKey = '';
+      save(); return true;
+    },
     setChecklistRepeat(id, clId, rep){
       const c = this.checklistOf(id, clId); if(!c) return false;
       c.repeat = rep ? {
@@ -2855,6 +2868,20 @@ const Native = (() => {
         /* היום כבר ירה? Engine מסמן firedKey ליום הנוכחי */
         if (day === t0 && t.rt && t.rt.firedKey === new Date().toDateString() + r.at) return;
         out.push({ id:'t_'+t.id+'_'+day, at, title:t.title, body:'הגיע הזמן — ' + r.at });
+      });
+    });
+
+    /* צ׳קליסט חד-פעמי עם שעה: תזכורת אחת, ביום שנבחר */
+    Store.all.tasks.forEach(t => {
+      if (t.archived) return;
+      (t.checklists || []).forEach(c => {
+        if (c.repeat || !c.once || !c.once.date || !c.once.time) return;
+        if (c.items.length && c.items.every(x => x.checked)) return;
+        const at = ms(c.once.date, c.once.time);
+        if (at < soon) return;
+        const left = c.items.filter(x => !x.checked).length;
+        out.push({ id:'co_'+t.id+'_'+c.id, at, title:c.name,
+                   body:(left ? left + ' פריטים פתוחים' : 'צ׳קליסט') + ' · ' + t.title });
       });
     });
 
@@ -4539,37 +4566,83 @@ const Wire = (() => {
      * ליצירה מתוך זרימת ה-+ וגם להוספת צ׳קליסט לתוך מיכל, כדי שהשאלה
      * תישאל אותו דבר בשני המקומות.
      */
-    function checklistSetupModal(done, back){
-      let rep = false;
-      let days = [6];
-      Modal.open({ title:'צ׳קליסט חדש', body:`
+    function checklistSetupModal(done, back, cur){
+      const c0 = cur || {};
+      let rep = !!(c0.repeat && (c0.repeat.days||[]).length);
+      let days = rep ? c0.repeat.days.slice() : [6];
+      let skipTypes = rep ? (c0.repeat.skipTypes||[]).slice() : [];
+      let skipScope = (rep && c0.repeat.skipScope === 'week') ? 'week' : 'day';
+      let around = !!(rep && c0.repeat.around);
+      const types = Store.eventTypes();
+      const editing = !!cur;
+      Modal.open({ title: editing ? 'הגדרות הצ׳קליסט' : 'צ׳קליסט חדש', body:`
         <div style="margin-bottom:12px"><label>שם הצ׳קליסט</label>
-          <input type="text" id="clNew" placeholder="למשל: ציוד ליום ראשון" autocomplete="off"></div>
+          <input type="text" id="clNew" value="${esc(c0.name || '')}"
+                 placeholder="למשל: ציוד ליום ראשון" autocomplete="off"></div>
         <label>איזה צ׳קליסט</label>
         <div class="seg" id="clKind">
-          <button data-ck="once" aria-selected="true">חד-פעמי</button>
-          <button data-ck="rep"  aria-selected="false">רב-פעמי</button>
+          <button data-ck="once" aria-selected="${!rep}">חד-פעמי</button>
+          <button data-ck="rep"  aria-selected="${rep}">רב-פעמי</button>
         </div>
-        <div class="ex" id="clKindEx">רשימה אחת לסימון. נשארת כמו שהיא.</div>
-        <div id="clRepBox" hidden>
+        <div class="ex" id="clKindEx">${rep
+          ? 'קבוצת פריטים שחוזרת. היא נשארת צ׳קליסט — לא הרגל ולא משימה.'
+          : 'רשימה אחת לסימון. אפשר לקבוע לה שעה, או להשאיר אותה בלי.'}</div>
+
+        <div id="clOnceBox" ${rep ? 'hidden' : ''}>
+          <label style="margin-top:12px">תזכורת — אופציונלי</label>
+          <div class="fgrid">
+            <div><input type="date" id="clOnceDate" value="${esc(c0.onceDate || '')}"></div>
+            <div><input type="time" id="clOnceTime" value="${esc(c0.onceTime || '')}"></div>
+          </div>
+          <div class="ex">אם תמלא שעה — תקבל תזכורת אחת על הצ׳קליסט הזה.
+            אפשר גם להשאיר ריק.</div>
+        </div>
+
+        <div id="clRepBox" ${rep ? '' : 'hidden'}>
           <label style="margin-top:12px">באילו ימים</label>
           <div class="days" id="clNewDays">${DAYL.map((x,i) =>
             `<button data-d="${i}" aria-selected="${days.includes(i)}">${x}</button>`).join('')}</div>
           <label style="margin-top:12px">באיזו שעה</label>
-          <input type="time" id="clNewTime" value="23:00">
+          <input type="time" id="clNewTime" value="${esc((c0.repeat && c0.repeat.time) || '23:00')}">
           <div class="ex">אותו צ׳קליסט חוזר בכל מחזור. סימון כל הפריטים סוגר את
             המחזור לבד, מחזור שלא הספקת נשאר פתוח, והסימונים מתאפסים שש שעות
             לפני המופע הבא.</div>
+          ${types.length ? `
+          <div class="esechead" style="margin-top:14px"><span>חריגים</span></div>
+          <div class="ex">דלג כשיש אירוע מסוג…</div>
+          <div id="clSkip2" style="margin-top:6px">${types.map(x => `
+            <button class="pick" data-skt2="${x.id}" aria-checked="${skipTypes.includes(x.id)}"
+                    style="border-bottom:0;padding:8px 2px">
+              <span class="bx">✓</span>
+              <span class="edot" style="background:${x.color};width:10px;height:10px"></span>
+              <span class="pn">${esc(x.name)}</span></button>`).join('')}</div>
+          <div id="clScope2Wrap" ${skipTypes.length ? '' : 'hidden'}>
+            <label style="margin-top:10px">מתי לדלג</label>
+            <div class="seg" id="clScope2">
+              <button data-sc="day"  aria-selected="${skipScope==='day'}">ביום האירוע</button>
+              <button data-sc="week" aria-selected="${skipScope==='week'}">בשבוע של האירוע</button>
+            </div></div>` : ''}
+          <div class="esechead" style="margin-top:14px"><span>התאמה סביב אירועים</span></div>
+          <button class="pick" id="clAround2" aria-checked="${around}"
+                  style="border-bottom:0;padding:8px 2px">
+            <span class="bx">✓</span>
+            <span class="pn">אל תזכיר באמצע אירוע</span></button>
+          <div class="ex">המחזור עדיין נדרש — הוא רק לא יצלצל באמצע האירוע.
+            תזכורת הכנה שש שעות לפני, ותזכורת מעקב שעתיים אחרי.</div>
         </div>`,
         buttons:[{label:'ביטול',act:()=>{ Modal.shut(); back && back(); }},
-                 {label:'צור',kind:'p',act:()=>{
+                 {label: editing ? 'שמור' : 'צור', kind:'p', act:()=>{
                     const n = (document.getElementById('clNew').value || '').trim() || 'צ׳קליסט';
                     if (rep && !days.length){ UI.toast('צריך לבחור לפחות יום אחד'); return; }
                     const time = (document.getElementById('clNewTime')||{}).value || '23:00';
+                    const od = (document.getElementById('clOnceDate')||{}).value || '';
+                    const ot = (document.getElementById('clOnceTime')||{}).value || '';
                     Modal.shut();
-                    done({ name:n, repeat: rep
-                      ? { days:days.slice(), time, skipTypes:[], skipScope:'day', around:false }
-                      : null });
+                    done({ name:n,
+                      repeat: rep
+                        ? { days:days.slice(), time, skipTypes:skipTypes.slice(), skipScope, around }
+                        : null,
+                      onceDate: rep ? '' : od, onceTime: rep ? '' : ot });
                  }}]});
       Modal.body.addEventListener('click', e => {
         const k = e.target.closest('#clKind button');
@@ -4578,15 +4651,29 @@ const Wire = (() => {
           Modal.body.querySelectorAll('#clKind button').forEach(x =>
             x.setAttribute('aria-selected', x === k));
           document.getElementById('clRepBox').hidden = !rep;
+          document.getElementById('clOnceBox').hidden = rep;
           document.getElementById('clKindEx').textContent = rep
             ? 'קבוצת פריטים שחוזרת. היא נשארת צ׳קליסט — לא הרגל ולא משימה.'
-            : 'רשימה אחת לסימון. נשארת כמו שהיא.';
+            : 'רשימה אחת לסימון. אפשר לקבוע לה שעה, או להשאיר אותה בלי.';
           return;
         }
         const d = e.target.closest('#clNewDays button');
         if (d){ const i = +d.dataset.d;
                 days = days.includes(i) ? days.filter(x => x !== i) : days.concat(i);
-                d.setAttribute('aria-selected', days.includes(i)); }
+                d.setAttribute('aria-selected', days.includes(i)); return; }
+        const sk = e.target.closest('[data-skt2]');
+        if (sk){ const id = sk.dataset.skt2;
+                 skipTypes = skipTypes.includes(id) ? skipTypes.filter(x => x !== id) : skipTypes.concat(id);
+                 sk.setAttribute('aria-checked', skipTypes.includes(id));
+                 const w = document.getElementById('clScope2Wrap'); if (w) w.hidden = !skipTypes.length;
+                 return; }
+        const sc = e.target.closest('#clScope2 button');
+        if (sc){ skipScope = sc.dataset.sc;
+                 Modal.body.querySelectorAll('#clScope2 button').forEach(x =>
+                   x.setAttribute('aria-selected', x === sc)); return; }
+        if (e.target.closest('#clAround2')){
+          around = !around;
+          document.getElementById('clAround2').setAttribute('aria-checked', around); return; }
       });
       setTimeout(() => document.getElementById('clNew')?.focus(), 60);
     }
@@ -5886,9 +5973,15 @@ const Wire = (() => {
         const hasHabs = isNew ? pending.some(c => !!c.repeat) : Store.habitsOf(t.id).length;
         let inner = '';
         lists.forEach(c => {
+          const rep = c.repeat && (c.repeat.days||[]).length;
+          const sub = rep ? 'חוזר · ' + UI.repeatLabel({ days:c.repeat.days }) + ' ' + c.repeat.time
+                    : (c.once && c.once.time) ? 'תזכורת · ' + Plan.label(c.once.date) + ' ' + c.once.time
+                    : '';
           inner += `<div class="esec" data-clsec="${c.id}">
             <div class="esechead"><span>${esc(c.name)}</span>
+              <button class="secact" data-clcfg="${c.id}">הגדרות</button>
               <button class="secact" data-etcl="${c.id}">+ פריט</button></div>
+            ${sub ? `<div class="ex" style="margin:-2px 0 6px">${esc(sub)}</div>` : ''}
             <div class="clbox" data-clbox="${c.id}">${itemRows(c)}</div></div>`;
         });
         if (hasSubs) inner += `<div class="esec">
@@ -5948,7 +6041,7 @@ const Wire = (() => {
               esc(d ? d.note : (t ? (t.note||'') : ''))}</textarea></div>
 
         ${showKind ? `
-        <div style="margin-bottom:14px"><label>איזה סוג משימה?</label>
+        <div style="margin-bottom:14px" id="etKindWrap"><label>איזה סוג משימה?</label>
           <div class="kindpick" id="etKind">
             <button data-k="short" aria-selected="${kind==='short'}">
               <span class="kn">קצרת טווח</span>
@@ -6094,6 +6187,35 @@ const Wire = (() => {
         }
       }
 
+      /**
+       * האם כבר נוצר משהו שתלוי בסוג המשימה. אחרי זה אין טעם — ואין
+       * דרך נקייה — להציע להחליף סוג: מיכל שיש בו תת-משימה לא יכול
+       * להפוך לצ׳קליסט, ולמשימה עם תזכורת נסיעה אין משמעות כמיכל.
+       */
+      function committed(){
+        if (!isNew) return true;               /* בעריכה הבורר מוסתר ממילא */
+        if (pending.length) return true;       /* תת-משימות שממתינות */
+        if (listsNow().some(c => c.items.length)) return true;
+        if (mode === 'place' || mode === 'trip') return true;
+        return false;
+      }
+
+      /**
+       * בורר הסוג נעלם ברגע שההכרעה כבר נפלה: או שהמשימה הפכה לצ׳קליסט,
+       * או שכבר נבנה בה משהו שתלוי בסוג. בורר שמציע לשנות דבר שכבר קרה
+       * הוא הבטחה שאי אפשר לקיים.
+       */
+      function syncKindPicker(){
+        const done = committed(), isCheck = kind === 'check';
+        const toChk = g('etToCheck'), unChk = g('etUnCheck');
+        if (toChk) toChk.hidden = !(kind === 'short' && !isChild && !done);
+        if (unChk) unChk.hidden = !isCheck;
+        /* מסתירים את כל הבלוק, כולל התווית — שאלה בלי תשובות אפשריות
+           מבלבלת יותר מכלום. */
+        const wrap = g('etKindWrap');
+        if (wrap) wrap.hidden = isCheck || done;
+      }
+
       /** מגירה שאין בה כלום היא הבטחה שלא מתקיימת — אז היא לא מוצגת */
       function syncAdvAcc(){
         const acc = g('etAdvAcc'); if (!acc) return;
@@ -6164,10 +6286,7 @@ const Wire = (() => {
         if (chkEx) chkEx.textContent = checkMode === 'rep'
           ? 'חוזר על עצמו, בדיוק כמו הרגל: ימים קבועים, שעה, דילוג לפי סוג אירוע, ואי-הפרעה באמצע אירוע.'
           : 'רשימה אחת. ברגע שתסמן את כל הפריטים היא עוברת לארכיון.';
-        /* כפתורי ההמרה: רק במקום שבו הם באמת אפשריים */
-        const toChk = g('etToCheck'), unChk = g('etUnCheck');
-        if (toChk) toChk.hidden = !(kind === 'short' && !isChild);
-        if (unChk) unChk.hidden = !isCheck;
+        syncKindPicker();
         /* בצ׳קליסט אין שני בוררים שחופפים: "חד-פעמי / רב-פעמי" *הוא*
            בורר ההתראה. חד-פעמי מראה את התזכורת החד-פעמית, רב-פעמי מראה
            את ממשק החזרה. בורר ההתראה עצמו נעלם. */
@@ -6302,7 +6421,7 @@ const Wire = (() => {
               g('etPlace').value = tops[0].id;
           }
           adv.textContent = mode === which ? 'בטל' : (which === 'place' ? 'בחר מקום' : 'לפי מרחק');
-          applyMode(); refreshSummaries(); return;
+          applyMode(); syncKindPicker(); refreshSummaries(); return;
         }
         if (e.target.closest('#etEvLink') || e.target.closest('#etEvPick')){
           /* אפשר לבחור אירוע כבר ביצירה: שומרים טיוטה, בוחרים,
@@ -6380,11 +6499,17 @@ const Wire = (() => {
                מכאן — הסגירה הזאת כבר לא שייכת ל-DOM שעל המסך. */
             if (isNew){
               const nid = 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-              draft.pendLists.push({ id:nid, name:cfg.name, items:[], repeat:cfg.repeat });
+              draft.pendLists.push({ id:nid, name:cfg.name, items:[], repeat:cfg.repeat,
+                                     once: cfg.onceTime ? { date:cfg.onceDate || Plan.today(),
+                                                            time:cfg.onceTime } : null });
               taskModal({ ...o, draft, focusList:nid });
             } else {
               const c = Store.addChecklist(t.id, cfg.name);
-              if (c && cfg.repeat) Store.setChecklistRepeat(t.id, c.id, cfg.repeat);
+              if (c){
+                if (cfg.repeat) Store.setChecklistRepeat(t.id, c.id, cfg.repeat);
+                else if (cfg.onceTime) Store.setChecklistOnce(t.id, c.id,
+                  { date: cfg.onceDate || Plan.today(), time: cfg.onceTime });
+              }
               taskModal({ ...o, draft, focusList: c ? c.id : null });
             }
           }, () => taskModal({ ...o, draft }));
@@ -6428,6 +6553,32 @@ const Wire = (() => {
         if (ied){ editItemInline(ied.dataset.clid, ied.dataset.iedit); return; }
         const etcl = e.target.closest('[data-etcl]');
         if (etcl){ addItemInline(etcl.dataset.etcl); return; }
+        const cfgBtn = e.target.closest('[data-clcfg]');
+        if (cfgBtn){
+          /* אחרי היצירה אפשר לחזור ולשנות הכול — שם, מצב, שעה וחריגים.
+             קודם ההגדרה הייתה חד-פעמית ולא הייתה שום דרך לתקן אותה. */
+          const id = cfgBtn.dataset.clcfg;
+          const c  = listsNow().find(x => x.id === id); if(!c) return;
+          const draft = snapshot();
+          Modal.shut();
+          checklistSetupModal(cfg => {
+            if (isNew){
+              const pc = draft.pendLists.find(x => x.id === id);
+              if (pc){ pc.name = cfg.name; pc.repeat = cfg.repeat;
+                       pc.once = cfg.onceTime ? { date:cfg.onceDate || Plan.today(),
+                                                  time:cfg.onceTime } : null; }
+            } else {
+              Store.renameChecklist(t.id, id, cfg.name);
+              Store.setChecklistRepeat(t.id, id, cfg.repeat);
+              if (!cfg.repeat) Store.setChecklistOnce(t.id, id,
+                cfg.onceTime ? { date: cfg.onceDate || Plan.today(), time: cfg.onceTime } : null);
+            }
+            taskModal({ ...o, draft });
+          }, () => taskModal({ ...o, draft }),
+             { name:c.name, repeat:c.repeat,
+               onceDate:(c.once||{}).date || '', onceTime:(c.once||{}).time || '' });
+          return;
+        }
 
         const rm = e.target.closest('[data-rm]');
         if (rm){
@@ -6467,10 +6618,14 @@ const Wire = (() => {
         if (inp){ inp.focus(); return; }
         const row = document.createElement('div');
         row.className = 'subrow newrow';
+        /* כפתור משלו. בלי זה המשתמש לוחץ על "הוסף" הראשי של הטופס,
+           והאפליקציה מבינה "הוסף משימה" במקום "הוסף פריט". */
         row.innerHTML = `<input type="text" class="newit" placeholder="שם הפריט…"
-          autocomplete="off" style="flex:1">`;
+          autocomplete="off" style="flex:1">
+          <button class="btn additem" type="button">הוסף פריט</button>`;
         box.appendChild(row);
         inp = row.querySelector('.newit');
+
         const rowsBefore = () => {
           const html = itemRows(c);
           [...box.querySelectorAll(':scope > *')].forEach(el => {
@@ -6486,8 +6641,15 @@ const Wire = (() => {
           else Store.addChecklistItem(t.id, clId, v, '');
           inp.value = '';
           rowsBefore();
+          syncKindPicker();
           return true;
         };
+        const addBtn = row.querySelector('.additem');
+        addBtn.addEventListener('mousedown', e => e.preventDefault());
+        addBtn.addEventListener('click', e => {
+          e.preventDefault(); e.stopPropagation();
+          commit(); inp.focus();
+        });
         inp.addEventListener('keydown', e => {
           if (e.key === 'Enter'){ e.preventDefault(); commit(); inp.focus(); }
           if (e.key === 'Escape'){ e.preventDefault(); row.remove(); repaintLists(); }
@@ -6781,8 +6943,9 @@ const Wire = (() => {
             c.items.forEach(it => Store.addChecklistItem(created.id, nc.id, it.title, it.note));
             Store.checklistOf(created.id, nc.id).items.forEach((x,i) => {
               x.checked = !!(c.items[i] && c.items[i].checked); });
-            /* חזרתיות שנבחרה עוד לפני ששמרנו את המשימה */
+            /* חזרתיות או תזכורת שנבחרו עוד לפני ששמרנו את המשימה */
             if (c.repeat) Store.setChecklistRepeat(created.id, nc.id, c.repeat);
+            else if (c.once) Store.setChecklistOnce(created.id, nc.id, c.once);
           });
           /* ילדים שהמתינו נשמרים עכשיו, בסדר שבו נוצרו */
           pending.forEach((c, i) => {
@@ -8338,6 +8501,24 @@ const Engine = (() => {
           Alerts.fire(ev, mins > 0 ? `מתחיל בעוד ${mins} דקות (${ev.time})` : `מתחיל עכשיו (${ev.time})`, 'event');
         }
       }
+    });
+
+    /* ------- צ׳קליסט חד-פעמי עם שעה ------- */
+    Store.all.tasks.forEach(t => {
+      if (t.archived) return;
+      (t.checklists || []).forEach(c => {
+        if (c.repeat || !c.once || !c.once.date || !c.once.time) return;
+        if (c.items.length && c.items.every(x => x.checked)) return;
+        if (c.once.date !== Plan.today()) return;
+        if (new Date().toTimeString().slice(0,5) < c.once.time) return;
+        c.rt = c.rt || {};
+        const key = c.once.date + '@' + c.once.time;
+        if (c.rt.firedKey === key) return;
+        c.rt.firedKey = key; changed = true;
+        const left = c.items.filter(x => !x.checked).length;
+        Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
+                    (left ? left + ' פריטים פתוחים' : 'צ׳קליסט') + ' · ' + t.title, 'task');
+      });
     });
 
     /* ------- צ׳קליסטים חוזרים -------
