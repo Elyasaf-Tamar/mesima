@@ -1,0 +1,7 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="54dp" android:gravity="center_vertical" android:layoutDirection="rtl">
+ <TextView android:id="@+id/row_check" android:layout_width="44dp" android:layout_height="48dp" android:text="☐" android:contentDescription="סמן בוצע" android:textSize="24sp" android:gravity="center" android:textColor="#8AB4F8"/>
+ <LinearLayout android:id="@+id/row_body" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="9dp">
+  <TextView android:id="@+id/row_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#EDF1F7" android:textSize="15sp" android:maxLines="2" android:ellipsize="end"/>
+  <TextView android:id="@+id/row_meta" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#A9B5C6" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+ </LinearLayout>
+</LinearLayout>

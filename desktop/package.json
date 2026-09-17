@@ -1,0 +1,12 @@
+{
+  "name": "mesima-desktop",
+  "version": "4.8",
+  "private": true,
+  "main": "main.cjs",
+  "description": "Mesima desktop",
+  "author": "Mesima",
+  "devDependencies": {
+    "electron": "44.2.0",
+    "@electron/packager": "20.3.0"
+  }
+}

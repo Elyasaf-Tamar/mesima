@@ -1,0 +1,71 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// A local-only build works without a Firebase project.
+if (file('google-services.json').exists()) apply plugin: 'com.google.gms.google-services'
+
+android {
+    buildFeatures { buildConfig true }
+    namespace 'il.mesima.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "il.mesima.app"
+        minSdk 29
+        targetSdk 35
+        versionCode 17
+        versionName "1.7"
+    }
+
+    // Release signing uses the existing private key supplied outside source control.
+    // A missing key still permits local debug builds with Android's debug key.
+    signingConfigs {
+        release {
+            if (System.getenv('MESIMA_KEYSTORE')) {
+                storeFile file(System.getenv('MESIMA_KEYSTORE'))
+                storePassword System.getenv('MESIMA_STORE_PASSWORD')
+                keyAlias System.getenv('MESIMA_KEY_ALIAS')
+                keyPassword System.getenv('MESIMA_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('MESIMA_KEYSTORE')) signingConfig signingConfigs.release
+        }
+    }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation 'androidx.work:work-runtime-ktx:2.10.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+    implementation 'com.google.firebase:firebase-storage'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303' 
+    implementation 'androidx.core:core-ktx:1.13.1'
+    // play-services-location גורר androidx.fragment ישן, ו-androidx.activity
+    // דורש 1.3.0+. בלי הצהרה מפורשת Gradle לא מכריע ונופל עם
+    // "Upgrade Fragment version to at least 1.3.0."
+    implementation 'androidx.fragment:fragment:1.8.5'
+    // WebViewAssetLoader: מגיש קבצים מקומיים מעל origin וירטואלי של https.
+    // בלעדיו כל החלפה בין file:// לרשת הייתה משנה origin ומאבדת את כל הנתונים.
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.activity:activity:1.9.3'
+    implementation 'com.google.android.gms:play-services-location:21.3.0'
+}

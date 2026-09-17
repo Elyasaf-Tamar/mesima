@@ -1,25 +1,30 @@
-name: build-apk
+name: Verify web and Android
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: unpack sources
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build web assets and run model tests
         run: |
-          rm -rf android
-          unzip -q android-src.zip
-          mkdir -p android/app/src/main/assets
-          cp index.html android/app/src/main/assets/index.html
+          node tools/build.mjs
+          node --test tests/*.test.mjs
+          git diff --exit-code -- index.html android/app/src/main/assets/index.html
 
       - uses: actions/setup-java@v4
         with:
@@ -28,53 +33,30 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.9'
 
-      - name: build
-        id: build
-        continue-on-error: true
+      - name: Test and compile Android
         working-directory: android
-        run: |
-          set -o pipefail
-          gradle assembleDebug --no-daemon --warning-mode=none 2>&1 | tee ../build.log
+        run: gradle testDebugUnitTest assembleDebug --no-daemon --console=plain
 
-      - name: report
+      - name: Save Android test results
         if: always()
-        run: |
-          {
-            echo "## תוצאה: ${{ steps.build.outcome }}"
-            if [ -f build.log ]; then
-              echo "### מה נשבר"
-              echo '```'
-              grep -E "^e: |error: |^FAILURE|^\* What went wrong|^> |Caused by|Unresolved reference|not found" build.log | head -40
-              echo '```'
-              echo "### 60 השורות האחרונות"
-              echo '```'
-              tail -60 build.log
-              echo '```'
-            fi
-          } >> $GITHUB_STEP_SUMMARY
-          [ "${{ steps.build.outcome }}" = "success" ]
-
-      - name: collect apk
-        if: steps.build.outcome == 'success'
-        run: |
-          mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk out/mesima.apk
-
-      - uses: actions/upload-artifact@v4
-        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
-          name: mesima-apk
-          path: out/*.apk
+          name: android-test-results
+          path: android/app/build/reports/tests/
+          if-no-files-found: ignore
 
-      - uses: softprops/action-gh-release@v2
-        if: steps.build.outcome == 'success'
+      # Debug builds are for developers. Install the signed APK in Releases.
+      # An ordinary source push must not replace that APK with another signing key.
+      - name: Save development APK
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: build-${{ github.run_number }}
-          name: mesima build ${{ github.run_number }}
-          files: out/*.apk
+          name: mesima-development-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+

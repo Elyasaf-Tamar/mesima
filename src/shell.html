@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#14171c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>משימה</title>
+<style>
+/* BUILD_STYLES */
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="hTitle">היום</h1>
+    <div class="sp"></div>
+    <div class="gps" id="gps"><span class="dot"></span><span id="gpsTxt">GPS</span></div>
+    <button class="hbtn" id="topMenu" aria-label="תפריט">⋯</button>
+  </header>
+
+  <div class="fabwrap">
+  <main>
+
+    <!-- ======================= היום ======================= -->
+    <section class="sec on" id="s-today">
+      <div class="modes" id="tvModes">
+        <button data-v="day" aria-selected="true">היום</button>
+        <button data-v="d3">3 ימים</button>
+        <button data-v="week">שבוע</button>
+        <button data-v="month">חודש</button>
+      </div>
+      <div id="todayBody"></div>
+    </section>
+
+    <!-- ======================= משימות ======================= -->
+    <section class="sec" id="s-tasks">
+      <div class="tabrow">
+        <div class="tabs" id="tFilters">
+          <button data-f="all" aria-selected="true">הכול</button>
+          <button data-f="army">צבא</button>
+          <button data-f="home">בית</button>
+          <button data-f="free">אישי</button>
+        </div>
+        <button class="hbtn sm" id="tSearchOpen" aria-label="חיפוש במשימות">⌕</button>
+      </div>
+      <div class="searchbar" id="tSearchBar" hidden>
+        <input type="search" id="tSearch" placeholder="חיפוש במשימות"
+               autocomplete="off" aria-label="חיפוש במשימות">
+        <button class="hbtn sm" id="tSearchClose" aria-label="סגור חיפוש">×</button>
+      </div>
+      <div id="tasksBody"></div>
+    </section>
+
+    <!-- ======================= ספרייה ======================= -->
+    <section class="sec" id="s-library">
+      <div id="libIndex">
+        <h2 class="sh">כלים</h2>
+        <button class="row" data-lib="notes" style="width:100%;text-align:start">
+          <div class="bd"><div class="t">הערות</div><div class="m" id="libNotes">—</div></div>
+          <span class="chev">‹</span>
+        </button>
+        <button class="row" data-lib="lists" style="width:100%;text-align:start">
+          <div class="bd"><div class="t">קניות</div><div class="m" id="libLists">—</div></div>
+          <span class="chev">‹</span>
+        </button>
+
+        <h2 class="sh" style="margin-top:24px">קיצורי אתרים</h2>
+        <div id="libLinks"></div>
+        <button class="btn wide" id="libAddLink">+ קיצור חדש</button>
+      </div>
+    </section>
+
+    <!-- ======================= הערות ======================= -->
+    <section class="sec" id="s-notes">
+      <div id="notesIndex">
+        <input type="search" id="nSearch" placeholder="חיפוש בהערות" autocomplete="off"
+               style="margin-bottom:14px">
+        <div id="notesList"></div>
+      </div>
+      <div id="noteEdit" hidden>
+        <div class="ntop">
+          <button class="hbtn" id="nBack">›</button>
+          <input type="text" id="nTitle" placeholder="כותרת ההערה">
+          <button class="hbtn" id="nMenu">⋯</button>
+        </div>
+        <div class="ntools" id="nTools">
+          <div class="trow2">
+            <button data-sheet="style" aria-label="סגנון טקסט">סגנון</button>
+            <button data-c="bold" aria-label="מודגש"><b>B</b></button>
+            <button data-c="insertUnorderedList" aria-label="רשימה">רשימה</button>
+            <button data-c="link" aria-label="קישור">קישור</button>
+            <button data-sheet="more" aria-label="עוד כלים">עוד…</button>
+          </div>
+          <div class="palette" id="nPalette" hidden></div>
+        </div>
+        <div class="nbody" id="nBody" contenteditable="true" spellcheck="false"></div>
+        <div class="nfoot"><span id="nSaved">נשמר</span></div>
+      </div>
+    </section>
+
+    <!-- ======================= קניות ======================= -->
+    <section class="sec" id="s-lists">
+      <div id="listsBody"></div>
+    </section>
+
+    <!-- ======================= ארכיון ======================= -->
+    <section class="sec" id="s-archive">
+      <div id="archiveBody"></div>
+    </section>
+
+    <!-- ======================= מקומות ======================= -->
+    <section class="sec" id="s-places">
+      <div id="placesBody"></div>
+    </section>
+
+    <!-- ======================= הגדרות ======================= -->
+    <section class="sec" id="s-settings">
+      <div id="settingsBody"></div>
+    </section>
+
+  </main>
+  <button class="fab" id="fab" hidden>+</button>
+  </div>
+
+  <nav id="nav">
+    <button data-s="today" aria-selected="true">היום</button>
+    <button data-s="tasks" aria-selected="false">משימות</button>
+    <button data-s="library" aria-selected="false">ספרייה</button>
+  </nav>
+</div>
+
+<div id="toast"></div>
+<div id="modal"><div class="mbox">
+  <div class="mhead"><div class="mtitle" id="mTitle">—</div><button class="x" id="mClose">×</button></div>
+  <div class="mbody" id="mBody"></div>
+  <div class="mfoot" id="mFoot"></div>
+</div></div>
+<div id="imgzoom"><img id="imgzoomImg" src="" alt=""></div>
+<div id="dpick"><div class="mbox">
+  <div class="mhead"><div class="mtitle" id="dpTitle">בחירת תאריך</div><button class="x" id="dpX">×</button></div>
+  <div class="mbody" id="dpBody"></div>
+  <div class="mfoot" id="dpFoot"></div>
+</div></div>
+<div id="alert"><div class="box">
+  <div class="k" id="alTtl">תזכורת</div>
+  <div class="msg" id="alMsg"></div>
+  <div class="sub2" id="alSub"></div>
+  <div class="det" id="alDet" hidden></div>
+  <div class="btns">
+    <button class="btn" id="alLater">דחה ב־15 דקות</button>
+    <button class="btn p" id="alComplete">בוצע</button>
+      <button class="btn" id="alOpen" hidden>פתח</button>
+    <button class="btn p" id="alOk">הבנתי</button>
+  </div>
+</div></div>
+<script>
+/* BUILD_SCRIPTS */
+</script>
+</body>
+</html>

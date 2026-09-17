@@ -1,0 +1,21 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/sync/{file} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && file.matches('[0-9a-f-]{36}\\.json')
+        && request.resource.size > 0 && request.resource.size <= 20971520
+        && request.resource.contentType == 'application/json';
+      allow update: if false;
+    }
+    match /users/{uid}/backups/{file} {
+      function owner() { return request.auth != null && request.auth.uid == uid; }
+      allow read, delete: if owner();
+      allow create: if owner() && file.matches('[0-9a-fA-F-]{36}\\.json')
+        && request.resource.size > 0 && request.resource.size <= 20971520
+        && request.resource.contentType == 'application/json';
+      allow update: if false;
+    }
+  }
+}

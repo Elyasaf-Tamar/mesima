@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/sync/state {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['path','schema'])
+        && request.resource.data.schema == 1
+        && request.resource.data.path.matches('users/' + uid + '/sync/[0-9a-f-]{36}\\.json');
+    }
+    match /users/{uid}/backups/{id} {
+      function owner() { return request.auth != null && request.auth.uid == uid; }
+      allow read, delete: if owner();
+      allow create: if owner()
+        && id.matches('[0-9a-fA-F-]{36}')
+        && request.resource.data.keys().hasOnly(['createdAt','path','bytes','sha256','taskCount','appVersion','schema'])
+        && request.resource.data.createdAt is int && request.resource.data.createdAt > 0
+        && request.resource.data.path == 'users/' + uid + '/backups/' + id + '.json'
+        && request.resource.data.bytes is int && request.resource.data.bytes > 0 && request.resource.data.bytes <= 20971520
+        && request.resource.data.sha256 is string && request.resource.data.sha256.matches('[0-9a-f]{64}')
+        && request.resource.data.taskCount is int && request.resource.data.taskCount >= 0
+        && request.resource.data.appVersion in ['4.5','4.6']
+        && request.resource.data.schema is int;
+      // Backups are immutable: later backups get a new ID.
+      allow update: if false;
+    }
+  }
+}
