@@ -66,7 +66,7 @@ class WebBridge(private val act: Activity) {
     }
 
     @JavascriptInterface
-    fun version(): String = "1.6"
+    fun version(): String = BuildConfig.VERSION_NAME
     @JavascriptInterface fun searchPlaces(id:String,url:String){PlaceLookup.search(act as MainActivity,id,url)}
     @JavascriptInterface fun syncState(text:String){
         NativeRepo.save(act,text)
