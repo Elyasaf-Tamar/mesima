@@ -102,13 +102,21 @@
         <service android:name=".LocationMonitor" android:foregroundServiceType="location" android:stopWithTask="false" android:exported="false" />
         <service android:name=".WidgetRowsService" android:permission="android.permission.BIND_REMOTEVIEWS" android:exported="false" />
         <receiver android:name=".WidgetActionReceiver" android:exported="false" />
-        <receiver android:name=".TasksWidget" android:exported="true" android:label="משימה · משימות היום">
+        <receiver android:name=".TasksWidget" android:exported="true" android:label="משימה · היום והמשימות שלי">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/tasks_widget" />
         </receiver>
         <receiver android:name=".CalendarWidget" android:exported="true" android:label="משימה · יומן">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/calendar_widget" />
+        </receiver>
+        <receiver android:name=".ShoppingWidget" android:exported="true" android:label="משימה · קניות">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/shopping_widget" />
+        </receiver>
+        <receiver android:name=".NotesWidget" android:exported="true" android:label="משימה · הערות">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/notes_widget" />
         </receiver>
     </application>
 </manifest>

@@ -23,5 +23,7 @@
   "src/js/14-sync.js",
   "src/js/14-places.js",
   "src/js/14-reflection.js",
+  "src/js/14-notes.js",
+  "src/js/14-widgets.js",
   "src/js/15-boot.js"
 ]

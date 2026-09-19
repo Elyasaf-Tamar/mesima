@@ -133,6 +133,8 @@ class MainActivity : ComponentActivity() {
             .build()
 
         web = WebView(this)
+        web.isVerticalScrollBarEnabled = false
+        web.isHorizontalScrollBarEnabled = false
         web.setBackgroundColor(0xFF0B0F14.toInt())
         web.settings.apply {
             javaScriptEnabled = true

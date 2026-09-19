@@ -12,7 +12,7 @@ const Wire = (() => {
       const b = e.target.closest('button[data-s]'); if(!b) return;
       if (b.dataset.s === 'today'){ UI.trail.length = 0; UI.tview = 'day';
                                     UI.selDate = Plan.today(); UI.rangeFrom = Plan.today(); }
-      UI.screen = null; UI.section = b.dataset.s; UI.openNote = null; UI.openList = null;
+      NoteView.finish(false); UI.screen = null; UI.section = b.dataset.s; UI.openNote = null; UI.openList = null;
       UI.render();
     });
 
@@ -27,13 +27,13 @@ const Wire = (() => {
         buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-go]'); if(!b) return;
-        Modal.shut(); UI.screen = b.dataset.go; UI.render();
+        NoteView.finish(false);UI.openNote=null; Modal.shut(); UI.screen = b.dataset.go; UI.render();
       });
     });
 
     /* כפתור הוספה — משתמש בהקשר ולא שואל מה שכבר ידוע (סעיף 43) */
     $('#fab').addEventListener('click', () => {
-      if (UI.screen === 'notes'){ openNote(Store.addNote({}).id); return; }
+      if (UI.screen === 'notes'){ NoteView.edit(Store.addNote({}).id); return; }
       if (UI.screen === 'lists'){ newList(); return; }
       if (UI.section === 'tasks'){ addFlow(); return; }
       Modal.open({ title:'מה להוסיף?',
@@ -426,7 +426,7 @@ const Wire = (() => {
       /* שורות תת-המשימה שבתוך הכרטיס: סימון ופתיחה, ותו לא */
       if(act==='childrenToggle'){const map={...Store.all.prefs.expandedChildren};map[id]=!map[id];Store.setPref('expandedChildren',map);return;}
       if (act === 'subdone'){ finish(actEl.dataset.sid); return; }
-      if (act === 'subopen'){ openTask(actEl.dataset.sid); return; }
+      if (act === 'subopen'){ openTask(actEl.dataset.sid,id); return; }
       /* צ׳קליסט נפתח בתוך הכרטיס, ומסמנים ממנו בלי לעזוב את המסך */
       if (act === 'clToggle'){
         const k = actEl.dataset.clid;
@@ -452,10 +452,10 @@ const Wire = (() => {
      * טווח שכל התוכן שלה הוא צ׳קליסט אחד, בלי תת-משימות — אין סיבה
      * להעביר את המשתמש דרך מסך פרטים כדי להגיע לפריטים.
      */
-    function openTask(id){
+    function openTask(id,contextParentId=null){
       const only = Store.soleChecklist(id);
       if (only) checklistView(id, only.id);
-      else taskDetail(id);
+      else taskDetail(id,contextParentId);
     }
 
     /** תוצאת חיפוש: פותחים את כל ההורים ומנקים את החיפוש (סעיף 36) */
@@ -564,7 +564,7 @@ const Wire = (() => {
        מציג רק מה שקיים: צ׳קליסט שנוצר, תת-משימות שיש, הרגלים שיש,
        ומידע מתקדם שהוגדר בפועל. עריכה היא פעולה מפורשת.
        ==================================================================== */
-    function taskDetail(id){
+    function taskDetail(id,contextParentId=null){
       const t0 = Store.task(id); if(!t0) return;
 
       const ordOn = key => !!(UI.reorder && UI.reorder.taskId === id && UI.reorder.sec === key);
@@ -613,6 +613,8 @@ const Wire = (() => {
         const when = UI.taskMeta(t, { noKids:true, noCat:true });
         if (when) info.push(['מתי', when]);
         facts.forEach(f => info.push(f));
+        const additional=Store.parentsOf(t).filter(p=>p.id!==(contextParentId||t.parentId));
+        if(additional.length)out+=`<div class="esec"><div class="esechead"><span>מופיעה גם ב־</span></div>${additional.map(p=>`<button class="settings-row" data-membership-detail="${p.id}"><span>${esc(p.title)}</span><span>‹</span></button>`).join('')}</div>`;
         out += `<div class="dinfo">${info.map(([k,v]) =>
           `<div class="dfact"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>`;
 
@@ -730,10 +732,11 @@ const Wire = (() => {
 
       Modal.open({ title:t0.title, body:body(),close:()=>document.removeEventListener('tasks-reordered',repaintOrder),
         buttons:[{label:'עוד', act:()=>taskMenu(id)},
-                 {label:'ערוך משימה', kind:'p', act:()=>taskModal({ id })}]});
+                 {label:'ערוך משימה', kind:'p', act:()=>taskModal({ id,contextParentId })}]});
 
       Modal.body.addEventListener('click', e => {
         const t = Store.task(id); if(!t) return;
+        const linked=e.target.closest('[data-membership-detail]');if(linked){openTask(linked.dataset.membershipDetail);return;}
         const a = e.target.closest('[data-act]');
         const act = a ? a.dataset.act : null;
         const d = e.target.closest('[data-d]');
@@ -775,7 +778,7 @@ const Wire = (() => {
           }
           if (act === 'kiddone'){ finish(kid.dataset.kid); paint(); return; }
           if (UI.reorder) return;
-          openTask(kid.dataset.kid); return;
+          openTask(kid.dataset.kid,id); return;
         }
       });
       Modal.closeGuard = () => { UI.reorder = null; return true; };
@@ -1514,26 +1517,25 @@ const Wire = (() => {
       return line.length > 60 ? line.slice(0,60).trim() + '…' : line;
     }
     function noteSave(now){
-      const id = UI.openNote; if(!id) return;
+      const id = UI.openNote; if(!id||!NoteView.editing) return;
       clearTimeout(saveT);
       const doIt = () => {
-        if (!UI.openNote) return;
-        const html = cleanHTML(NB().innerHTML);
+        if (!UI.openNote||!NoteView.editing) return;
+        const html = NoteView.clean(NB().innerHTML);
         /* בלי כותרת מפורשת — המשפט הראשון בגוף ההערה משמש ככותרת */
-        Store.updateNote(UI.openNote,
-          { title: $('#nTitle').value.trim() || firstLine(html),
-            html }, true);
+        NoteView.save($('#nTitle').value.trim() || firstLine(html),html);
         $('#nSaved').textContent = 'נשמר ' +
           new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
       };
       $('#nSaved').textContent = 'שומר…';
       if (now) doIt(); else saveT = setTimeout(doIt, 600);
     }
-    function openNote(id){
-      const n = Store.note(id); if(!n) return;
+    function openNote(id){ NoteView.open(id); }
+    function openNoteEditor(id,n){
+      if(!n) return;
       UI.screen = 'notes'; UI.openNote = id;
       $('#nTitle').value = n.title || '';
-      NB().innerHTML = n.html || '';
+      NB().innerHTML = NoteView.clean(n.html);
       NB().setAttribute('data-ph','תכתוב פה מה שבא לך…');
       applyZoom();
       $('#nSaved').textContent = 'נשמר';
@@ -1542,15 +1544,9 @@ const Wire = (() => {
       $('#notesIndex').hidden = true; $('#noteEdit').hidden = false;
       setTimeout(() => NB().focus(), 60);
     }
-    function closeNote(){
-      if (UI.openNote) noteSave(true);
-      const id = UI.openNote;
-      UI.openNote = null;
-      const n = id && Store.note(id);
-      if (n && !n.title && !UI.noteText(n.html)) Store.delNote(id);
-      $('#nPalette').hidden = true;
-      UI.render();
-    }
+    function closeNote(){ NoteView.close(); }
+    NoteView.bind(openNoteEditor,noteSave);
+    window.__openNote=openNote;
     $('#nSearch').addEventListener('input', e => { UI.noteQ = e.target.value; UI.renderNotes(); });
     document.addEventListener('click', e => {
       const im = e.target.closest('img[data-act="zoom"]');
@@ -1566,7 +1562,7 @@ const Wire = (() => {
     $('#nBack').addEventListener('click', closeNote);
     $('#nMenu').addEventListener('click', () => { if (UI.openNote){ noteSave(true); noteMenu(UI.openNote); } });
     $('#notesList').addEventListener('click', e => {
-      if (e.target.closest('[data-act="add"]')){ openNote(Store.addNote({}).id); return; }
+      if (e.target.closest('[data-act="add"]')){ NoteView.edit(Store.addNote({}).id); return; }
       const card = e.target.closest('[data-id]'); if(!card) return;
       const id = card.dataset.id;
       if (e.target.closest('[data-act="nMenu"]')){ noteMenu(id); return; }
@@ -1587,14 +1583,14 @@ const Wire = (() => {
         const k = b.dataset.m; Modal.shut();
         if (k==='open') openNote(id);
         if (k==='pin')  Store.pinNote(id);
-        if (k==='dup')  Store.addNote({ title:(n.title||'ללא כותרת')+' — עותק', html:n.html });
+        if (k==='dup'){const copy=Store.addNote({ title:(n.title||'ללא כותרת')+' — עותק', html:n.html });if(n.multipart)Store.updateNote(copy.id,{multipart:true,parts:JSON.parse(JSON.stringify(n.parts))});}
         if (k==='exp'){
           const doc = '<!doctype html><meta charset="utf-8"><title>'+esc(n.title||'הערה')+'</title>'
             + '<body dir="rtl" style="max-width:760px;margin:24px auto;padding:0 18px;'
-            + 'font:16px/1.75 system-ui,sans-serif"><h1>'+esc(n.title||'הערה')+'</h1>'+n.html+'</body>';
+            + 'font:16px/1.75 system-ui,sans-serif"><h1>'+esc(n.title||'הערה')+'</h1>'+NoteView.clean(NoteView.html(n))+'</body>';
           UI.download('note-'+(n.title||n.id).slice(0,30)+'.html', doc, 'text/html;charset=utf-8');
         }
-        if (k==='del'){ Store.delNote(id); UI.toast('נמחק'); }
+        if (k==='del'){NoteView.finish(false);if(UI.openNote===id)UI.openNote=null; Store.delNote(id); UI.toast('נמחק'); }
       });
     }
 

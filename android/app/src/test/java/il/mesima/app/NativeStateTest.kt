@@ -30,8 +30,16 @@ class NativeStateTest {
  @Test fun confirmedStopStartsNewTripAndBadAccuracyDoesNot(){
   val s=TripState.feed(JSONObject(),fix(34.0,1000000));TripState.feed(s,fix(34.001,1010000));val start=s.getLong("startedAt")
   TripState.feed(s,fix(34.1,1020000,400.0));assertEquals(start,s.getLong("startedAt"))
-  for(i in 1..40)TripState.feed(s,fix(34.001,1010000+i*10000L))
-  TripState.feed(s,fix(34.002,1420000));assertTrue(s.getLong("startedAt")>start)
+  for(i in 1..181)TripState.feed(s,fix(34.001,1010000+i*10000L))
+  TripState.feed(s,fix(34.002,2830000));assertTrue(s.getLong("startedAt")>start)
+ }
+ @Test fun aDayOfflineExpiresBeforeReceivingAnotherLocation(){
+  val s=TripState.feed(JSONObject(),fix(34.0,1000000));TripState.feed(s,fix(34.001,1010000))
+  assertFalse(TripState.expire(s,1010000+29*60000));assertTrue(s.getDouble("meters")>0)
+  val restored=JSONObject(s.toString());assertTrue(TripState.expire(restored,1010000+86400000))
+  assertEquals(0.0,restored.getDouble("meters"),0.001);assertNull(restored.optJSONObject("prev"))
+  assertFalse(TripState.expire(restored,1010000+86400001))
+  TripState.feed(restored,fix(35.0,1010000+86400010));assertEquals(0.0,restored.getDouble("meters"),0.001)
  }
  @Test fun completionBlocksOnlyThatDayAndPendingCommandIsDurable(){
   val t=JSONObject().put("id","habit").put("daily",true).put("log",JSONObject().put("2026-09-15",1))

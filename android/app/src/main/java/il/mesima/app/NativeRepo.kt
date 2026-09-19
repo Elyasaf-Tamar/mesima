@@ -67,4 +67,12 @@ object NativeRepo {
   val all=shown(c);all.keys().forEach{id->if(blocked(c,all.getJSONObject(id)))NotificationManagerCompat.from(c).cancel(id.hashCode())}
   Sched.cancelBlockedSnoozes(c)
  }
+ @Synchronized fun shopping(c:Context,listId:String,itemId:String,done:Boolean){
+  val widgets=snapshot(c).optJSONObject("widgets")?:return
+  val exists=widgets.keys().asSequence().mapNotNull{widgets.optJSONObject(it)}.any{it.optString("id")==listId&&objects(it.optJSONArray("items")?:JSONArray()).any{item->item.optString("id")==itemId}}
+  if(!exists)return
+  val commands=pending(c);commands.put(JSONObject().put("id",UUID.randomUUID().toString()).put("action","shopping").put("listId",listId).put("itemId",itemId).put("done",done).put("at",System.currentTimeMillis()))
+  if(!prefs(c).edit().putString("pending",commands.toString()).commit())return
+  MesimaWidget.updateAll(c);MainActivity.changed()
+ }
 }

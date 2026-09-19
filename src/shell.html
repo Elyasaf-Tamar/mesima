@@ -27,8 +27,6 @@
     <section class="sec on" id="s-today">
       <div class="modes" id="tvModes">
         <button data-v="day" aria-selected="true">היום</button>
-        <button data-v="d3">3 ימים</button>
-        <button data-v="week">שבוע</button>
         <button data-v="month">חודש</button>
       </div>
       <div id="todayBody"></div>
@@ -79,9 +77,10 @@
                style="margin-bottom:14px">
         <div id="notesList"></div>
       </div>
+      <div id="noteRead" hidden></div>
       <div id="noteEdit" hidden>
         <div class="ntop">
-          <button class="hbtn" id="nBack">›</button>
+          <button class="txtbtn" id="nBack">סיום</button>
           <input type="text" id="nTitle" placeholder="כותרת ההערה">
           <button class="hbtn" id="nMenu">⋯</button>
         </div>

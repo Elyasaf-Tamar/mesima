@@ -736,6 +736,25 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
 
 .reflection-task{border:0;background:none;padding:0;color:inherit;font:inherit;text-align:start;cursor:pointer}.reflection-task:hover{text-decoration:underline}.reflection-task:focus-visible{outline:2px solid var(--accent,#7aa2f7);outline-offset:3px}
 
+/* 4.9: content keeps its scroll area; only the scrollbar is hidden. */
+*{scrollbar-width:none!important;-ms-overflow-style:none}
+*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}
+.note-read-head{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.note-read-head h2{flex:1;margin:0;overflow-wrap:anywhere;font-size:24px}
+.note-date,.note-part-head small{color:var(--muted);font-size:12px;display:block;margin:6px 0 12px}
+.note-reading{font-size:calc(17px * var(--nz,1));line-height:1.9;overflow-wrap:anywhere;user-select:text;padding:4px 0 20px}
+.note-reading img{max-width:100%;height:auto;border-radius:12px}
+.note-reading a{color:var(--accent)}
+.note-part{border-bottom:1px solid var(--line);margin-bottom:18px}
+.note-part-head{width:100%;text-align:start;font-size:19px;background:none;border:0;color:inherit;padding:14px 0;cursor:pointer}
+.note-part-actions{display:flex;gap:20px;padding-bottom:16px}
+.note-options{margin-top:24px;color:var(--muted)}
+.widget-picker-path{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.widget-choice{display:flex;align-items:center;gap:12px;min-height:54px;border-bottom:1px solid var(--line)}
+.widget-choice label{display:flex;flex:1;align-items:center;gap:12px;cursor:pointer;margin:0;padding:10px 0}
+.widget-choice button{flex:1;text-align:start}
+.membership-box{padding:12px 0}
+
 </style>
 </head>
 <body>
@@ -754,8 +773,6 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
     <section class="sec on" id="s-today">
       <div class="modes" id="tvModes">
         <button data-v="day" aria-selected="true">היום</button>
-        <button data-v="d3">3 ימים</button>
-        <button data-v="week">שבוע</button>
         <button data-v="month">חודש</button>
       </div>
       <div id="todayBody"></div>
@@ -806,9 +823,10 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
                style="margin-bottom:14px">
         <div id="notesList"></div>
       </div>
+      <div id="noteRead" hidden></div>
       <div id="noteEdit" hidden>
         <div class="ntop">
-          <button class="hbtn" id="nBack">›</button>
+          <button class="txtbtn" id="nBack">סיום</button>
           <input type="text" id="nTitle" placeholder="כותרת ההערה">
           <button class="hbtn" id="nMenu">⋯</button>
         </div>
@@ -886,7 +904,7 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
 
 'use strict';
 /* ==========================================================================
-   משימה 4.8.1
+   משימה 4.9
    Store  – נתונים, היסטוריית ביצוע וסיכומים. CloudSync מסנכרן בין מכשירים.
    Geo    – מרחקים, מעקב, וצבירת מרחק נסיעה.
    Search – חיפוש מקומות לפי שם (שני ספקים + נפילה לידני).
@@ -897,9 +915,9 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.8.1 · 2026-09-17';
+const BUILD = '4.9 · 2026-09-19';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
-const NEED_APK = '1.7';
+const NEED_APK = '1.8';
 
 /* ------------------------------- Store ---------------------------------- */
 
@@ -2132,11 +2150,17 @@ const Geo = (() => {
   const listeners = [];
   /* צבירת מרחק נסיעה: מתאפס אחרי עצירה ממושכת */
   const NOISE_M = 20;          // מתחת לזה זה רעש GPS, לא תנועה
-  const STOP_MS = 6*60*1000;   // 6 דקות בלי תנועה = הרצף נשבר
+  const STOP_MS = 30*60*1000;
   const MAX_KMH = 250;         // מעל זה זו קפיצת GPS, לא נסיעה
   let trip = { meters:0, startedAt:null, lastMoveAt:null, prev:null };
 
   try{const saved=JSON.parse(localStorage.getItem('mesima.trip')||'null');if(saved?.prev)trip=saved;}catch{}
+  function expire(now=Date.now()){
+    if(trip.lastMoveAt&&now-trip.lastMoveAt>=STOP_MS&&trip.prev){
+      trip={meters:0,startedAt:null,lastMoveAt:null,prev:null};
+      try{localStorage.setItem('mesima.trip',JSON.stringify(trip));}catch{}
+    }
+  }
   const R = 6371000, rad = d => d*Math.PI/180;
   function dist(a,b){
     const dLat = rad(b.lat-a.lat), dLng = rad(b.lng-a.lng);
@@ -2145,7 +2169,9 @@ const Geo = (() => {
   }
 
   function feed(fix){
-    const now = fix.t, prev = trip.prev;
+    if(fix.acc>70||fix.acc<0||last&&fix.t<=last.t)return;
+    const now = fix.t;expire(now);const prev = trip.prev;
+    const gap=last?now-last.t:prev?now-prev.t:0;
     last = fix;
 
     if (!prev){
@@ -2165,7 +2191,7 @@ const Geo = (() => {
       /* קפיצת GPS (מנהרה, איבוד קליטה) – מיישרים את הנקודה בלי לצבור מרחק */
       trip.prev = fix;
     } else if (d >= NOISE_M){
-      trip.meters += d;
+      if(gap<=120000)trip.meters += d;
       trip.lastMoveAt = now;
       if (!trip.startedAt) trip.startedAt = now;
       trip.prev = fix;
@@ -2185,7 +2211,7 @@ const Geo = (() => {
     get last(){ return window.MesimaNative?.locationState ? NativeState.location?.trip?.last || last : last; },
     get lastError(){ return lastErr; },
     get on(){ return watchId !== null || !!window.MesimaNative?.locationState && !!NativeState.location?.running; },
-    get trip(){ if(window.MesimaNative?.locationState && NativeState.location?.trip)return NativeState.location.trip; return { meters:trip.meters, startedAt:trip.startedAt, lastMoveAt:trip.lastMoveAt }; },
+    get trip(){ if(window.MesimaNative?.locationState && NativeState.location?.trip)return NativeState.location.trip; expire();return { meters:trip.meters, startedAt:trip.startedAt, lastMoveAt:trip.lastMoveAt }; },
     resetTrip,
     onFix(f){ listeners.push(f); },
     supported(){ return !!(navigator.geolocation) && window.isSecureContext !== false; },
@@ -3024,7 +3050,7 @@ const NativeState=(()=>{
  let busy=false,initialized=false,last='',location=null;
  const available=()=>typeof window.MesimaNative?.syncState==='function';
  function projection(){
-  const tasks=Store.all.tasks.map(t=>({id:t.id,title:t.title,note:t.note||'',kind:t.kind,archived:!!t.archived,done:!!t.done,checklists:(t.checklists||[]).map(c=>({id:c.id,cycle:Store.checklistOccurrence(c),complete:!!c.items.length&&c.items.every(x=>x.checked)})),daily:Store.isHabit(t),log:t.log||{},reminder:t.reminder||null,parentNames:Store.parentsOf(t).map(p=>p.title).join(' · ')}));
+  const tasks=Store.all.tasks.map(t=>({id:t.id,title:t.title,note:t.note||'',kind:t.kind,archived:!!t.archived,done:!!t.done,checklists:(t.checklists||[]).map(c=>({id:c.id,cycle:Store.checklistOccurrence(c),complete:!!c.items.length&&c.items.every(x=>x.checked)})),daily:Store.isHabit(t),manualEligible:Widgets.eligible(t),log:t.log||{},reminder:t.reminder||null,parentNames:Store.parentsOf(t).map(p=>p.title).join(' · ')}));
   const days={};
   for(let i=0;i<42;i++){
    const day=Plan.shift(Plan.today(),i),seen=new Set();
@@ -3032,13 +3058,22 @@ const NativeState=(()=>{
    for(const x of Store.activeChecklists(day))rows.push({id:'cl_'+x.task.id+'_'+x.cl.id,title:x.cl.name,kind:'checklist',time:x.at||'',check:false});
    days[day]=rows.filter(r=>{const k=r.kind+':'+r.id;if(seen.has(k))return false;seen.add(k);return true;});
   }
-  return {schema:1,date:Plan.today(),tasks,days,geo:!!Store.all.prefs.geo,places:Store.all.places};
+  const widgetChecklists=[];
+  for(const t of Store.all.tasks.filter(t=>!t.archived&&!t.done))for(const c of t.checklists||[]){
+   if(!c.repeat||!Recur.times(c.repeat).length)continue;
+   const cycle=Store.checklistCycle(c),slots=[];let from=cycle?Plan.shift(cycle,1):Plan.today();
+   for(let i=0;i<90;i++){const nx=Recur.nextOccurrence(c.repeat,from);if(!nx||nx.day>Plan.shift(Plan.today(),42))break;slots.push(nx);from=Plan.shift(nx.day,1);}
+   widgetChecklists.push({id:'cl_'+t.id+'_'+c.id,taskId:t.id,title:c.name,cycle,complete:Store.checklistCycleDone(c),time:Recur.times(c.repeat)[0],slots});
+  }
+  return {schema:1,date:Plan.today(),tasks,days,widgetChecklists,widgets:Widgets.payload(),geo:!!Store.all.prefs.geo,places:Store.all.places};
  }
  function drain(){
   if(!available()||busy)return;busy=true;
   try{
    const commands=JSON.parse(window.MesimaNative.pendingActions()||'[]');
-   if(commands.length){Store.transaction(()=>commands.forEach(c=>{const t=Store.task(c.taskId);if(!t)return;
+   if(commands.length){Store.transaction(()=>commands.forEach(c=>{
+    if(c.action==='shopping'){Store.updateItem(c.listId,c.itemId,{done:!!c.done});return;}
+    const t=Store.task(c.taskId);if(!t)return;
     if(c.action==='complete'){if(Store.isHabit(t)){if(!Store.habitFull(t,c.day))Store.tickHabit(t.id,c.day,c.at||Date.now());}else if(!t.archived&&!t.done)Store.finishTask(t.id,c.at||Date.now(),c.day);}
    }));if(Store.canPersist){window.MesimaNative.syncState(JSON.stringify(projection()));window.MesimaNative.ackActions(JSON.stringify(commands.map(c=>c.id)));last="";}}
    location=JSON.parse(window.MesimaNative.locationState()||'null');
@@ -3052,7 +3087,12 @@ const NativeState=(()=>{
  function init(){
   if(!available())return;initialized=true;drain();publish();
   window.__widget=(action,id)=>{drain();UI.closeAlert();Modal.shut();
-   if(action==='newEvent')window.__newEvent?.();else if(action==='new')window.__newTask?.();else if(action==='task')window.__openTask?.(id);else if(action==='event')window.__openEvent?.(id);else if(action==='checklist')window.__alarm?.(id);
+   if(action==='configure')Widgets.open(id);
+   else if(action==='note')NoteView.open(id);
+   else if(action==='shopping'){if(Store.list(id)){UI.screen='lists';UI.openList=id;UI.render();}}
+   else if(action==='notes'){UI.screen='notes';UI.openNote=null;UI.render();}
+   else if(action==='lists'){UI.screen='lists';UI.openList=null;UI.render();}
+   else if(action==='newEvent')window.__newEvent?.();else if(action==='new')window.__newTask?.();else if(action==='task')window.__openTask?.(id);else if(action==='event')window.__openEvent?.(id);else if(action==='checklist')window.__alarm?.(id);
    else{UI.section='today';UI.screen=null;UI.selDate=Plan.today();UI.tview='day';UI.render();}
   };
   window.addEventListener('native-state',()=>{drain();publish();UI.render();});window.addEventListener('focus',()=>{drain();publish();});setInterval(()=>{
@@ -3192,8 +3232,6 @@ const UI = (() => {
     $$('#tvModes button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === tview));
     const box = $('#todayBody');
     if (tview === 'day')   return void (box.innerHTML = dayView(selDate));
-    if (tview === 'd3')    return void (box.innerHTML = rangeView(3));
-    if (tview === 'week')  return void (box.innerHTML = rangeView(7));
     box.innerHTML = monthView();
   }
 
@@ -4263,13 +4301,14 @@ const UI = (() => {
   }
   function renderNotes(){
     const idx = $('#notesIndex'), ed = $('#noteEdit');
-    if (openNote && Store.note(openNote)){ idx.hidden = true; ed.hidden = false; return; }
+    if (openNote && Store.note(openNote)){ idx.hidden = true; NoteView.render(); return; }
+    document.getElementById('noteRead').hidden=true;
     openNote = null; idx.hidden = false; ed.hidden = true;
 
     const q = noteQ.trim().toLowerCase();
     const all = Store.notes();
     const list = !q ? all : all.filter(n =>
-      (n.title||'').toLowerCase().includes(q) || noteText(n.html).toLowerCase().includes(q));
+      (n.title||'').toLowerCase().includes(q) || noteText(NoteView.clean(NoteView.html(n))).toLowerCase().includes(q));
     const el = $('#notesList');
     if (!list.length){
       el.innerHTML = q
@@ -4281,7 +4320,7 @@ const UI = (() => {
       return;
     }
     el.innerHTML = list.map(n => {
-      const txt = noteText(n.html), img = firstImg(n.html);
+      const txt = noteText(NoteView.clean(NoteView.html(n))), img = firstImg(NoteView.clean(NoteView.html(n)));
       return `<div class="ncard" data-id="${n.id}">
         ${img ? `<img class="thumb" src="${esc(img)}" alt="">` : ''}
         <div class="nb">
@@ -4458,7 +4497,7 @@ const UI = (() => {
     get openCl(){ return openCl; },
     get section(){ return section; }, set section(v){ section=v; },
     get screen(){ return screen; },   set screen(v){ screen=v; },
-    get tview(){ return tview; },     set tview(v){ tview=v; },
+    get tview(){ return tview; },     set tview(v){ tview=v==='month'?'month':'day'; },
     get filter(){ return filter; },   set filter(v){ filter=v; },
     get taskQ(){ return taskQ; },     set taskQ(v){ taskQ=v; },
     get selDate(){ return selDate; }, set selDate(v){ selDate=v; },
@@ -4537,6 +4576,8 @@ const TaskEditor = (() => {
       /* האירוע המקושר. אפשר לבחור אותו כבר ביצירה, לפני השמירה. */
       let evId = d ? d.evId : (t ? (t.eventId || '') : (o.eventId || ''));
 
+      const contextParent=o.contextParentId||d?.contextParentId||o.parentId||t?.parentId;
+      let membershipIds=d?.membershipIds?.slice()||(t?Store.parentIds(t):[]);
       let relatedIds=d?.relatedIds?.slice() || (t?Store.relatedTasks(t.id).map(x=>x.id):[]);
       const tops = Store.topPlaces();
       const placeOpts = tops.map(top =>
@@ -4885,10 +4926,6 @@ const TaskEditor = (() => {
           <input type="text" id="etTitle" value="${esc(d ? d.title : (t ? t.title : (o.title||'')))}"
                  autocomplete="off" placeholder="${isHabitEditor ? 'למשל: לארוז תיק' : 'למשל: לקנות מטען'}"></div>
 
-        ${isChild ? `<div class="belongs">שייך ל־${esc(underName)}</div>
-          <div class="ex" style="margin:-6px 0 12px">גם לתת-משימה יש התראה משלה.
-            "חד-פעמית" נותנת לה תאריך ושעה; "חוזרת" הופכת אותה להרגל שחוזר
-            בימים קבועים.</div>` : ''}
 
         <div style="margin-bottom:14px"><label>תיאור</label>
           <textarea id="etNote" rows="4" placeholder="פרטים, מה להביא, לינק…"
@@ -4945,7 +4982,7 @@ const TaskEditor = (() => {
 
         ${streakBlock()}
 
-        <div id="etMain"></div><div id="etProjectEvent"></div><div id="etRelatedMain"></div>
+        <div id="etMembershipMain"></div><div id="etMain"></div><div id="etProjectEvent"></div><div id="etRelatedMain"></div>
 
         <div class="acc" id="etAdvAcc" aria-expanded="false">
           <button class="ah" id="etAdvHead"><span class="an">אפשרויות נוספות</span>
@@ -4973,7 +5010,7 @@ const TaskEditor = (() => {
               <div id="etImgBox" style="margin-top:8px">${imgBox()}</div>
               <input type="file" id="etImgFile" accept="image/*" hidden>
             </div>
-            <div id="etRelatedMore" class="esec"></div><div id="etAdvContent"></div>
+            <div id="etMembershipMore" class="esec"></div><div id="etRelatedMore" class="esec"></div><div id="etAdvContent"></div>
           </div>
         </div>
         <!-- מיכל לא מחזיק אפשרויות מתקדמות, ולכן התמונה שלו יושבת ישר
@@ -4983,10 +5020,6 @@ const TaskEditor = (() => {
           <div id="etImgBox2"></div>
         </div>
 
-        ${(!isNew && t.kind==='short') ? `<details class="esec"><summary>שייכת ל${Store.parentsOf(t).length?' · '+Store.parentsOf(t).map(p=>esc(p.title)).join(' · '):''}</summary>
-          <div class="note">אותה משימה יכולה להופיע בכמה פרויקטים. סימון ועריכה מתעדכנים בכולם.</div>
-          ${Store.allRoots().filter(p=>p.kind==='long'&&p.id!==t.id).map(p=>`<label class="membership"><input type="checkbox" data-parent="${p.id}" ${Store.belongs(t,p.id)?'checked':''}>${esc(p.title)}</label>`).join('')}
-        </details>` : ''}
         ${(!isNew && t.parentId) ? `<button class="txtbtn" id="etIndep"
             style="margin-top:14px">הפוך למשימה עצמאית</button>` : ''}`,
         buttons:[
@@ -4996,6 +5029,18 @@ const TaskEditor = (() => {
 
       const B = Modal.body;
       const g = x => document.getElementById(x);
+      function paintMembership(){
+        const eligible=!isNew&&kind==='short';
+        const extra=membershipIds.filter(id=>id!==contextParent).map(id=>Store.task(id)).filter(Boolean);
+        const main=g('etMembershipMain'),more=g('etMembershipMore');
+        main.innerHTML='';more.innerHTML='';more.hidden=!eligible;
+        if(!eligible)return;
+        const host=extra.length?main:more;more.hidden=!!extra.length;
+        host.innerHTML=`<div class="membership-box">${extra.length?`<div class="esechead"><span>מופיעה גם ב־</span></div>${extra.map(p=>`<button class="settings-row" data-membership-open="${p.id}"><span>${esc(p.title)}</span><span>‹</span></button>`).join('')}`:''}<details><summary>${extra.length?'נהל הופעות נוספות':'הצג גם במשימה אחרת'}</summary>${Store.all.tasks.filter(p=>p.kind==='long'&&!p.archived&&p.id!==t.id&&p.id!==contextParent).map(p=>`<label class="membership"><input type="checkbox" data-parent="${p.id}" ${membershipIds.includes(p.id)?'checked':''}>${esc(p.title)}</label>`).join('')||'<p class="note">אין משימות ארוכות טווח נוספות</p>'}</details></div>`;
+      }
+      B.addEventListener('change',e=>{const id=e.target.dataset.parent;if(!id)return;e.target.checked?membershipIds.push(id):membershipIds=membershipIds.filter(x=>x!==id);});
+      B.addEventListener('click',e=>{const b=e.target.closest('[data-membership-open]');if(!b)return;const draft=snapshot();Modal.shut();taskModal({id:b.dataset.membershipOpen,back:{id:o.id,draft,contextParentId:contextParent}});});
+      paintMembership();
       function paintRelated(){
         const rows=relatedIds.map(id=>Store.task(id)).filter(Boolean);
         g('etRelatedMain').innerHTML=rows.length?`<div class="esec"><div class="esechead"><span>מקושרת ל</span><button class="secact" data-rel-manage>נהל קשרים</button></div>${rows.map(x=>`<button class="settings-row" data-rel-open="${x.id}"><span>${esc(x.title)}</span><span>‹</span></button>`).join('')}</div>`:'';
@@ -5214,7 +5259,7 @@ const TaskEditor = (() => {
                  placeId:g('etPlace') ? g('etPlace').value : '',
                  delay:g('etDelay') ? g('etDelay').value : 0,
                  km:g('etKm') ? g('etKm').value : '',
-                 img, evId, relatedIds:relatedIds.slice(),
+                 img, evId, contextParentId:contextParent, membershipIds:membershipIds.slice(), relatedIds:relatedIds.slice(),
                  pendLists: clone(pendLists), originalLists:clone(originalLists), beforeCheck:clone(beforeCheck),
                  pending:pending.slice() };
       }
@@ -5667,9 +5712,7 @@ const TaskEditor = (() => {
                       kind, mission:cat, reminder:null, repeat:null, planned:null };
         out.planned = (g('etDate') || {}).value || null;
         if(!isNew && kind==='short'){
-          const ids=[...B.querySelectorAll('[data-parent]:checked')].map(el=>el.dataset.parent);
-          const legacy=Store.parentsOf(t).filter(p=>p.kind!=='long').map(p=>p.id);
-          out.parentIds=[...new Set([...legacy,...ids])];
+          out.parentIds=[...new Set(membershipIds)];
           out.parentId=out.parentIds.includes(t.parentId)?t.parentId:out.parentIds[0]||null;
         }
 
@@ -5895,7 +5938,7 @@ const Wire = (() => {
       const b = e.target.closest('button[data-s]'); if(!b) return;
       if (b.dataset.s === 'today'){ UI.trail.length = 0; UI.tview = 'day';
                                     UI.selDate = Plan.today(); UI.rangeFrom = Plan.today(); }
-      UI.screen = null; UI.section = b.dataset.s; UI.openNote = null; UI.openList = null;
+      NoteView.finish(false); UI.screen = null; UI.section = b.dataset.s; UI.openNote = null; UI.openList = null;
       UI.render();
     });
 
@@ -5910,13 +5953,13 @@ const Wire = (() => {
         buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-go]'); if(!b) return;
-        Modal.shut(); UI.screen = b.dataset.go; UI.render();
+        NoteView.finish(false);UI.openNote=null; Modal.shut(); UI.screen = b.dataset.go; UI.render();
       });
     });
 
     /* כפתור הוספה — משתמש בהקשר ולא שואל מה שכבר ידוע (סעיף 43) */
     $('#fab').addEventListener('click', () => {
-      if (UI.screen === 'notes'){ openNote(Store.addNote({}).id); return; }
+      if (UI.screen === 'notes'){ NoteView.edit(Store.addNote({}).id); return; }
       if (UI.screen === 'lists'){ newList(); return; }
       if (UI.section === 'tasks'){ addFlow(); return; }
       Modal.open({ title:'מה להוסיף?',
@@ -6309,7 +6352,7 @@ const Wire = (() => {
       /* שורות תת-המשימה שבתוך הכרטיס: סימון ופתיחה, ותו לא */
       if(act==='childrenToggle'){const map={...Store.all.prefs.expandedChildren};map[id]=!map[id];Store.setPref('expandedChildren',map);return;}
       if (act === 'subdone'){ finish(actEl.dataset.sid); return; }
-      if (act === 'subopen'){ openTask(actEl.dataset.sid); return; }
+      if (act === 'subopen'){ openTask(actEl.dataset.sid,id); return; }
       /* צ׳קליסט נפתח בתוך הכרטיס, ומסמנים ממנו בלי לעזוב את המסך */
       if (act === 'clToggle'){
         const k = actEl.dataset.clid;
@@ -6335,10 +6378,10 @@ const Wire = (() => {
      * טווח שכל התוכן שלה הוא צ׳קליסט אחד, בלי תת-משימות — אין סיבה
      * להעביר את המשתמש דרך מסך פרטים כדי להגיע לפריטים.
      */
-    function openTask(id){
+    function openTask(id,contextParentId=null){
       const only = Store.soleChecklist(id);
       if (only) checklistView(id, only.id);
-      else taskDetail(id);
+      else taskDetail(id,contextParentId);
     }
 
     /** תוצאת חיפוש: פותחים את כל ההורים ומנקים את החיפוש (סעיף 36) */
@@ -6447,7 +6490,7 @@ const Wire = (() => {
        מציג רק מה שקיים: צ׳קליסט שנוצר, תת-משימות שיש, הרגלים שיש,
        ומידע מתקדם שהוגדר בפועל. עריכה היא פעולה מפורשת.
        ==================================================================== */
-    function taskDetail(id){
+    function taskDetail(id,contextParentId=null){
       const t0 = Store.task(id); if(!t0) return;
 
       const ordOn = key => !!(UI.reorder && UI.reorder.taskId === id && UI.reorder.sec === key);
@@ -6496,6 +6539,8 @@ const Wire = (() => {
         const when = UI.taskMeta(t, { noKids:true, noCat:true });
         if (when) info.push(['מתי', when]);
         facts.forEach(f => info.push(f));
+        const additional=Store.parentsOf(t).filter(p=>p.id!==(contextParentId||t.parentId));
+        if(additional.length)out+=`<div class="esec"><div class="esechead"><span>מופיעה גם ב־</span></div>${additional.map(p=>`<button class="settings-row" data-membership-detail="${p.id}"><span>${esc(p.title)}</span><span>‹</span></button>`).join('')}</div>`;
         out += `<div class="dinfo">${info.map(([k,v]) =>
           `<div class="dfact"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>`;
 
@@ -6613,10 +6658,11 @@ const Wire = (() => {
 
       Modal.open({ title:t0.title, body:body(),close:()=>document.removeEventListener('tasks-reordered',repaintOrder),
         buttons:[{label:'עוד', act:()=>taskMenu(id)},
-                 {label:'ערוך משימה', kind:'p', act:()=>taskModal({ id })}]});
+                 {label:'ערוך משימה', kind:'p', act:()=>taskModal({ id,contextParentId })}]});
 
       Modal.body.addEventListener('click', e => {
         const t = Store.task(id); if(!t) return;
+        const linked=e.target.closest('[data-membership-detail]');if(linked){openTask(linked.dataset.membershipDetail);return;}
         const a = e.target.closest('[data-act]');
         const act = a ? a.dataset.act : null;
         const d = e.target.closest('[data-d]');
@@ -6658,7 +6704,7 @@ const Wire = (() => {
           }
           if (act === 'kiddone'){ finish(kid.dataset.kid); paint(); return; }
           if (UI.reorder) return;
-          openTask(kid.dataset.kid); return;
+          openTask(kid.dataset.kid,id); return;
         }
       });
       Modal.closeGuard = () => { UI.reorder = null; return true; };
@@ -7397,26 +7443,25 @@ const Wire = (() => {
       return line.length > 60 ? line.slice(0,60).trim() + '…' : line;
     }
     function noteSave(now){
-      const id = UI.openNote; if(!id) return;
+      const id = UI.openNote; if(!id||!NoteView.editing) return;
       clearTimeout(saveT);
       const doIt = () => {
-        if (!UI.openNote) return;
-        const html = cleanHTML(NB().innerHTML);
+        if (!UI.openNote||!NoteView.editing) return;
+        const html = NoteView.clean(NB().innerHTML);
         /* בלי כותרת מפורשת — המשפט הראשון בגוף ההערה משמש ככותרת */
-        Store.updateNote(UI.openNote,
-          { title: $('#nTitle').value.trim() || firstLine(html),
-            html }, true);
+        NoteView.save($('#nTitle').value.trim() || firstLine(html),html);
         $('#nSaved').textContent = 'נשמר ' +
           new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
       };
       $('#nSaved').textContent = 'שומר…';
       if (now) doIt(); else saveT = setTimeout(doIt, 600);
     }
-    function openNote(id){
-      const n = Store.note(id); if(!n) return;
+    function openNote(id){ NoteView.open(id); }
+    function openNoteEditor(id,n){
+      if(!n) return;
       UI.screen = 'notes'; UI.openNote = id;
       $('#nTitle').value = n.title || '';
-      NB().innerHTML = n.html || '';
+      NB().innerHTML = NoteView.clean(n.html);
       NB().setAttribute('data-ph','תכתוב פה מה שבא לך…');
       applyZoom();
       $('#nSaved').textContent = 'נשמר';
@@ -7425,15 +7470,9 @@ const Wire = (() => {
       $('#notesIndex').hidden = true; $('#noteEdit').hidden = false;
       setTimeout(() => NB().focus(), 60);
     }
-    function closeNote(){
-      if (UI.openNote) noteSave(true);
-      const id = UI.openNote;
-      UI.openNote = null;
-      const n = id && Store.note(id);
-      if (n && !n.title && !UI.noteText(n.html)) Store.delNote(id);
-      $('#nPalette').hidden = true;
-      UI.render();
-    }
+    function closeNote(){ NoteView.close(); }
+    NoteView.bind(openNoteEditor,noteSave);
+    window.__openNote=openNote;
     $('#nSearch').addEventListener('input', e => { UI.noteQ = e.target.value; UI.renderNotes(); });
     document.addEventListener('click', e => {
       const im = e.target.closest('img[data-act="zoom"]');
@@ -7449,7 +7488,7 @@ const Wire = (() => {
     $('#nBack').addEventListener('click', closeNote);
     $('#nMenu').addEventListener('click', () => { if (UI.openNote){ noteSave(true); noteMenu(UI.openNote); } });
     $('#notesList').addEventListener('click', e => {
-      if (e.target.closest('[data-act="add"]')){ openNote(Store.addNote({}).id); return; }
+      if (e.target.closest('[data-act="add"]')){ NoteView.edit(Store.addNote({}).id); return; }
       const card = e.target.closest('[data-id]'); if(!card) return;
       const id = card.dataset.id;
       if (e.target.closest('[data-act="nMenu"]')){ noteMenu(id); return; }
@@ -7470,14 +7509,14 @@ const Wire = (() => {
         const k = b.dataset.m; Modal.shut();
         if (k==='open') openNote(id);
         if (k==='pin')  Store.pinNote(id);
-        if (k==='dup')  Store.addNote({ title:(n.title||'ללא כותרת')+' — עותק', html:n.html });
+        if (k==='dup'){const copy=Store.addNote({ title:(n.title||'ללא כותרת')+' — עותק', html:n.html });if(n.multipart)Store.updateNote(copy.id,{multipart:true,parts:JSON.parse(JSON.stringify(n.parts))});}
         if (k==='exp'){
           const doc = '<!doctype html><meta charset="utf-8"><title>'+esc(n.title||'הערה')+'</title>'
             + '<body dir="rtl" style="max-width:760px;margin:24px auto;padding:0 18px;'
-            + 'font:16px/1.75 system-ui,sans-serif"><h1>'+esc(n.title||'הערה')+'</h1>'+n.html+'</body>';
+            + 'font:16px/1.75 system-ui,sans-serif"><h1>'+esc(n.title||'הערה')+'</h1>'+NoteView.clean(NoteView.html(n))+'</body>';
           UI.download('note-'+(n.title||n.id).slice(0,30)+'.html', doc, 'text/html;charset=utf-8');
         }
-        if (k==='del'){ Store.delNote(id); UI.toast('נמחק'); }
+        if (k==='del'){NoteView.finish(false);if(UI.openNote===id)UI.openNote=null; Store.delNote(id); UI.toast('נמחק'); }
       });
     }
 
@@ -9028,7 +9067,8 @@ const SyncModel=(()=>{
   const empty=()=>({schema:1,clock:0,records:{}});
   function capture(state,data,device){
     const next=clone(state),seen=new Set();let clock=state.clock+1,changed=false;
-    for(const type of collections)for(const row of data[type]||[]){
+    for(const type of collections)for(const original of data[type]||[]){
+      const row={...original};if(type==='notes'&&row.parts){delete row.parts;for(const [id,part]of Object.entries(original.parts))row['part:'+id]=part;}
       if(!row.id)continue;const key=type+'/'+row.id;seen.add(key);
       const record=next.records[key] ||= {fields:{}};
       const set=(name,value,deleted=false)=>{const old=record.fields[name];if(!old||old.deleted!==deleted||stable(old.value)!==stable(value)){record.fields[name]={stamp:[clock,device],value,deleted};changed=true;}};
@@ -9055,6 +9095,7 @@ const SyncModel=(()=>{
       if(!collections.includes(type)||r.fields._alive?.value===false)continue;
       const row={id},old=(local[type]||[]).find(x=>x.id===id);
       for(const [k,f]of Object.entries(r.fields))if(!f.deleted&&k!=='_alive'&&!['__proto__','constructor','prototype'].includes(k))row[k]=clone(f.value);
+      if(type==='notes'){const entries=Object.entries(row).filter(([k])=>k.startsWith('part:'));if(entries.length||row.multipart){row.parts={...(row.parts||{})};for(const [k,v]of entries){row.parts[k.slice(5)]=v;delete row[k];}}}
       out[type].push(runtime(row,old));
     }return out;
   }
@@ -9156,7 +9197,7 @@ const CloudSync=(()=>{
         catch(e){await request(object,c.token,{method:'DELETE'}).catch(()=>{});if([409,412,400].includes(e.status)){schedule();return;}throw e;}
       }
       // Defer importing while an editor is open; the next pass merges its saved work.
-      if(!document.querySelector('#modal.on')&&!document.activeElement?.isContentEditable){
+      if(!document.querySelector('#modal.on')&&!document.activeElement?.isContentEditable&&!(typeof NoteView!=='undefined'&&NoteView.editing)){
         state=SyncModel.merge(SyncModel.capture(state,Store.all,device),combined);
         const next=SyncModel.materialize(state,Store.all);
         if(SyncModel.stable(next)!==SyncModel.stable(Store.all)){
@@ -9262,6 +9303,142 @@ const Reflection=(()=>{
   refresh();setInterval(refresh,15000);window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
  }
  return {available,weekDays,render,init,opened};
+})();
+
+/* Reading is the default; only the selected section enters the existing rich editor. */
+const NoteView=(()=>{
+ let editing=null,editor=null,flush=null;
+ const parts=n=>Object.values(n.parts||{}).filter(p=>p&&p.id).sort((a,b)=>a.createdAt-b.createdAt||(a.order||0)-(b.order||0)||a.id.localeCompare(b.id));
+ const html=n=>n.multipart?parts(n).map(p=>`<h2>${UI.esc(p.title||'ללא כותרת')}</h2>${p.html||''}`).join(''):n.html||'';
+ const stamp=t=>new Date(t).toLocaleDateString('he-IL',{day:'numeric',month:'numeric',year:'numeric'});
+ const collapseKey='mesima.noteFolds';
+ function folds(){try{return JSON.parse(localStorage.getItem(collapseKey)||'{}');}catch{return {};}}
+ function bind(e,f){editor=e;flush=f;}
+ function open(id){
+  if(editing)finish(false);
+  if(!Store.note(id))return;editing=null;UI.screen='notes';UI.openNote=id;UI.render();
+ }
+ function edit(id,partId=null){
+  const n=Store.note(id),p=partId?n?.parts?.[partId]:n;if(!p)return;
+  if(editing)finish(false);
+  editing={id,partId};editor(id,p);UI.render();
+ }
+ function save(title,body){
+  const e=editing,n=e&&Store.note(e.id);if(!n)return;
+  const old=e.partId?n.parts?.[e.partId]:n;if(!old||old.title===title&&old.html===body)return;
+  if(e.partId)Store.updateNote(n.id,{parts:{...n.parts,[e.partId]:{...old,title,html:body,updatedAt:Date.now()}}});
+  else Store.updateNote(n.id,{title,html:body});
+ }
+ function finish(render=true){
+  if(!editing)return;flush(true);const id=editing.id;editing=null;
+  if(render){UI.openNote=id;UI.render();}
+ }
+ function close(){
+  if(editing){finish();return;}
+  UI.openNote=null;UI.render();
+ }
+ function addPart(id){
+  const n=Store.note(id);if(!n)return;
+  const p={id:crypto.randomUUID(),title:'',html:'',createdAt:Date.now(),updatedAt:Date.now(),order:Math.max(-1,...parts(n).map(p=>p.order||0))+1};
+  Store.updateNote(id,{parts:{...n.parts,[p.id]:p}});edit(id,p.id);
+ }
+ function convert(id){
+  const n=Store.note(id);if(!n||n.multipart)return;
+  const p={id:crypto.randomUUID(),title:n.title||'הערה ראשונה',html:n.html||'',createdAt:n.createdAt,updatedAt:n.updatedAt,order:0};
+  Store.updateNote(id,{multipart:true,parts:{[p.id]:p},html:''});open(id);
+ }
+ function rename(id){
+  const n=Store.note(id);if(!n)return;
+  Modal.open({title:'שם ההערה',body:`<input id="noteName" value="${UI.esc(n.title||'')}">`,buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'שמור',kind:'p',act:()=>{Store.updateNote(id,{title:document.getElementById('noteName').value.trim()});Modal.shut();}}]});
+ }
+ function render(){
+  const n=Store.note(UI.openNote),root=document.getElementById('noteRead');if(!n)return;
+  // Never replace the editable DOM during an autosave or a remote update.
+  const active=editing?.id===n.id;
+  document.getElementById('noteEdit').hidden=!active;root.hidden=active;if(active)return;
+  const esc=UI.esc,collapsed=folds();
+  root.innerHTML=`<div class="note-read-head"><button class="hbtn" data-note-back aria-label="חזרה להערות">›</button><h2>${esc(n.title||'ללא כותרת')}</h2><button class="txtbtn" data-note-edit>${n.multipart?'שם ההערה':'ערוך'}</button></div>`+
+   (n.multipart?parts(n).map(p=>`<section class="note-part"><button class="note-part-head" data-fold="${p.id}" aria-expanded="${!collapsed[p.id]}"><span>${collapsed[p.id]?'▸':'▾'} ${esc(p.title||'ללא כותרת')}<small>נכתב ב־${stamp(p.createdAt)}</small></span></button><div ${collapsed[p.id]?'hidden':''}><article class="note-reading">${clean(p.html)}</article><div class="note-part-actions"><button class="txtbtn" data-part-edit="${p.id}">ערוך חלק</button><button class="txtbtn" data-part-delete="${p.id}">מחק חלק</button></div></div></section>`).join('')+`<button class="btn wide" data-part-add>＋ הערה חדשה</button>`:
+    `<div class="note-date">נכתב ב־${stamp(n.createdAt)}</div><article class="note-reading">${clean(n.html)||'<p class="note">אין תוכן עדיין</p>'}</article><details class="note-options"><summary>אפשרויות נוספות</summary><button class="txtbtn" data-convert>הוסף חלקים להערה הזאת</button></details>`);
+  root.onclick=e=>{
+   const b=e.target.closest('button');if(!b)return;
+   if(b.hasAttribute('data-note-back'))close();
+   if(b.hasAttribute('data-note-edit'))n.multipart?rename(n.id):edit(n.id);
+   if(b.hasAttribute('data-part-add'))addPart(n.id);
+   if(b.hasAttribute('data-convert'))convert(n.id);
+   if(b.dataset.partEdit)edit(n.id,b.dataset.partEdit);
+   if(b.dataset.fold){const f=folds();f[b.dataset.fold]=!f[b.dataset.fold];localStorage.setItem(collapseKey,JSON.stringify(f));render();}
+   if(b.dataset.partDelete){const id=b.dataset.partDelete;Modal.open({title:'למחוק את החלק הזה?',body:'שאר חלקי ההערה יישארו.',buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'מחק',kind:'p',act:()=>{const current=Store.note(n.id),next={...current.parts};delete next[id];Store.updateNote(n.id,{parts:next});Modal.shut();}}]});}
+  };
+ }
+ // Imported/cloud HTML is untrusted too, not just clipboard HTML.
+ function clean(value){
+  const t=document.createElement('template');t.innerHTML=value||'';
+  t.content.querySelectorAll('script,style,iframe,object,embed,form,input,button,meta,link,svg,math').forEach(e=>e.remove());
+  t.content.querySelectorAll('*').forEach(e=>{for(const a of [...e.attributes]){
+   if(/^on/i.test(a.name)||['srcdoc','contenteditable'].includes(a.name))e.removeAttribute(a.name);
+   if(['href','src'].includes(a.name)&&!(/^(https?:|mailto:|tel:|#)/i.test(a.value)||a.name==='src'&&/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(a.value)))e.removeAttribute(a.name);
+   if(a.name==='style'&&/url\s*\(|expression\s*\(|position\s*:/i.test(a.value))e.removeAttribute(a.name);
+  }if(e.tagName==='A'){e.target='_blank';e.rel='noopener noreferrer';}});
+  return t.innerHTML;
+ }
+ window.addEventListener('pagehide',()=>editing&&flush?.(true));
+ document.addEventListener('visibilitychange',()=>{if(document.hidden&&editing)flush?.(true);});
+ return {bind,open,edit,save,finish,close,render,parts,html,clean,get editing(){return editing;}};
+})();
+
+/* Device-local widget choices reference existing entities; they never schedule them. */
+const Widgets=(()=>{
+ const eligible=t=>!!t&&t.kind==='short'&&!t.archived&&!t.done&&!Store.isHabit(t)&&!(t.checklists||[]).length;
+ function configs(){try{return JSON.parse(window.MesimaNative?.widgetConfigs?.()||'[]');}catch{return [];}}
+ function project(config){
+  if(config.kind==='tasks')return {ids:[...new Set(config.ids||[])].filter(id=>eligible(Store.task(id)))};
+  if(config.kind==='shopping'){
+   const l=Store.list(config.contentId);return l?{id:l.id,title:l.name,items:l.items.map(i=>({id:i.id,title:i.title,done:!!i.done,detail:i.where||''}))}:{};
+  }
+  if(config.kind==='notes'){
+   const n=Store.note(config.contentId);if(!n)return {};
+   // Only an explicitly chosen note, and only opt-in preview text, crosses to Android.
+   return {id:n.id,title:n.title||'ללא כותרת',preview:!!config.preview,
+    text:config.preview?UI.noteText(NoteView.clean(NoteView.html(n))).slice(0,6000):'',updatedAt:n.updatedAt};
+  }return {};
+ }
+ function payload(){return Object.fromEntries(configs().map(c=>[String(c.widgetId),project(c)]));}
+ function open(widgetId){
+  const config=configs().find(c=>String(c.widgetId)===String(widgetId));
+  if(!config){UI.toast('הוסף יישומון למסך הבית ופתח ממנו את הבחירה');return;}
+  let ids=new Set((config.ids||[]).filter(id=>eligible(Store.task(id)))),contentId=config.contentId||'',preview=!!config.preview,path=[];
+  const esc=UI.esc,kind=config.kind;
+  const title=kind==='tasks'?'מה להציג ביישומון?':kind==='shopping'?'בחירת רשימת קניות':'בחירת הערה';
+  Modal.open({title,body:'<div id="widgetPicker"></div>',buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'שמור',kind:'p',act:()=>{
+   const next={kind,ids:[...ids],contentId,preview};
+   try{if(!window.MesimaNative.configureWidget(+widgetId,JSON.stringify(next)))throw Error();NativeState.publish();Modal.shut();UI.toast('היישומון עודכן');}catch{UI.toast('לא ניתן לשמור. פתח את הבחירה שוב מהיישומון.');}
+  }}]});
+  const root=document.getElementById('widgetPicker');
+  const useful=(t,seen=new Set())=>{if(seen.has(t.id)||t.archived||t.done)return false;seen.add(t.id);return eligible(t)||Store.children(t.id).some(c=>useful(c,seen));};
+  function paint(){
+   if(kind==='tasks'){
+    const current=path.at(-1);let rows;
+    if(!current)rows=Store.allRoots().filter(t=>t.kind==='long'&&useful(t));
+    else if(current==='standalone')rows=Store.allRoots().filter(t=>t.kind!=='long'&&useful(t));
+    else rows=Store.children(current).filter(t=>useful(t));
+    root.innerHTML=`<p class="note">תוכן היום מופיע אוטומטית. כאן בוחרים מה להציג מתחתיו.</p><div class="widget-picker-path"><button class="txtbtn" data-root>כל המשימות</button>${path.map((id,i)=>`<button class="txtbtn" data-path="${i}">‹ ${esc(id==='standalone'?'משימות עצמאיות':Store.task(id)?.title||'')}</button>`).join('')}</div><div class="note">${ids.size} נבחרו</div>`+
+     (!current?'<div class="widget-choice"><button class="txtbtn" data-enter="standalone">משימות קצרות עצמאיות ‹</button></div>':'')+
+     rows.map(t=>`<div class="widget-choice">${eligible(t)?`<label><input type="checkbox" data-task="${t.id}" ${ids.has(t.id)?'checked':''}><span>${esc(t.title)}</span></label>`:`<button class="txtbtn" data-enter="${t.id}">${esc(t.title)} ‹</button>`}${eligible(t)&&Store.children(t.id).some(x=>useful(x))?`<button class="hbtn" data-enter="${t.id}" aria-label="תתי־משימות">‹</button>`:''}</div>`).join('')+(!rows.length&&current?'<p class="note">אין כאן משימות רגילות פתוחות לבחירה</p>':'');
+   }else{
+    const rows=kind==='shopping'?Store.all.lists:Store.notes();
+    root.innerHTML=rows.map(n=>`<div class="widget-choice"><label><input type="radio" name="widget-content" value="${n.id}" ${contentId===n.id?'checked':''}><span>${esc(n.name||n.title||'ללא כותרת')}</span></label></div>`).join('')||'<p class="note">אין עדיין תוכן לבחירה</p>';
+    if(kind==='notes')root.innerHTML+=`<label class="membership"><input type="checkbox" id="widgetPreview" ${preview?'checked':''}>הצג גם תוכן במסך הבית</label><p class="note">התוכן יהיה גלוי למי שרואה את מסך הבית. ללא סימון תוצג רק הכותרת.</p>`;
+   }
+  }
+  root.onchange=e=>{
+   if(e.target.dataset.task){e.target.checked?ids.add(e.target.dataset.task):ids.delete(e.target.dataset.task);paint();}
+   if(e.target.name==='widget-content')contentId=e.target.value;
+   if(e.target.id==='widgetPreview')preview=e.target.checked;
+  };
+  root.onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.hasAttribute('data-root'))path=[];else if(b.dataset.path!==undefined)path=path.slice(0,+b.dataset.path+1);else if(b.dataset.enter)path.push(b.dataset.enter);else return;paint();};paint();
+ }
+ return {eligible,configs,project,payload,open};
 })();
 
 UI.init();

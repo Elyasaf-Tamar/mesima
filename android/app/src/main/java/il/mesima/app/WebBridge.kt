@@ -75,6 +75,8 @@ class WebBridge(private val act: Activity) {
     @JavascriptInterface fun pendingActions():String=NativeRepo.pending(act).toString()
     @JavascriptInterface fun ackActions(ids:String){NativeRepo.ack(act,org.json.JSONArray(ids))}
     @JavascriptInterface fun locationState():String=LocationMonitor.state(act).toString()
+    @JavascriptInterface fun widgetConfigs():String=WidgetPrefs.all(act).toString()
+    @JavascriptInterface fun configureWidget(id:Int,text:String):Boolean=WidgetPrefs.save(act,id,text)
 
 
     /** הדף מדווח אם יש לו עוד שכבה לסגור. כפתור החזרה של המערכת

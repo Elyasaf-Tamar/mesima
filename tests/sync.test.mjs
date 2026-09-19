@@ -27,3 +27,14 @@ test('device reminder state and preferences stay local; pictures survive',()=>{
 test('reject malformed remote envelopes',()=>{
  assert.throws(()=>M.validate({schema:2}));assert.throws(()=>M.validate({schema:1,clock:0,records:{'tasks/x':{fields:{title:{stamp:['bad'],value:'x'}}}}}));
 });
+test('separate note parts merge across devices, preserve creation dates and deletion',()=>{
+ const data={...db([]),notes:[{id:'n',title:'lessons',multipart:true,parts:{a:{id:'a',title:'A',html:'old A',createdAt:10},b:{id:'b',title:'B',html:'old B',createdAt:20}}}]};
+ const s=M.capture(M.empty(),data,'seed'),phone=structuredClone(data),pc=structuredClone(data);
+ phone.notes[0].parts.a.html='phone';pc.notes[0].parts.b.html='computer';
+ const a=M.capture(s,phone,'phone'),b=M.capture(s,pc,'pc'),merged=M.merge(a,b);
+ const n=M.materialize(merged,data).notes[0];assert.equal(n.parts.a.html,'phone');assert.equal(n.parts.b.html,'computer');assert.equal(n.parts.a.createdAt,10);
+ const next=plain(M.materialize(merged,data));delete next.notes[0].parts.a;
+ const deleted=M.capture(merged,next,'phone'),out=M.materialize(M.merge(deleted,b),data);
+ assert.equal(out.notes[0].parts.a,undefined);assert.equal(out.notes[0].parts.b.html,'computer');
+ assert.deepEqual(plain(M.capture(deleted,out,'phone')),plain(deleted));
+});

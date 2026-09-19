@@ -3,11 +3,17 @@ const Geo = (() => {
   const listeners = [];
   /* צבירת מרחק נסיעה: מתאפס אחרי עצירה ממושכת */
   const NOISE_M = 20;          // מתחת לזה זה רעש GPS, לא תנועה
-  const STOP_MS = 6*60*1000;   // 6 דקות בלי תנועה = הרצף נשבר
+  const STOP_MS = 30*60*1000;
   const MAX_KMH = 250;         // מעל זה זו קפיצת GPS, לא נסיעה
   let trip = { meters:0, startedAt:null, lastMoveAt:null, prev:null };
 
   try{const saved=JSON.parse(localStorage.getItem('mesima.trip')||'null');if(saved?.prev)trip=saved;}catch{}
+  function expire(now=Date.now()){
+    if(trip.lastMoveAt&&now-trip.lastMoveAt>=STOP_MS&&trip.prev){
+      trip={meters:0,startedAt:null,lastMoveAt:null,prev:null};
+      try{localStorage.setItem('mesima.trip',JSON.stringify(trip));}catch{}
+    }
+  }
   const R = 6371000, rad = d => d*Math.PI/180;
   function dist(a,b){
     const dLat = rad(b.lat-a.lat), dLng = rad(b.lng-a.lng);
@@ -16,7 +22,9 @@ const Geo = (() => {
   }
 
   function feed(fix){
-    const now = fix.t, prev = trip.prev;
+    if(fix.acc>70||fix.acc<0||last&&fix.t<=last.t)return;
+    const now = fix.t;expire(now);const prev = trip.prev;
+    const gap=last?now-last.t:prev?now-prev.t:0;
     last = fix;
 
     if (!prev){
@@ -36,7 +44,7 @@ const Geo = (() => {
       /* קפיצת GPS (מנהרה, איבוד קליטה) – מיישרים את הנקודה בלי לצבור מרחק */
       trip.prev = fix;
     } else if (d >= NOISE_M){
-      trip.meters += d;
+      if(gap<=120000)trip.meters += d;
       trip.lastMoveAt = now;
       if (!trip.startedAt) trip.startedAt = now;
       trip.prev = fix;
@@ -56,7 +64,7 @@ const Geo = (() => {
     get last(){ return window.MesimaNative?.locationState ? NativeState.location?.trip?.last || last : last; },
     get lastError(){ return lastErr; },
     get on(){ return watchId !== null || !!window.MesimaNative?.locationState && !!NativeState.location?.running; },
-    get trip(){ if(window.MesimaNative?.locationState && NativeState.location?.trip)return NativeState.location.trip; return { meters:trip.meters, startedAt:trip.startedAt, lastMoveAt:trip.lastMoveAt }; },
+    get trip(){ if(window.MesimaNative?.locationState && NativeState.location?.trip)return NativeState.location.trip; expire();return { meters:trip.meters, startedAt:trip.startedAt, lastMoveAt:trip.lastMoveAt }; },
     resetTrip,
     onFix(f){ listeners.push(f); },
     supported(){ return !!(navigator.geolocation) && window.isSecureContext !== false; },

@@ -52,6 +52,8 @@ const TaskEditor = (() => {
       /* האירוע המקושר. אפשר לבחור אותו כבר ביצירה, לפני השמירה. */
       let evId = d ? d.evId : (t ? (t.eventId || '') : (o.eventId || ''));
 
+      const contextParent=o.contextParentId||d?.contextParentId||o.parentId||t?.parentId;
+      let membershipIds=d?.membershipIds?.slice()||(t?Store.parentIds(t):[]);
       let relatedIds=d?.relatedIds?.slice() || (t?Store.relatedTasks(t.id).map(x=>x.id):[]);
       const tops = Store.topPlaces();
       const placeOpts = tops.map(top =>
@@ -400,10 +402,6 @@ const TaskEditor = (() => {
           <input type="text" id="etTitle" value="${esc(d ? d.title : (t ? t.title : (o.title||'')))}"
                  autocomplete="off" placeholder="${isHabitEditor ? 'למשל: לארוז תיק' : 'למשל: לקנות מטען'}"></div>
 
-        ${isChild ? `<div class="belongs">שייך ל־${esc(underName)}</div>
-          <div class="ex" style="margin:-6px 0 12px">גם לתת-משימה יש התראה משלה.
-            "חד-פעמית" נותנת לה תאריך ושעה; "חוזרת" הופכת אותה להרגל שחוזר
-            בימים קבועים.</div>` : ''}
 
         <div style="margin-bottom:14px"><label>תיאור</label>
           <textarea id="etNote" rows="4" placeholder="פרטים, מה להביא, לינק…"
@@ -460,7 +458,7 @@ const TaskEditor = (() => {
 
         ${streakBlock()}
 
-        <div id="etMain"></div><div id="etProjectEvent"></div><div id="etRelatedMain"></div>
+        <div id="etMembershipMain"></div><div id="etMain"></div><div id="etProjectEvent"></div><div id="etRelatedMain"></div>
 
         <div class="acc" id="etAdvAcc" aria-expanded="false">
           <button class="ah" id="etAdvHead"><span class="an">אפשרויות נוספות</span>
@@ -488,7 +486,7 @@ const TaskEditor = (() => {
               <div id="etImgBox" style="margin-top:8px">${imgBox()}</div>
               <input type="file" id="etImgFile" accept="image/*" hidden>
             </div>
-            <div id="etRelatedMore" class="esec"></div><div id="etAdvContent"></div>
+            <div id="etMembershipMore" class="esec"></div><div id="etRelatedMore" class="esec"></div><div id="etAdvContent"></div>
           </div>
         </div>
         <!-- מיכל לא מחזיק אפשרויות מתקדמות, ולכן התמונה שלו יושבת ישר
@@ -498,10 +496,6 @@ const TaskEditor = (() => {
           <div id="etImgBox2"></div>
         </div>
 
-        ${(!isNew && t.kind==='short') ? `<details class="esec"><summary>שייכת ל${Store.parentsOf(t).length?' · '+Store.parentsOf(t).map(p=>esc(p.title)).join(' · '):''}</summary>
-          <div class="note">אותה משימה יכולה להופיע בכמה פרויקטים. סימון ועריכה מתעדכנים בכולם.</div>
-          ${Store.allRoots().filter(p=>p.kind==='long'&&p.id!==t.id).map(p=>`<label class="membership"><input type="checkbox" data-parent="${p.id}" ${Store.belongs(t,p.id)?'checked':''}>${esc(p.title)}</label>`).join('')}
-        </details>` : ''}
         ${(!isNew && t.parentId) ? `<button class="txtbtn" id="etIndep"
             style="margin-top:14px">הפוך למשימה עצמאית</button>` : ''}`,
         buttons:[
@@ -511,6 +505,18 @@ const TaskEditor = (() => {
 
       const B = Modal.body;
       const g = x => document.getElementById(x);
+      function paintMembership(){
+        const eligible=!isNew&&kind==='short';
+        const extra=membershipIds.filter(id=>id!==contextParent).map(id=>Store.task(id)).filter(Boolean);
+        const main=g('etMembershipMain'),more=g('etMembershipMore');
+        main.innerHTML='';more.innerHTML='';more.hidden=!eligible;
+        if(!eligible)return;
+        const host=extra.length?main:more;more.hidden=!!extra.length;
+        host.innerHTML=`<div class="membership-box">${extra.length?`<div class="esechead"><span>מופיעה גם ב־</span></div>${extra.map(p=>`<button class="settings-row" data-membership-open="${p.id}"><span>${esc(p.title)}</span><span>‹</span></button>`).join('')}`:''}<details><summary>${extra.length?'נהל הופעות נוספות':'הצג גם במשימה אחרת'}</summary>${Store.all.tasks.filter(p=>p.kind==='long'&&!p.archived&&p.id!==t.id&&p.id!==contextParent).map(p=>`<label class="membership"><input type="checkbox" data-parent="${p.id}" ${membershipIds.includes(p.id)?'checked':''}>${esc(p.title)}</label>`).join('')||'<p class="note">אין משימות ארוכות טווח נוספות</p>'}</details></div>`;
+      }
+      B.addEventListener('change',e=>{const id=e.target.dataset.parent;if(!id)return;e.target.checked?membershipIds.push(id):membershipIds=membershipIds.filter(x=>x!==id);});
+      B.addEventListener('click',e=>{const b=e.target.closest('[data-membership-open]');if(!b)return;const draft=snapshot();Modal.shut();taskModal({id:b.dataset.membershipOpen,back:{id:o.id,draft,contextParentId:contextParent}});});
+      paintMembership();
       function paintRelated(){
         const rows=relatedIds.map(id=>Store.task(id)).filter(Boolean);
         g('etRelatedMain').innerHTML=rows.length?`<div class="esec"><div class="esechead"><span>מקושרת ל</span><button class="secact" data-rel-manage>נהל קשרים</button></div>${rows.map(x=>`<button class="settings-row" data-rel-open="${x.id}"><span>${esc(x.title)}</span><span>‹</span></button>`).join('')}</div>`:'';
@@ -729,7 +735,7 @@ const TaskEditor = (() => {
                  placeId:g('etPlace') ? g('etPlace').value : '',
                  delay:g('etDelay') ? g('etDelay').value : 0,
                  km:g('etKm') ? g('etKm').value : '',
-                 img, evId, relatedIds:relatedIds.slice(),
+                 img, evId, contextParentId:contextParent, membershipIds:membershipIds.slice(), relatedIds:relatedIds.slice(),
                  pendLists: clone(pendLists), originalLists:clone(originalLists), beforeCheck:clone(beforeCheck),
                  pending:pending.slice() };
       }
@@ -1182,9 +1188,7 @@ const TaskEditor = (() => {
                       kind, mission:cat, reminder:null, repeat:null, planned:null };
         out.planned = (g('etDate') || {}).value || null;
         if(!isNew && kind==='short'){
-          const ids=[...B.querySelectorAll('[data-parent]:checked')].map(el=>el.dataset.parent);
-          const legacy=Store.parentsOf(t).filter(p=>p.kind!=='long').map(p=>p.id);
-          out.parentIds=[...new Set([...legacy,...ids])];
+          out.parentIds=[...new Set(membershipIds)];
           out.parentId=out.parentIds.includes(t.parentId)?t.parentId:out.parentIds[0]||null;
         }
 

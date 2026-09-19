@@ -127,8 +127,6 @@ const UI = (() => {
     $$('#tvModes button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === tview));
     const box = $('#todayBody');
     if (tview === 'day')   return void (box.innerHTML = dayView(selDate));
-    if (tview === 'd3')    return void (box.innerHTML = rangeView(3));
-    if (tview === 'week')  return void (box.innerHTML = rangeView(7));
     box.innerHTML = monthView();
   }
 
@@ -1198,13 +1196,14 @@ const UI = (() => {
   }
   function renderNotes(){
     const idx = $('#notesIndex'), ed = $('#noteEdit');
-    if (openNote && Store.note(openNote)){ idx.hidden = true; ed.hidden = false; return; }
+    if (openNote && Store.note(openNote)){ idx.hidden = true; NoteView.render(); return; }
+    document.getElementById('noteRead').hidden=true;
     openNote = null; idx.hidden = false; ed.hidden = true;
 
     const q = noteQ.trim().toLowerCase();
     const all = Store.notes();
     const list = !q ? all : all.filter(n =>
-      (n.title||'').toLowerCase().includes(q) || noteText(n.html).toLowerCase().includes(q));
+      (n.title||'').toLowerCase().includes(q) || noteText(NoteView.clean(NoteView.html(n))).toLowerCase().includes(q));
     const el = $('#notesList');
     if (!list.length){
       el.innerHTML = q
@@ -1216,7 +1215,7 @@ const UI = (() => {
       return;
     }
     el.innerHTML = list.map(n => {
-      const txt = noteText(n.html), img = firstImg(n.html);
+      const txt = noteText(NoteView.clean(NoteView.html(n))), img = firstImg(NoteView.clean(NoteView.html(n)));
       return `<div class="ncard" data-id="${n.id}">
         ${img ? `<img class="thumb" src="${esc(img)}" alt="">` : ''}
         <div class="nb">
@@ -1393,7 +1392,7 @@ const UI = (() => {
     get openCl(){ return openCl; },
     get section(){ return section; }, set section(v){ section=v; },
     get screen(){ return screen; },   set screen(v){ screen=v; },
-    get tview(){ return tview; },     set tview(v){ tview=v; },
+    get tview(){ return tview; },     set tview(v){ tview=v==='month'?'month':'day'; },
     get filter(){ return filter; },   set filter(v){ filter=v; },
     get taskQ(){ return taskQ; },     set taskQ(v){ taskQ=v; },
     get selDate(){ return selDate; }, set selDate(v){ selDate=v; },

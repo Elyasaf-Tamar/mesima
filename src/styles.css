@@ -725,3 +725,22 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
 .reflections{margin:28px 0 36px;display:grid;gap:10px}.reflection-card{border:1px solid var(--line,#303642);border-radius:14px;background:var(--card,#191e26);overflow:hidden}.reflection-head{width:100%;display:flex;align-items:center;justify-content:space-between;text-align:start;padding:16px 18px;color:inherit;background:transparent;border:0;cursor:pointer}.reflection-head strong{font-size:16px;font-weight:600}.reflection-head small{display:block;color:var(--muted);font-size:13px;margin-top:5px}.reflection-arrow{color:var(--accent,#7aa2f7);font-size:24px}.reflection-body{padding:0 18px 18px}.reflection-items{list-style:none;margin:0;padding:0}.reflection-items li{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line,#303642)}.reflection-items li>div{flex:1;min-width:0;overflow-wrap:anywhere}.reflection-items small{display:block;color:var(--muted);font-size:12px;margin-top:4px}.reflection-items time{font-size:12px;color:var(--muted);white-space:nowrap;direction:ltr}.reflection-check{color:#8bcaa8}.reflection-label{display:block;margin:22px 0 9px;font-weight:600}.reflection-body textarea{width:100%;min-height:120px;resize:vertical;line-height:1.7;box-sizing:border-box}.reflection-saved{display:block;margin-top:6px;color:var(--muted);font-size:12px}.reflection-day h3{display:flex;justify-content:space-between;font-size:14px;margin:22px 0 5px}.reflection-day h3 span{color:var(--muted)}.reflection-day-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;padding:12px;border-inline-start:2px solid var(--accent,#7aa2f7);background:rgba(122,162,247,.04)}
 
 .reflection-task{border:0;background:none;padding:0;color:inherit;font:inherit;text-align:start;cursor:pointer}.reflection-task:hover{text-decoration:underline}.reflection-task:focus-visible{outline:2px solid var(--accent,#7aa2f7);outline-offset:3px}
+
+/* 4.9: content keeps its scroll area; only the scrollbar is hidden. */
+*{scrollbar-width:none!important;-ms-overflow-style:none}
+*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}
+.note-read-head{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.note-read-head h2{flex:1;margin:0;overflow-wrap:anywhere;font-size:24px}
+.note-date,.note-part-head small{color:var(--muted);font-size:12px;display:block;margin:6px 0 12px}
+.note-reading{font-size:calc(17px * var(--nz,1));line-height:1.9;overflow-wrap:anywhere;user-select:text;padding:4px 0 20px}
+.note-reading img{max-width:100%;height:auto;border-radius:12px}
+.note-reading a{color:var(--accent)}
+.note-part{border-bottom:1px solid var(--line);margin-bottom:18px}
+.note-part-head{width:100%;text-align:start;font-size:19px;background:none;border:0;color:inherit;padding:14px 0;cursor:pointer}
+.note-part-actions{display:flex;gap:20px;padding-bottom:16px}
+.note-options{margin-top:24px;color:var(--muted)}
+.widget-picker-path{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.widget-choice{display:flex;align-items:center;gap:12px;min-height:54px;border-bottom:1px solid var(--line)}
+.widget-choice label{display:flex;flex:1;align-items:center;gap:12px;cursor:pointer;margin:0;padding:10px 0}
+.widget-choice button{flex:1;text-align:start}
+.membership-box{padding:12px 0}

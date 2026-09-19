@@ -1,6 +1,6 @@
 {
   "name": "mesima",
-  "version": "4.8.1",
+  "version": "4.9",
   "private": true,
   "scripts": {
     "build": "node tools/build.mjs",

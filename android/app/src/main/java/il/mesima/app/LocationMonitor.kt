@@ -13,7 +13,11 @@ import org.json.JSONObject
 class LocationMonitor:Service(){
  companion object {
   @Volatile var running=false
-  fun state(c:Context)=runCatching{JSONObject(NativeRepo.prefs(c).getString("location","{}")!!)}.getOrDefault(JSONObject()).put("running",running)
+  @Synchronized fun state(c:Context):JSONObject {
+   val s=runCatching{JSONObject(NativeRepo.prefs(c).getString("location","{}")!!)}.getOrDefault(JSONObject())
+   s.optJSONObject("trip")?.let{if(TripState.expire(it,System.currentTimeMillis()))NativeRepo.prefs(c).edit().putString("location",s.toString()).commit()}
+   return s.put("running",running)
+  }
   fun reconcile(c:Context){
    val s=NativeRepo.snapshot(c);val needed=s.optBoolean("geo")&&NativeRepo.objects(s.optJSONArray("tasks")?:org.json.JSONArray()).any{!it.optBoolean("archived")&&!it.optBoolean("done")&&it.optJSONObject("reminder")?.optString("type") in listOf("trip","place")}
    if(!needed){c.stopService(Intent(c,LocationMonitor::class.java));return}

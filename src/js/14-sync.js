@@ -15,7 +15,8 @@ const SyncModel=(()=>{
   const empty=()=>({schema:1,clock:0,records:{}});
   function capture(state,data,device){
     const next=clone(state),seen=new Set();let clock=state.clock+1,changed=false;
-    for(const type of collections)for(const row of data[type]||[]){
+    for(const type of collections)for(const original of data[type]||[]){
+      const row={...original};if(type==='notes'&&row.parts){delete row.parts;for(const [id,part]of Object.entries(original.parts))row['part:'+id]=part;}
       if(!row.id)continue;const key=type+'/'+row.id;seen.add(key);
       const record=next.records[key] ||= {fields:{}};
       const set=(name,value,deleted=false)=>{const old=record.fields[name];if(!old||old.deleted!==deleted||stable(old.value)!==stable(value)){record.fields[name]={stamp:[clock,device],value,deleted};changed=true;}};
@@ -42,6 +43,7 @@ const SyncModel=(()=>{
       if(!collections.includes(type)||r.fields._alive?.value===false)continue;
       const row={id},old=(local[type]||[]).find(x=>x.id===id);
       for(const [k,f]of Object.entries(r.fields))if(!f.deleted&&k!=='_alive'&&!['__proto__','constructor','prototype'].includes(k))row[k]=clone(f.value);
+      if(type==='notes'){const entries=Object.entries(row).filter(([k])=>k.startsWith('part:'));if(entries.length||row.multipart){row.parts={...(row.parts||{})};for(const [k,v]of entries){row.parts[k.slice(5)]=v;delete row[k];}}}
       out[type].push(runtime(row,old));
     }return out;
   }
@@ -143,7 +145,7 @@ const CloudSync=(()=>{
         catch(e){await request(object,c.token,{method:'DELETE'}).catch(()=>{});if([409,412,400].includes(e.status)){schedule();return;}throw e;}
       }
       // Defer importing while an editor is open; the next pass merges its saved work.
-      if(!document.querySelector('#modal.on')&&!document.activeElement?.isContentEditable){
+      if(!document.querySelector('#modal.on')&&!document.activeElement?.isContentEditable&&!(typeof NoteView!=='undefined'&&NoteView.editing)){
         state=SyncModel.merge(SyncModel.capture(state,Store.all,device),combined);
         const next=SyncModel.materialize(state,Store.all);
         if(SyncModel.stable(next)!==SyncModel.stable(Store.all)){

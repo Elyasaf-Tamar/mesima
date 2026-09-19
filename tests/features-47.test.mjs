@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
 function setup(options={}){
  const saved=new Map(),window={MesimaNative:options.bridge},ctx=vm.createContext({Date,Math,JSON,Map,Set,console,window,setTimeout,clearTimeout,setInterval:()=>0,localStorage:{getItem:k=>saved.get(k)||null,removeItem:k=>saved.delete(k),setItem:(k,v)=>{options.beforeSave?.();saved.set(k,v);}},navigator:{},document:{},UI:{}});
- for(const name of ['01-store','05-cal','06-recur','09-plan','11-native','11-native-state'])vm.runInContext(fs.readFileSync(new URL('../src/js/'+name+'.js',import.meta.url),'utf8'),ctx);
+ for(const name of ['01-store','05-cal','06-recur','09-plan','11-native','11-native-state','14-widgets'])vm.runInContext(fs.readFileSync(new URL('../src/js/'+name+'.js',import.meta.url),'utf8'),ctx);
  return vm.runInContext('({Store,Plan,Native,NativeState,ReminderLink})',ctx);
 }
 test('shared child appears once in today and remains active when one parent closes or is deleted',()=>{
