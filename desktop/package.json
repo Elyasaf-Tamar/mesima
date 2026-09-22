@@ -1,6 +1,6 @@
 {
   "name": "mesima-desktop",
-  "version": "4.8",
+  "version": "4.9.1",
   "private": true,
   "main": "main.cjs",
   "description": "Mesima desktop",

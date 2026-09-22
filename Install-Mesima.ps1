@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $mesimaSource = Join-Path $PSScriptRoot 'desktop/dist/Mesima-win32-x64'
 if (!(Test-Path -LiteralPath $mesimaSource)) { $mesimaSource=Join-Path $PSScriptRoot 'Mesima-win32-x64' }
 $mesimaTarget = Join-Path $env:LOCALAPPDATA 'Programs/Mesima'
-if (!(Test-Path -LiteralPath (Join-Path $mesimaSource 'Mesima.exe'))) { throw 'לא נמצאה תיקיית ההפצה. הפעל מתוך תיקיית גרסה 4.8.' }
+if (!(Test-Path -LiteralPath (Join-Path $mesimaSource 'Mesima.exe'))) { throw 'לא נמצאה תיקיית ההפצה. הפעל מתוך תיקיית ההתקנה שחילצת.' }
 if (Get-Process -Name Mesima -ErrorAction SilentlyContinue) { throw 'סגור את משימה דרך תפריט יציאה ונסה שוב.' }
 New-Item -ItemType Directory -Path $mesimaTarget -Force | Out-Null
 Copy-Item -Path (Join-Path $mesimaSource '*') -Destination $mesimaTarget -Recurse -Force

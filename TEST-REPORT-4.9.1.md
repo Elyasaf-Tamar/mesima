@@ -1,0 +1,9 @@
+# Mesima 4.9.1 validation
+
+- 41 JavaScript model tests passed. Added coverage for v12 completion backfill, actual completion date versus planned/archive date, numeric and ISO timestamps, missing/invalid dates, independent-device merging, idempotence, undo and checklist deduplication, and persistence of explicitly archived habits.
+- Browser regression follows the actual month/date controls at 412 × 915, checks a past day's completion time/project/note, edits and reloads its note, verifies weekly inclusion and no duplicate completion, and checks morning/evening/future visibility. A 1440 × 1000 desktop render was also inspected.
+- The packaged Windows application was launched twice using an isolated test profile. Version 4.9.1, embedded web version, renderer isolation, cloud controls/transport restriction, native snooze cancellation, snapshot persistence and previous-day summary in month view passed. Hidden-window screenshots are optional; visual checks use the browser regression above.
+- Android release build and all 18 JVM tests passed. APK manifest and packaged bridge both report 1.8.1, versionCode 20. Bundled HTML matches the source build, and the signing certificate matches the existing installed-app lineage.
+- Old-version cleanup checks exact resolved workspace paths, refuses reparse points, skips running apps, preserves and verifies compact source archives, and copies original documents/private security reports before deletion. Shared build tools and original signing references are outside version folders.
+
+No physical Android device was connected. Live cross-device Firebase behaviour was not tested with personal accounts. Migration is applied locally on loading/importing data and propagated by the existing synchronization mechanism; the test of device merging uses model fixtures. No missing completion timestamp is guessed from a planning or archive timestamp.

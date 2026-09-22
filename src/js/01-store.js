@@ -91,7 +91,8 @@ const Store = (() => {
     if (t.autoArch === undefined) t.autoArch = false;
     /* הרגל הוא משימה רגילה — הוא לא "נגמר" ולכן לא מגיע לארכיון */
     if (t.repeat && t.repeat.times && t.repeat.times.length){
-      t.archived = false; t.archivedAt = null; t.done = false; t.doneAt = null;
+      if((input.v || 0)<12){t.archived = false; t.archivedAt = null;}
+      t.done = false; t.doneAt = null;
     }
   });
   /* ---------- v4 -> v5: פריט ארוך-טווח לא יכול להיות הרגל בעצמו ----------
@@ -268,27 +269,47 @@ const Store = (() => {
     t.parentIds = ids.filter(id => id!==t.id && data.tasks.some(p=>p.id===id && (id===t.parentId || p.kind==='long')));
     t.parentId = t.parentIds[0] || null;
   });
-  if((input.v || 0)<12){
+  // Repair evidenced history on every load/import, including v12 and mixed-version sync.
+  // Existing occurrence IDs (including revoked ones) always win over legacy snapshots.
+  {
+    const timestamp=value=>{
+      if(value==null || value==='')return null;
+      const n=typeof value==='number'?value:/^\d+$/.test(value)?Number(value):Date.parse(value);
+      return Number.isFinite(n)&&n>0&&!Number.isNaN(new Date(n).getTime())?n:null;
+    };
+    const validDay=day=>/^\d{4}-\d{2}-\d{2}$/.test(day)&&localDay(new Date(day+'T12:00:00'))===day;
     const put=(t,day,at,kind,occurrence)=>{
       const id=kind+':'+t.id+':'+occurrence;
       if(!data.completions.some(x=>x.id===id)) data.completions.push({id,taskId:t.id,kind,occurrence,day,at,title:t.title,active:true,legacy:true,
         projects:(t.parentIds||[]).map(id=>data.tasks.find(p=>p.id===id)).filter(Boolean).map(p=>({id:p.id,title:p.title}))});
     };
     for(const t of data.tasks){
-      if(t.done && t.doneAt && t.kind!=='long'){const d=new Date(t.doneAt);put(t,localDay(d),t.doneAt,'task','once');}
-      for(const [day,value] of Object.entries(t.log||{})) if(value) put(t,day,null,'habit',day);
+      const at=timestamp(t.doneAt);
+      const habit=!!t.repeat?.times?.length;
+      const checklistRecorded=t.kind==='check'&&data.completions.some(r=>r.taskId===t.id&&r.kind==='checklist');
+      if(t.done && at && t.kind!=='long' && !habit && !checklistRecorded)
+        put(t,localDay(new Date(at)),at,'task','once');
+      if(habit)for(const [day,value] of Object.entries(t.log||{}))
+        if(value && validDay(day))put(t,day,null,'habit',day);
     }
   }
   for(const t of data.tasks) for(const c of t.checklists||[]) if(!c.cycleDay && c.rt?.cycle) c.cycleDay=c.rt.cycle;
   // Per-occurrence history is authoritative when two devices changed different days.
   for(const r of data.completions){
-    if(r.legacy)continue;const t=data.tasks.find(t=>t.id===r.taskId);if(!t)continue;
+    if(r.legacy&&!r.revokedAt)continue;const t=data.tasks.find(t=>t.id===r.taskId);if(!t)continue;
     if(r.kind==='habit'){t.log=t.log||{};if(r.active)t.log[r.occurrence]=1;else delete t.log[r.occurrence];}
     if(!r.active&&r.revokedAt){t.rt=t.rt||{};t.rt.resumeAt=Math.max(t.rt.resumeAt||0,r.revokedAt);}
     if(r.kind==='task'){t.done=!!r.active;t.doneAt=r.active?r.at:null;}
   }
   for(const t of data.tasks)if(t.kind==='check'&&t.checklists?.[0]?.repeat){t.done=false;t.doneAt=null;}
-  data.v = 12;
+  // Completed one-off actions live in history, not in archive retention/deletion.
+  for(const t of data.tasks){
+    if(t.kind==='long'||t.repeat?.times?.length||t.checklists?.some(c=>c.repeat)||!t.done)continue;
+    if(data.completions.some(r=>r.taskId===t.id&&r.active)){
+      t.archived=false;t.archivedAt=null;t.autoArch=false;
+    }
+  }
+  data.v = 13;
 
     return data;
   }
@@ -590,8 +611,9 @@ const Store = (() => {
       save();
     },
     /** Archive is an explicit action; it never claims unfinished children were completed. */
+    canArchive(t){return this.isLong(t)||this.isHabit(t)||this.checkRepeats(t);},
     closeProject(id){
-      const t=this.task(id);if(!t)return;
+      const t=this.task(id);if(!t||!this.canArchive(t))return;
       t.archived=true;t.archivedAt=Date.now();t.autoArch=false;
       this.ownedDescendants(id,true).forEach(c=>{if(!c.archived){c.archived=true;c.archivedAt=t.archivedAt;c.autoArch=true;}});save();
     },

@@ -451,10 +451,10 @@ const UI = (() => {
     const evs = all.filter(e => e.allDay).concat(all.filter(e => !e.allDay));
     const tsk = Store.plannedFor(date);
     const hab = Store.habitsFor(date).filter(t => !Store.habitFull(t, date));
-    if (!evs.length && !tsk.length && !hab.length)
-      return `<div class="dim small" style="padding:6px 0">אין כלום ביום הזה.</div>`;
-    return evs.map(eventRow).join('') +
-           [...hab, ...tsk].map(t => taskRow(t, null, date)).join('');
+    const schedule = !evs.length && !tsk.length && !hab.length
+      ? `<div class="dim small" style="padding:6px 0">אין דברים מתוכננים ביום הזה.</div>`
+      : evs.map(eventRow).join('') + [...hab, ...tsk].map(t => taskRow(t, null, date)).join('');
+    return schedule + (typeof Reflection!=='undefined' ? Reflection.render(date) : '');
   }
 
   /* ====================================================================
@@ -730,10 +730,10 @@ const UI = (() => {
     const box = $('#archiveBody');
     if (!list.length){
       box.innerHTML = `<div class="empty"><div class="h">הארכיון ריק</div>
-        <div class="d">כל משימה שתסיים תישמר כאן ותמיד אפשר יהיה להחזיר אותה.</div></div>`;
+        <div class="d">כאן נשמרים דברים שסגרת לארכיון. משימות שבוצעו מופיעות בסיכום היום שלהן בטאב היום.</div></div>`;
       return;
     }
-    box.innerHTML = `<div class="sub">${list.length} פריטים. שום דבר לא נמחק לבד.</div>` +
+    box.innerHTML = `<div class="sub">${list.length} פריטים שנשמרו מחוץ לרשימה הפעילה.</div>` +
       list.map(t => {
         const kids = Store.descendants(t.id).length;
         return `<div class="arow" data-id="${t.id}">

@@ -29,7 +29,7 @@ async function backup(){
   const text=fs.readFileSync(path.join(DATA,'snapshot.json'),'utf8'),data=validate(text),id=crypto.randomUUID(),p=`users/${account.uid}/backups/${id}.json`,bytes=Buffer.from(text);
   const boundary=crypto.randomUUID(),body=`--${boundary}\r\nContent-Type: application/json; charset=utf-8\r\n\r\n${JSON.stringify({name:p,contentType:'application/json'})}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${text}\r\n--${boundary}--`;
   await authorized(`https://firebasestorage.googleapis.com/v0/b/${config.bucket}/o?name=${encodeURIComponent(p)}`,{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary,'X-Goog-Upload-Protocol':'multipart'},body});
-  const meta={createdAt:Date.now(),path:p,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex'),taskCount:data.tasks.length,appVersion:'4.6',schema:data.v||5};
+  const meta={createdAt:Date.now(),path:p,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex'),taskCount:data.tasks.length,appVersion:app.getVersion(),schema:data.v||5};
   const fields=Object.fromEntries(Object.entries(meta).map(([k,v])=>[k,typeof v==='number'?{integerValue:String(v)}:{stringValue:v}]));
   await authorized(docBase()+'?documentId='+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
   cloud.lastBackup=meta.createdAt;settings.lastCloud=meta.createdAt;write('settings.json',settings);return 'הגיבוי נשמר בענן';

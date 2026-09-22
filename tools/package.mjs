@@ -9,7 +9,7 @@ const apkName=`Mesima-${version}-Android-${nativeVersion}-Firebase.apk`;
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const original=JSON.parse(fs.readFileSync(path.join(root,'original-sha256.json')));
 for(const [name,hash] of Object.entries(original)){
-  if(sha(fs.readFileSync(path.join(root,'../App Version 4.4',name)))!==hash)throw Error(`Original changed: ${name}`);
+  if(sha(fs.readFileSync(path.join(root,'../.mesima-private/original-4.4',name)))!==hash)throw Error(`Original changed: ${name}`);
 }
 const apk=path.join(root,'android/app/build/outputs/apk/release/app-release.apk');
 if(fs.existsSync(apk)) fs.copyFileSync(apk,path.join(root,apkName));

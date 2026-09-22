@@ -1,8 +1,8 @@
 from pathlib import Path
 import os,re,subprocess,zipfile
 r=Path(__file__).resolve().parents[1]
-cache=r.parent/'App Version 4.5/.build-tools'
-with zipfile.ZipFile(r.parent/'App Version 4.4/android-src.zip') as z:
+cache=r.parent/'.mesima-build-tools/android'
+with zipfile.ZipFile(r.parent/'.mesima-private/original-4.4/android-src.zip') as z:
     old=z.read('android/app/build.gradle').decode('utf8')
 def setting(name):
     line=next((line for line in old.splitlines() if line.strip().startswith(name)),None)
@@ -10,7 +10,7 @@ def setting(name):
     if not values: raise RuntimeError('Original signing configuration missing: '+name)
     return values[-1]
 env=os.environ.copy()
-env.update(MESIMA_KEYSTORE=str(r/'android/app/mesima.jks'),
+env.update(MESIMA_KEYSTORE=str(r.parent/'.mesima-private/mesima.jks'),
            MESIMA_STORE_PASSWORD=setting('storePassword'),MESIMA_KEY_ALIAS=setting('keyAlias'),
            MESIMA_KEY_PASSWORD=setting('keyPassword'),
            JAVA_HOME=str(next((cache/'jdk').iterdir())),

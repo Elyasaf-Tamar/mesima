@@ -73,3 +73,36 @@ test('independent device completions, undo and day/week notes survive merging an
 test('legacy migration records only evidenced completions, does not invent time or unarchive projects',()=>{
  const {Store:S}=setup({v:11,tasks:[{id:'closed',title:'closed',kind:'long',archived:true},{id:'old',title:'Old task',kind:'short',done:true,doneAt:new Date('2026-09-16T11:30:00').getTime(),archived:true},{id:'habit',title:'Old habit',kind:'short',repeat:rep,log:{'2026-09-16':1}}]});assert.equal(S.completionsFor('2026-09-16').length,2);assert.equal(S.completionsFor('2026-09-16').find(r=>r.kind==='habit').at,null);S.import(S.export());assert.equal(S.completionsFor('2026-09-16').length,2);assert.equal(S.task('closed').archived,true);
 });
+
+test('v12 archive history is repaired by actual completion time, idempotently, without changing project closure',()=>{
+ const at=new Date('2026-09-15T23:40:00').getTime();
+ const {Store:S}=setup({v:12,tasks:[
+  {id:'p',kind:'long',title:'Project',archived:true,archivedAt:at},
+  {id:'child',kind:'short',title:'Completed child',parentId:'p',done:true,doneAt:at,archived:true,archivedAt:at+86400000,planned:'2026-09-20'},
+  {id:'iso',kind:'short',title:'ISO completion',done:true,doneAt:new Date(at).toISOString(),archived:true},
+  {id:'open',kind:'short',title:'Unfinished archived child',parentId:'p',autoArch:true,archived:true},
+  {id:'unknown',kind:'short',title:'Missing execution time',done:true,archived:true,archivedAt:at},
+  {id:'invalid',kind:'short',done:true,doneAt:'bad date',archived:true}
+ ]});
+ const rows=S.completionsFor('2026-09-15');assert.equal(rows.length,2);assert.equal(rows[0].at,at);assert.equal(rows.find(r=>r.taskId==='child').projects[0].title,'Project');
+ assert.equal(S.completionsFor('2026-09-20').length,0);assert.equal(S.task('child').archived,false);assert.equal(S.task('child').done,true);assert.equal(S.task('p').archived,true);assert.equal(S.task('open').archived,true);assert.equal(S.task('unknown').archived,true);
+ S.import(S.export());assert.equal(S.completionsFor('2026-09-15').length,2);assert.equal(S.active().some(t=>t.id==='child'),false);
+ S.undoCompletion('child');S.import(S.export());assert.equal(S.completionsFor('2026-09-15').length,1);assert.equal(S.task('child').done,false);
+});
+test('repair respects revoked history and does not double-count a recorded checklist completion',()=>{
+ const at=new Date('2026-09-16T11:30:00').getTime(),revoked={id:'task:undo:once',taskId:'undo',kind:'task',occurrence:'once',day:'2026-09-16',at,active:false,legacy:true,revokedAt:at+1};
+ const {Store:S}=setup({v:12,tasks:[{id:'undo',kind:'short',done:true,doneAt:at},{id:'c',title:'Checklist',kind:'check',done:true,doneAt:at,archived:true,checklists:[{id:'list',items:[{id:'i',checked:true}]}]}],completions:[revoked,{id:'checklist:c:list:once-0',taskId:'c',checklistId:'list',kind:'checklist',occurrence:'once-0',day:'2026-09-16',at,title:'Checklist',active:true}]});
+ assert.equal(S.completionsFor('2026-09-16').length,1);assert.equal(S.task('undo').done,false);assert.equal(S.task('c').archived,false);S.import(S.export());assert.equal(S.completionsFor('2026-09-16').length,1);
+});
+test('archive is for closed containers and recurring entities; habit closure survives reload',()=>{
+ const {Store:S}=setup(),t=S.addTask({title:'Once'}),h=S.addTask({title:'Habit',repeat:rep});
+ assert.equal(S.canArchive(t),false);S.closeProject(t.id);assert.equal(t.archived,false);
+ S.tickHabit(h.id,'2026-09-16');S.closeProject(h.id);S.import(S.export());assert.equal(S.task(h.id).archived,true);assert.equal(S.completionsFor('2026-09-16').length,1);
+});
+test('archived completions from a second device are repaired after merge without duplicates or lost reflection notes',()=>{
+ const {Store:S,SyncModel:M}=setup(),at=new Date('2026-09-16T13:20:00').getTime(),initial=JSON.parse(S.export());
+ const old={...initial,v:12,tasks:[{id:'legacy-phone',kind:'short',title:'From phone',done:true,doneAt:at,archived:true}]};
+ S.setReflection('day','2026-09-16','My existing day');const a=M.capture(M.empty(),JSON.parse(S.export()),'desktop'),b=M.capture(M.empty(),old,'phone');
+ const state=M.merge(a,b);S.import(JSON.stringify(M.materialize(state,JSON.parse(S.export()))));assert.equal(S.completionsFor('2026-09-16').length,1);assert.equal(S.reflection('day','2026-09-16'),'My existing day');
+ const repaired=M.capture(state,JSON.parse(S.export()),'desktop');S.import(JSON.stringify(M.materialize(M.merge(repaired,b),JSON.parse(S.export()))));assert.equal(S.completionsFor('2026-09-16').length,1);assert.equal(S.task('legacy-phone').archived,false);
+});

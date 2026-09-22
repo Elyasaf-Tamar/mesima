@@ -1017,7 +1017,7 @@ const Wire = (() => {
         body:`${isLong
             ? `<button class="pick" data-m="close"><span class="pn">סגור וארכב</span>
                  <span class="pm">${kids ? kids + ' בפנים' : ''}</span></button>`
-            : `<button class="pick" data-m="close"><span class="pn">העבר לארכיון</span></button>`}
+            : Store.canArchive(t) ? `<button class="pick" data-m="close"><span class="pn">העבר לארכיון</span></button>` : ''}
           ${t.parentId
             ? `<button class="pick" data-m="indep">
                  <span class="pn">הפוך למשימה עצמאית</span>
@@ -1125,7 +1125,7 @@ const Wire = (() => {
         if (habs)  parts.push(habs  + (habs===1  ? ' הרגל'        : ' הרגלים'));
         body = `למחוק את "${esc(t.title)}" לצמיתות?<br>` +
           (parts.length ? 'יימחקו איתה גם ' + parts.join(', ') + '.'
-                        : 'סיום רגיל שומר בארכיון. מחיקה היא לצמיתות.');
+                        : 'סימון בוצע שומר את ההשלמה בסיכום היום. מחיקה מסירה את המשימה עצמה.');
       }
       Modal.open({ title:'מחיקה', body:`<div class="note">${body}</div>`,
         buttons:[{label:'ביטול',act:()=>Modal.shut()},
