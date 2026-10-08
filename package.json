@@ -1,12 +1,24 @@
 {
   "name": "mesima",
-  "version": "4.9.1",
+  "version": "4.9.2",
   "private": true,
   "scripts": {
     "build": "node tools/build.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "node tools/run-ui-tests.mjs",
+    "test:rules": "firebase emulators:exec --config firebase/firebase.json --project demo-mesima --only firestore,storage \"node --test firebase/tests/*.test.mjs\"",
+    "test:archive": "python3 -m unittest discover -s tests -p \"test_*.py\"",
+    "verify": "npm run build && npm test && npm run test:archive && npm run test:ui",
+    "desktop:build": "node desktop/build.cjs",
+    "test:desktop": "node tools/desktop-test.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.0",
+    "firebase": "12.5.0",
+    "firebase-tools": "14.20.0",
+    "playwright": "1.57.0"
   }
 }

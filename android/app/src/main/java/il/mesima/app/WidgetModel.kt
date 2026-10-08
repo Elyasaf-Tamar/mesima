@@ -30,6 +30,7 @@ object WidgetModel {
   if(kind=="tasks"){
    val today=NativeRepo.objects(days.optJSONArray(day)?:JSONArray()).filter{visible(it,day)&&(!snapshot.has("widgetChecklists")||it.optString("kind")!="checklist")}.toMutableList()
    NativeRepo.objects(snapshot.optJSONArray("widgetChecklists")?:JSONArray()).forEach{c->
+    if(c.optString("taskId").isNotBlank()&&NativeRepo.blocked(snapshot,pending,JSONObject().put("taskId",c.optString("taskId")).put("day",day)))return@forEach
     val latest=NativeRepo.objects(c.optJSONArray("slots")?:JSONArray()).lastOrNull{it.optLong("resetAt")<=now}
     val cycle=latest?.optString("day")?:c.optString("cycle")
     if(cycle.isNotBlank()&&cycle<=day&&(latest!=null||!c.optBoolean("complete")))today.add(JSONObject().put("id",c.optString("id")).put("title",c.optString("title")).put("time",c.optString("time")).put("kind","checklist"))

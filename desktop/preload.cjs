@@ -1,6 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 let status=ipcRenderer.sendSync('backup-initial');
-const send=(channel,...args)=>ipcRenderer.invoke(channel,...args).catch(()=>{});
+const send=(channel,...args)=>ipcRenderer.invoke(channel,...args).catch(()=>false);
 contextBridge.exposeInMainWorld('MesimaDesktop',{
   status:()=>status,
   searchPlaces:url=>ipcRenderer.invoke('search-places',url),
@@ -13,5 +13,6 @@ contextBridge.exposeInMainWorld('MesimaDesktop',{
   onStatus:cb=>ipcRenderer.on('backup-status',(_e,s)=>{status=s;cb();}),
   onList:cb=>ipcRenderer.on('cloud-list',(_e,rows)=>cb(rows)),
   onRestore:cb=>ipcRenderer.on('cloud-restore',(_e,text)=>cb(text)),
+  onScheduleRefresh:cb=>ipcRenderer.on('schedule-refresh',()=>cb()),
   onReminder:cb=>ipcRenderer.on('reminder',(_e,a)=>cb(a))
 });

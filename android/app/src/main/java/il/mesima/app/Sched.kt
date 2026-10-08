@@ -12,8 +12,8 @@ import org.json.JSONObject
  * תזכורות שעה שעובדות כשהאפליקציה סגורה (סעיף 59).
  *
  * הרעיון זהה לזה של Fences: את ההמתנה מחזיקה מערכת ההפעלה, לא אנחנו.
- * ה-JavaScript מחשב את רשימת המופעים הקרובים ומוסר אותה בבת אחת;
- * כאן רק רושמים אותם ב-AlarmManager. התהליך שלנו יכול למות לגמרי —
+ * קוד הווב מוסר תוכנית חזרתיות ואירועים שנשמרת במכשיר. בכל יקיצה
+ * מחשבים ממנה את המופעים הבאים, גם בלי WebView. התהליך יכול להיסגר —
  * אנדרואיד מעיר את AlarmReceiver, וההתראה מפורסמת מ-Kotlin בלי WebView.
  *
  * מבנה כל פריט ברשימה:
@@ -24,16 +24,44 @@ object Sched {
     private const val PREF = "mesima_alarms"
     private const val KEY  = "list"
     private const val REG  = "registered"
+    private const val PLAN = "plan"
+    private const val BATCH = "native-batch:"
 
     /** תקרה שמרנית. כל תזכורת היא PendingIntent שהמערכת מחזיקה. */
     private const val CAP = 100
 
-    /** תחזוקה יומית: מרעננת את הרישום גם אם האפליקציה לא נפתחה. */
+    /** תחזוקה פעמיים ביום: מגלגלת את התוכנית השמורה בלי לפתוח את האפליקציה. */
     private const val UPKEEP_CODE = 0x5EED
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
-    @Synchronized fun save(ctx: Context, json: String) = prefs(ctx).edit().putString(KEY, json).apply()
+    /** Legacy HTML supplies concrete occurrences. Keep that protocol available. */
+    @Synchronized fun save(ctx: Context, json: String) {
+        Payloads.bytes(json);JSONArray(json)
+        check(prefs(ctx).edit().putString(KEY,json).remove(PLAN).remove("error").commit())
+    }
+
+    private fun plan(ctx:Context):JSONObject? = runCatching {
+        prefs(ctx).getString(PLAN,null)?.let { JSONObject(it) }
+    }.getOrNull()
+
+    @Synchronized fun savePlan(ctx:Context,json:String):Int {
+        val checked=AlarmPlan.validate(json)
+        val prepared=AlarmPlan.prepare(checked,plan(ctx),System.currentTimeMillis(),java.time.ZoneId.systemDefault())
+        val text=prepared.toString();Payloads.bytes(text)
+        check(prefs(ctx).edit().putString(PLAN,text).remove("error").commit())
+        val count=reapply(ctx)
+        MesimaWidget.updateAll(ctx)
+        return count
+    }
+
+    fun error(ctx:Context,message:String){prefs(ctx).edit().putString("error",message).apply()}
+
+    fun widgetSnapshot(ctx:Context,day:String,now:Long=System.currentTimeMillis()):JSONObject {
+        val snapshot=NativeRepo.snapshot(ctx)
+        val rules=plan(ctx)?:return snapshot
+        return runCatching{AlarmPlan.widgetProjection(snapshot,rules,day,now)}.getOrDefault(snapshot)
+    }
 
     fun load(ctx: Context): JSONArray =
         try { JSONArray(prefs(ctx).getString(KEY, "[]")) } catch (e: Exception) { JSONArray() }
@@ -54,12 +82,13 @@ object Sched {
         return f
     }
 
-    private fun intentFor(ctx: Context, id: String, title: String, body: String): Intent =
+    private fun intentFor(ctx: Context, id: String, title: String, body: String, meta:JSONObject?=null): Intent =
         Intent(ctx, AlarmReceiver::class.java)
             .setAction("il.mesima.ALARM.$id")      // ייחודי, אחרת filterEquals מאחד פריטים
             .putExtra("id", id)
             .putExtra("title", title)
             .putExtra("body", body)
+            .putExtra("meta",meta?.toString())
 
     private fun code(id: String): Int = id.hashCode()
 
@@ -85,15 +114,26 @@ object Sched {
         val am = manager(ctx) ?: return 0
         cancelAll(ctx)
 
-        val arr = load(ctx)
         val now = System.currentTimeMillis()
+        val rules=plan(ctx)
+        val arr = if(rules!=null) {
+            try {
+                val snapshot=NativeRepo.snapshot(ctx);val pending=NativeRepo.pending(ctx)
+                val generated=AlarmPlan.build(rules,now,java.time.ZoneId.systemDefault(),CAP){NativeRepo.blocked(snapshot,pending,it)}
+                val text=generated.toString();Payloads.bytes(text)
+                check(prefs(ctx).edit().putString(KEY,text).remove("error").commit())
+                generated
+            }catch(e:Exception){error(ctx,e.message?:"לא ניתן לחדש תזכורות");load(ctx)}
+        } else load(ctx)
         val exact = canExact(ctx)
         val done = JSONArray()
         var n = 0
 
-        for (i in 0 until arr.length()) {
+        val entries=if(rules!=null) NativeRepo.objects(arr).groupBy{it.optLong("at")}.toSortedMap().map{(at,_) ->
+            JSONObject().put("id",BATCH+at).put("at",at)
+        } else NativeRepo.objects(arr)
+        for (o in entries) {
             if (n >= CAP) break
-            val o = arr.optJSONObject(i) ?: continue
             val at = o.optLong("at", 0L)
             if (at <= now) continue                     /* מה שעבר לא מזכיר */
             val id = o.optString("id")
@@ -122,6 +162,19 @@ object Sched {
         return n
     }
 
+    /** A single OS wakeup may represent many reminders at the same instant. */
+    fun fire(ctx:Context,id:String,title:String,body:String,meta:JSONObject?=null){
+        if(id.startsWith(BATCH)){
+            val at=id.removePrefix(BATCH).toLongOrNull()?:return
+            // Android may deliver several overdue alarms together after idle.
+            // Deliver every due queued occurrence before reapply clears the past.
+            val through=maxOf(at,System.currentTimeMillis())
+            for(row in NativeRepo.objects(load(ctx)).filter{it.optLong("at")<=through}){
+                if(!NativeRepo.blocked(ctx,row))Notif.show(ctx,row.optString("id"),row.optString("title","משימה"),row.optString("body"),row)
+            }
+        }else if(!NativeRepo.blocked(ctx,meta?:NativeRepo.meta(ctx,id)))Notif.show(ctx,id,title,body,meta)
+    }
+
     /**
      * בדיקה חיה: רושם תזכורת אמיתית בעוד כמה שניות, דרך אותו מסלול בדיוק
      * שבו עוברות כל התזכורות. אם זה מצלצל — הצינור עובד, והבעיה בנתונים.
@@ -148,21 +201,24 @@ object Sched {
      * דחייה של תזכורת בודדת מתוך ההתראה עצמה. היא לא נוגעת ברשימה
      * ששלח ה-JS — reapply הבא פשוט יתעלם ממנה כי הזמן שלה עבר.
      */
-    @Synchronized fun snooze(ctx: Context, id: String, title: String, body: String, minutes: Int) {
-        if(NativeRepo.blocked(ctx,NativeRepo.meta(ctx,id)))return
+    @Synchronized fun snooze(ctx: Context, id: String, title: String, body: String, minutes: Int, link:JSONObject?=null):Boolean {
+        val meta=link?:NativeRepo.meta(ctx,id)
+        if(NativeRepo.blocked(ctx,meta))return false
         val at = System.currentTimeMillis() + minutes * 60_000L
         val arr=JSONArray()
         val old=runCatching { JSONArray(prefs(ctx).getString("snoozes","[]")) }.getOrDefault(JSONArray())
         for(i in 0 until old.length()) { val o=old.optJSONObject(i) ?: continue; if(o.optString("id")!=id && o.optLong("at")>System.currentTimeMillis())arr.put(o) }
-        arr.put(JSONObject().put("id",id).put("title",title).put("body",body).put("at",at))
-        prefs(ctx).edit().putString("snoozes",arr.toString()).apply()
-        scheduleSnooze(ctx,id,title,body,at)
+        arr.put(JSONObject().put("id",id).put("title",title).put("body",body).put("at",at).put("meta",meta))
+        val text=arr.toString()
+        try{Payloads.bytes(text);check(prefs(ctx).edit().putString("snoozes",text).commit())}
+        catch(e:Exception){error(ctx,e.message?:"לא ניתן לשמור דחיית תזכורת");return false}
+        return scheduleSnooze(ctx,id,title,body,at,meta)
     }
     @Synchronized fun cancelBlockedSnoozes(ctx:Context){
         val all=runCatching{JSONArray(prefs(ctx).getString("snoozes","[]"))}.getOrDefault(JSONArray())
         val keep=JSONArray()
         for(i in 0 until all.length()) {val o=all.optJSONObject(i)?:continue;val id=o.optString("id")
-            if(NativeRepo.blocked(ctx,NativeRepo.meta(ctx,id))){val pi=PendingIntent.getBroadcast(ctx,code("snooze:$id"),intentFor(ctx,id,"",""),flags());manager(ctx)?.cancel(pi);pi.cancel()}
+            if(NativeRepo.blocked(ctx,o.optJSONObject("meta")?:NativeRepo.meta(ctx,id))){val pi=PendingIntent.getBroadcast(ctx,code("snooze:$id"),intentFor(ctx,id,"",""),flags());manager(ctx)?.cancel(pi);pi.cancel()}
             else keep.put(o)
         }
         prefs(ctx).edit().putString("snoozes",keep.toString()).apply()
@@ -174,25 +230,27 @@ object Sched {
     private fun restoreSnoozes(ctx: Context) {
         val arr=runCatching { JSONArray(prefs(ctx).getString("snoozes","[]")) }.getOrDefault(JSONArray())
         for(i in 0 until arr.length()) {val o=arr.optJSONObject(i) ?: continue
-            val at=o.optLong("at");if(at>System.currentTimeMillis() && !NativeRepo.blocked(ctx,NativeRepo.meta(ctx,o.optString("id"))))scheduleSnooze(ctx,o.optString("id"),o.optString("title"),o.optString("body"),at)
+            val at=o.optLong("at");val meta=o.optJSONObject("meta")?:NativeRepo.meta(ctx,o.optString("id"))
+            if(at>System.currentTimeMillis() && !NativeRepo.blocked(ctx,meta))scheduleSnooze(ctx,o.optString("id"),o.optString("title"),o.optString("body"),at,meta)
         }
     }
-    private fun scheduleSnooze(ctx: Context,id:String,title:String,body:String,at:Long) {
-        val am=manager(ctx) ?: return
+    private fun scheduleSnooze(ctx: Context,id:String,title:String,body:String,at:Long,meta:JSONObject):Boolean {
+        val am=manager(ctx) ?: return false
         val pi = PendingIntent.getBroadcast(
-            ctx, code("snooze:$id"), intentFor(ctx, id, title, body), flags())
+            ctx, code("snooze:$id"), intentFor(ctx, id, title, body,meta), flags())
         try {
             if (canExact(ctx)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
             else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         } catch (e: Exception) {
-            try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) } catch (x: Exception) {}
+            try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) }
+            catch (x: Exception) {error(ctx,x.message?:"לא ניתן לדחות תזכורת");return false}
         }
+        return true
     }
 
     /**
-     * תזכורת פנימית אחת ליום. היא לא מציגה כלום — היא רק מריצה reapply,
-     * כדי שהחלון יזוז קדימה גם אם האפליקציה לא נפתחה. בלעדיה תזכורת
-     * שנמצאת מעבר לחלון שה-JS שלח הייתה נופלת בשקט.
+     * יקיצה פנימית שלא מציגה התראה. עם תוכנית כללים היא מחשבת מחדש
+     * מופעים עתידיים; עם HTML ישן היא יכולה רק לרשום את הרשימה שקיבלה.
      */
     private fun upkeep(ctx: Context) {
         val am = manager(ctx) ?: return
@@ -209,7 +267,9 @@ object Sched {
         val now = System.currentTimeMillis()
         var next = 0L
         for (i in 0 until arr.length()) {
-            val at = arr.optJSONObject(i)?.optLong("at", 0L) ?: 0L
+            val row=arr.optJSONObject(i)?:continue
+            if(NativeRepo.blocked(ctx,row))continue
+            val at = row.optLong("at", 0L)
             if (at > now && (next == 0L || at < next)) next = at
         }
         return JSONObject()
@@ -217,6 +277,9 @@ object Sched {
             .put("next", next)
             .put("exact", canExact(ctx))
             .put("cap", CAP)
+            .put("source",if(plan(ctx)!=null)"rules" else "legacy")
+            .put("occurrences",NativeRepo.objects(arr).count{it.optLong("at")>now&&!NativeRepo.blocked(ctx,it)})
+            .put("error",prefs(ctx).getString("error",""))
     }
 }
 

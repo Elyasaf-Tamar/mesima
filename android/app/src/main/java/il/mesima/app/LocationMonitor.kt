@@ -58,8 +58,9 @@ class LocationMonitor:Service(){
    if(r.optString("type")=="trip"){
     val key=trip.optLong("startedAt").toString()
     if(trip.optDouble("meters",0.0)>=r.optDouble("km",Double.POSITIVE_INFINITY)*1000&&ledger.optString(id)!=key){
-     ledger.put(id,key);NativeRepo.prefs(this).edit().putString("locationLedger",ledger.toString()).commit()
-     Notif.show(this,"trip_$id",t.optString("title"),t.optString("note").ifBlank{"תזכורת בתחילת הנסיעה"},meta)
+     if(Notif.show(this,"trip_$id",t.optString("title"),t.optString("note").ifBlank{"תזכורת בתחילת הנסיעה"},meta)=="posted"){
+      ledger.put(id,key);NativeRepo.prefs(this).edit().putString("locationLedger",ledger.toString()).commit()
+     }
     }
    }
   }
@@ -86,8 +87,9 @@ object PlaceVisits {
    NativeRepo.objects(m.optJSONArray("items")?:org.json.JSONArray()).forEach{item->
     val id=item.optString("taskId");val meta=JSONObject(item.toString()).put("day",NativeRepo.today()).put("kind","task")
     if(!sent.optBoolean(id)&&!NativeRepo.blocked(c,meta)){
-     sent.put(id,true);pref(c).edit().putString(key,state.toString()).commit()
-     Notif.show(c,"loc_$id",item.optString("title"),item.optString("note").ifBlank{"הגעת ל"+m.optString("place")},meta)
+     if(Notif.show(c,"loc_$id",item.optString("title"),item.optString("note").ifBlank{"הגעת ל"+m.optString("place")},meta)=="posted"){
+      sent.put(id,true);pref(c).edit().putString(key,state.toString()).commit()
+     }
     }
    }
   }

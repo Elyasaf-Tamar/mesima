@@ -19,7 +19,9 @@ service cloud.firestore {
         && request.resource.data.bytes is int && request.resource.data.bytes > 0 && request.resource.data.bytes <= 20971520
         && request.resource.data.sha256 is string && request.resource.data.sha256.matches('[0-9a-f]{64}')
         && request.resource.data.taskCount is int && request.resource.data.taskCount >= 0
-        && request.resource.data.appVersion in ['4.5','4.6']
+        && request.resource.data.appVersion is string
+        && request.resource.data.appVersion.size() <= 32
+        && request.resource.data.appVersion.matches('^[0-9]{1,6}\\.[0-9]{1,6}(\\.[0-9]{1,6})?$')
         && request.resource.data.schema is int;
       // Backups are immutable: later backups get a new ID.
       allow update: if false;

@@ -29,7 +29,8 @@ const Plan = (() => {
     Store.habitsFor(date).forEach(t => {
       const now = new Date().toTimeString().slice(0,5);
       /* מוצג בשעת התזכורת הבאה שעוד לא עברה; אחרת בראשונה */
-      const at = t.repeat.times.find(x => x >= now) || t.repeat.times[0];
+      const slots=Recur.times(t.repeat);
+      const at = (date===today()?slots.find(x => x >= now):null) || slots[0];
       rows.push({ kind:'habit', at, ref:t });
     });
     rows.sort((a,b) => {

@@ -969,7 +969,8 @@ const Wire = (() => {
     function checklistMenu(taskId, clId, done){
       const c = Store.checklistOf(taskId, clId); if(!c) return;
       Modal.open({ title:c.name,
-        body:`<button class="pick" data-m="rename"><span class="pn">שנה שם</span></button>
+        body:`${Store.soleChecklist(taskId)?.id===clId?'<button class="pick" data-m="taskedit"><span class="pn">ערוך משימה</span></button>':''}
+              <button class="pick" data-m="rename"><span class="pn">שנה שם</span></button>
               <button class="pick" data-m="cycle"><span class="pn">מחזור חוזר</span>
                 <span class="pm">${c.repeat && (c.repeat.days||[]).length
                   ? UI.repeatLabel({ days:c.repeat.days }) + ' ' + esc(c.repeat.time) : 'כבוי'}</span></button>
@@ -980,6 +981,7 @@ const Wire = (() => {
         buttons:[{label:'סגור', act:()=>{ Modal.shut(); done && done(); }}]});
       Modal.body.addEventListener('click', e => {
         const b = e.target.closest('[data-m]'); if(!b) return;
+        if (b.dataset.m === 'taskedit'){Modal.shut();taskModal({id:taskId});return;}
         if (b.dataset.m === 'rename'){
           Modal.open({ title:'שם הצ׳קליסט', body:`
             <input type="text" id="clN" value="${esc(c.name)}" autocomplete="off">
@@ -1152,11 +1154,11 @@ const Wire = (() => {
     }
 
     /** בוחר אירוע ומחזיר את המזהה. עובד גם לפני שהמשימה נשמרה. */
-    function pickEvent(cb){
+    function pickEvent(cb, back){
       const from = Plan.today();
       const evs = Store.all.events.filter(e => (e.endDate || e.date) >= from)
         .sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time)).slice(0,40);
-      if (!evs.length){ UI.toast('אין אירועים עתידיים'); return; }
+      if (!evs.length){ UI.toast('אין אירועים עתידיים');back?.();return; }
       Modal.open({ title:'קשר לאירוע',
         body:`<div class="ex" style="margin-bottom:8px">המשימה תופיע בתוך האירוע
                 כדבר להכין. למשל "להכין מצגת" לאירוע "הצגת הפרויקט".</div>` +
@@ -1164,7 +1166,8 @@ const Wire = (() => {
             <span class="pn">${esc(e.title)}</span>
             <span class="pm">${esc(Plan.label(e.date))}${e.allDay ? '' : ' · ' + esc(e.time)}</span>
           </button>`).join(''),
-        buttons:[{label:'ביטול',act:()=>Modal.shut()}]});
+        buttons:[{label:'ביטול',act:()=>{Modal.shut();back?.();}}]});
+      Modal.closeGuard=()=>{Modal.shut();back?.();return false;};
       Modal.body.addEventListener('click', ev2 => {
         const b = ev2.target.closest('[data-e]'); if(!b) return;
         Modal.shut(); cb(b.dataset.e);
@@ -1226,7 +1229,7 @@ const Wire = (() => {
     }
 
     /** יצירת סוג אירוע בלי לצאת מהעורך (סעיף 18) */
-    function newTypeModal(cb){
+    function newTypeModal(cb, back){
       let color = UI.PALETTE[0];
       Modal.open({ title:'סוג אירוע חדש',
         body:`<div style="margin-bottom:14px"><label>שם</label>
@@ -1234,7 +1237,7 @@ const Wire = (() => {
               <label>צבע</label>
               <div class="swatches" id="etyPal">${UI.PALETTE.map((c,i) =>
                 `<button data-c="${c}" style="background:${c}" aria-selected="${i===0}"></button>`).join('')}</div>`,
-        buttons:[{label:'ביטול',act:()=>Modal.shut()},
+        buttons:[{label:'ביטול',act:()=>{Modal.shut();back?.();}},
                  {label:'צור',kind:'p',act:()=>{
             const n = document.getElementById('etyName').value.trim();
             if (!n){ UI.toast('צריך שם'); return; }
@@ -1247,14 +1250,15 @@ const Wire = (() => {
         Modal.body.querySelectorAll('#etyPal button').forEach(x => x.setAttribute('aria-selected', x===b));
       });
       setTimeout(() => document.getElementById('etyName')?.focus(), 80);
+      if(back)Modal.closeGuard=()=>{Modal.shut();back();return false;};
     }
 
-    function eventModal(ev){
+    function eventModal(ev, draft){
       const isNew = !ev;
-      const e = ev || { title:'', date:UI.selDate, time:'09:00', end:'10:00', endDate:'',
+      const e = { ...(ev || { title:'', date:UI.selDate, time:'09:00', end:'10:00', endDate:'',
                         typeId:(Store.eventTypes()[0]||{}).id, remindMin:15, note:'',
-                        allDay:false, listId:null };
-      let typeId = e.typeId;
+                        allDay:false, listId:null }), ...draft };
+      let typeId = Store.eventType(e.typeId) ? e.typeId : Store.eventTypes()[0]?.id;
       let allDay = !!e.allDay;
 
       Modal.open({ title: isNew ? 'אירוע חדש' : 'עריכת אירוע', body:`
@@ -1308,53 +1312,26 @@ const Wire = (() => {
           document.getElementById('evTimes').hidden = allDay;
           return;
         }
+        const snapshot = () => ({
+          title:document.getElementById('evT').value,
+          date:document.getElementById('evD').value,
+          time:document.getElementById('evS').value,
+          end:document.getElementById('evE').value,
+          endDate:document.getElementById('evED').value,
+          remindMin:+document.getElementById('evR').value,
+          note:document.getElementById('evN').value,
+          typeId, allDay, listId:e.listId || null,
+        });
         if (ee.target.closest('#evTyManage')){
-          const snap = {
-            title: document.getElementById('evT').value,
-            date:  document.getElementById('evD').value,
-            time:  document.getElementById('evS').value,
-            end:   document.getElementById('evE').value,
-            endDate: document.getElementById('evED').value,
-            remindMin: +document.getElementById('evR').value,
-            note: document.getElementById('evN').value,
-          };
-          eventTypesModal(() => {
-            eventModal(isNew ? null : e);
-            setTimeout(() => {
-              const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-              set('evT', snap.title); set('evD', snap.date); set('evS', snap.time);
-              set('evE', snap.end); set('evED', snap.endDate);
-              set('evR', String(snap.remindMin)); set('evN', snap.note);
-            }, 40);
-          });
+          const saved=snapshot();
+          eventTypesModal(() => eventModal(ev,saved));
           return;
         }
         const b = ee.target.closest('[data-ty]'); if(!b) return;
         if (b.dataset.ty === '__new'){
-          const draft = {
-            title: document.getElementById('evT').value,
-            date:  document.getElementById('evD').value,
-            time:  document.getElementById('evS').value,
-            end:   document.getElementById('evE').value,
-            endDate: document.getElementById('evED').value,
-            remindMin: +document.getElementById('evR').value,
-            note: document.getElementById('evN').value,
-          };
-          newTypeModal(t => {
-            eventModal(isNew ? null : e);
-            /* משחזרים את מה שהמשתמש כבר הקליד */
-            setTimeout(() => {
-              const g = x => document.getElementById(x);
-              if (!g('evT')) return;
-              g('evT').value = draft.title; g('evD').value = draft.date;
-              g('evS').value = draft.time;  g('evE').value = draft.end;
-              g('evED').value = draft.endDate; g('evR').value = draft.remindMin;
-              g('evN').value = draft.note;
-              const pick = Modal.body.querySelector(`[data-ty="${t.id}"]`);
-              if (pick){ Modal.body.querySelectorAll('[data-ty]').forEach(x =>
-                           x.setAttribute('aria-checked', x===pick)); }
-            }, 30);
-          });
+          const saved=snapshot();
+          newTypeModal(t => eventModal(ev,{...saved,typeId:t.id}),
+                       () => eventModal(ev,saved));
           return;
         }
         typeId = b.dataset.ty;
@@ -1644,6 +1621,7 @@ const Wire = (() => {
     function insertLink(){
       const sel = document.getSelection();
       const txt = (sel && String(sel).trim()) || '';
+      const range=sel?.rangeCount&&NB().contains(sel.anchorNode)?sel.getRangeAt(0).cloneRange():null;
       Modal.open({ title:'קישור',
         body:`<div style="margin-bottom:10px"><label>כתובת</label>
                 <input type="url" id="lkUrl" placeholder="https://" autocomplete="off"></div>
@@ -1654,9 +1632,10 @@ const Wire = (() => {
             let u = document.getElementById('lkUrl').value.trim();
             const t = document.getElementById('lkTxt').value.trim();
             if (!u){ UI.toast('צריך כתובת'); return; }
-            if (/^\s*javascript:/i.test(u)){ UI.toast('כתובת לא חוקית'); return; }
             if (!/^[a-z]+:/i.test(u)) u = 'https://' + u;
+            if(!/^(https?:|mailto:|tel:)/i.test(u)){UI.toast('השתמש בקישור אתר, דוא״ל או טלפון');return;}
             Modal.shut(); NB().focus();
+            if(range&&NB().contains(range.commonAncestorContainer)){const selected=document.getSelection();selected.removeAllRanges();selected.addRange(range);}
             document.execCommand('insertHTML', false,
               `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(t||u)}</a>&nbsp;`);
             noteSave(true);
@@ -1723,8 +1702,8 @@ const Wire = (() => {
         if (kind === 'pal'){ Modal.shut(); restoreSel(); palette(val); return; }
         restoreSel();
         if (kind === 'b'){ block(val === 'p' ? 'P' : val.toUpperCase()); Modal.shut(); return; }
-        runCmd(val);
         if (!['zoomIn','zoomOut','zoomReset'].includes(val)) Modal.shut();
+        runCmd(val);
       });
     }
 
@@ -1919,13 +1898,18 @@ const Wire = (() => {
               x.setAttribute('aria-selected', x === w));
             document.getElementById('plWhatEx').textContent = summary();
           } else {
-            pickListItems(l, picked, sel => planListModal(l, { ...snap(), picked:sel }),
-                          () => planListModal(l, snap()));
+            const saved = snap();
+            pickListItems(l, picked, sel => planListModal(l, { ...saved, picked:sel }),
+                          () => planListModal(l, saved));
           }
           return;
         }
         const b = ee.target.closest('[data-ty]'); if(!b) return;
-        if (b.dataset.ty === '__new') return;         /* יצירת סוג חדש נעשית מעורך האירוע */
+        if (b.dataset.ty === '__new'){
+          const saved=snap();
+          newTypeModal(t=>planListModal(l,{...saved,typeId:t.id}),()=>planListModal(l,saved));
+          return;
+        }
         planType = b.dataset.ty;
         Modal.body.querySelectorAll('[data-ty]').forEach(x =>
           x.setAttribute('aria-checked', x === b));
@@ -1959,6 +1943,7 @@ const Wire = (() => {
         document.getElementById('plItems').innerHTML = rows();
         document.getElementById('plCount').textContent = sel.size + ' נבחרו';
       });
+      Modal.closeGuard=()=>{Modal.shut();onBack?.();return false;};
     }
 
     function addItem(){
@@ -2289,6 +2274,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
         const b = e.target.closest('[data-ety]'); if(!b) return;
         eventTypeModal(Store.eventType(b.dataset.ety), () => eventTypesModal(back));
       });
+      if(back)Modal.closeGuard=()=>{Modal.shut();back();return false;};
     }
 
     function eventTypeModal(t, back){
@@ -2316,6 +2302,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
         color = b.dataset.c;
         Modal.body.querySelectorAll('#etyPal button').forEach(x => x.setAttribute('aria-selected', x===b));
       });
+      if(back)Modal.closeGuard=()=>{Modal.shut();back();return false;};
     }
 
     $('#settingsBody').addEventListener('click', async e => {
@@ -2370,14 +2357,14 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
          batt:()=>Native.battery(), samsung:()=>Native.samsung(),
          alarms:()=>Native.showAlarms(),
          exact:()=>Native.askExact(),
-         fullscreen:()=>Native.askFullScreen(),
          chan:()=>Native.openChannel(),
          resync:()=>{ const n2 = Native.syncNow();
                       UI.toast(n2 < 0 ? 'הגשר לא הגיב' : n2 + ' תזכורות נרשמו');
                       UI.render(); },
          testnow:()=>{
            const r = Native.testNotify();
-           UI.toast(r === 'sent' ? 'נשלחה התראה — תסתכל למעלה' : ('שגיאה: ' + r));
+           const labels={posted:'ההתראה נמסרה למערכת; ההצגה תלויה בהגדרות הטלפון',sent:'ההתראה נמסרה למערכת; ההצגה תלויה בהגדרות הטלפון',blocked_notifications:'ההתראות חסומות בהגדרות הטלפון',blocked_channel:'ערוץ ההתראות חסום בהגדרות הטלפון',blocked_task:'התזכורת אינה פעילה למשימה הזאת'};
+           UI.toast(labels[r] || ('לא ניתן למסור התראה: ' + r));
          },
          test60:()=>{
            const at = Native.testAlarm(60);
@@ -2387,22 +2374,22 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
          check:()=>{
            const base = srcNow();
            if (!/^https:\/\//.test(base)){ UI.toast('קודם שמור כתובת https'); return; }
-           Native.setSource(UI.bustSrc(base));
+           if(!Native.setSource(UI.bustSrc(base))){UI.toast('כתובת העדכון נדחתה; בדוק כתובת HTTPS בלי פרטי התחברות, סיומת # או פורט מיוחד');return;}
            UI.toast('בודק…'); Native.checkUpdate();
          },
          apply:()=>Native.applyUpdate(),
          peek:peekServer,
          saveSrc:()=>{ const v = UI.cleanSrc(document.getElementById('srcUrl').value.trim());
                        if (!/^https:\/\//.test(v)){ UI.toast('צריך כתובת https'); return; }
-                       Native.setSource(v); UI.toast('נשמר'); }
+                       UI.toast(Native.setSource(v)?'נשמר':'כתובת העדכון נדחתה; בדוק כתובת HTTPS בלי פרטי התחברות, סיומת # או פורט מיוחד'); }
        })[nat.dataset.nat]?.();
     });
     $('#settingsBody').addEventListener('change', e => {
       if (e.target.id !== 'fileIn') return;
       const f = e.target.files[0]; if(!f) return;
       const r = new FileReader();
-      r.onload = () => { try { Store.import(r.result); UI.toast('יובא בהצלחה'); }
-                         catch(x){ UI.toast('קובץ לא תקין'); } };
+      r.onload = () => window.__import(String(r.result || ''));
+      r.onerror = () => UI.toast('לא ניתן לקרוא את קובץ הגיבוי');
       r.readAsText(f); e.target.value = '';
     });
     window.addEventListener('native-perms', () => { Native.sync(); UI.render(); });
@@ -2410,30 +2397,48 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     /* ================= התראות (סעיפים 51–58) ================= */
     /** "הבנתי" = ראיתי. לא מסמן בוצע, לא מארכב, לא סוגר הרגל. */
     /* פתיחה מתוך התראה = פרטי המשימה, לא העורך */
+    function openReminderTarget(meta, fallbackId){
+      if(meta?.kind==='checklist'){
+        const list=Store.checklistOf(meta.taskId,meta.checklistId);if(!list)return false;
+        if(meta.occurrence&&meta.occurrence!==Store.checklistOccurrence(list)){
+          Modal.open({title:list.name||'תזכורת לצ׳קליסט',body:`<p class="note">התזכורת מתייחסת למחזור ${esc(meta.day?Plan.label(meta.day):meta.occurrence)}. כאן מוצגת הרשימה לעיון, בלי לשנות את הסימונים של המחזור הנוכחי.</p><ul>${(list.items||[]).map(i=>`<li>${esc(i.title)}</li>`).join('')}</ul>`,buttons:[{label:'סגור',act:()=>Modal.shut()}]});
+        }else checklistView(meta.taskId,meta.checklistId);
+        return true;
+      }
+      if(meta?.kind==='event'){const event=Store.event(meta.eventId);if(event)eventMenu(event);return;}
+      const id=meta?.taskId||fallbackId;if(id&&Store.task(id))openTask(id);
+    }
     $('#alOpen').addEventListener('click', () => {
-      const a = UI.alertItem;
-      const id = a && a.item && a.item.id;
-      UI.closeAlert();
-      if (id && Store.task(id)) openTask(id);
+      const a=UI.alertItem;UI.closeAlert();
+      if(a)openReminderTarget(a.meta,a.item.id);
     });
-    $('#alComplete').addEventListener('click',()=>{const a=UI.alertItem;if(a?.item&&Store.task(a.item.id))Store.finishTask(a.item.id);UI.closeAlert();});
+    $('#alComplete').addEventListener('click',()=>{
+      const a=UI.alertItem;if(!a||a.meta?.kind==='checklist')return;
+      const id=a.meta?.taskId||a.item.id;
+      if(Store.task(id))Store.finishTask(id,Date.now(),a.meta?.day||Plan.today());
+      if(UI.alertItem===a)UI.closeAlert();
+    });
     $('#alOk').addEventListener('click', () => {
       const a = UI.alertItem;
       if (a && a.item && a.item.rt){ a.item.rt.ackAt = Date.now(); Store.commit(); }
       UI.closeAlert(); UI.render();
     });
-    $('#alLater').addEventListener('click', () => {
-      const a = UI.alertItem;
-      if (a && a.item){
-        a.item.rt = a.item.rt || {};
-        a.item.rt.snoozeTo = Date.now() + 15*60000;
-        const pending={id:a.item.id,title:a.item.title,body:[a.item.note,a.why||'תזכורת שנדחתה'].filter(Boolean).join('\n\n'),at:Date.now()+900000};
-        if(window.MesimaNative?.snoozeNotification)window.MesimaNative.snoozeNotification(pending.id,pending.title,pending.body);
-        else if(window.MesimaDesktop)window.MesimaDesktop.snooze(pending);
-        else {const rows=JSON.parse(localStorage.getItem('mesima.snoozes')||'[]').filter(x=>x.id!==pending.id);rows.push({...pending,meta:ReminderLink.resolve(pending.id)});localStorage.setItem('mesima.snoozes',JSON.stringify(rows));}
-        Store.commit();
-      }
-      UI.closeAlert(); UI.toast('נדחה ב־15 דקות'); UI.render();
+    $('#alLater').addEventListener('click', async () => {
+      const a=UI.alertItem;
+      if(!a?.item)return;
+      const meta=a.meta||ReminderLink.resolve(a.item.id);
+      const pending={...meta,id:meta?.reminderId||a.item.id,title:a.item.title,body:[a.item.note,a.why||'תזכורת שנדחתה'].filter(Boolean).join('\n\n'),at:Date.now()+900000,meta};
+      try{
+        let accepted;
+        if(window.MesimaNative?.snoozeReminder)accepted=window.MesimaNative.snoozeReminder(JSON.stringify(pending));
+        else if(window.MesimaNative?.snoozeNotification)accepted=window.MesimaNative.snoozeNotification(pending.id,pending.title,pending.body);
+        else if(window.MesimaDesktop)accepted=await window.MesimaDesktop.snooze(pending);
+        else{const rows=JSON.parse(localStorage.getItem('mesima.snoozes')||'[]').filter(x=>x.id!==pending.id);rows.push(pending);localStorage.setItem('mesima.snoozes',JSON.stringify(rows));}
+        if(accepted===false)throw Error('התזכורת לא נשמרה');
+      }catch(error){UI.toast('לא ניתן לדחות את התזכורת. נסה שוב.');return;}
+      a.item.rt=a.item.rt||{};a.item.rt.snoozeTo=pending.at;Store.commit();
+      if(UI.alertItem===a)UI.closeAlert();
+      UI.toast('נדחה ב־15 דקות');UI.render();
     });
     /* לחיצה על גוף ההתראה פותחת את הפריט (סעיף 55) */
     $('#alert').addEventListener('click', e => {
@@ -2445,7 +2450,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
       if (a.kind === 'event'){ const ev = Store.event(item.id); if (ev) return eventMenu(ev); }
       else if (a.kind === 'place'){ UI.screen = null; UI.section = 'today'; UI.tview = 'day';
                                     UI.selDate = Plan.today(); UI.render(); return; }
-      else { const t = Store.task(item.id); if (t) return openTask(t.id); }
+      else {openReminderTarget(a.meta,item.id);return;}
       UI.render();
     });
 
@@ -2543,10 +2548,12 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
 
     /* ההתראה של אנדרואיד מוסרת את המזהה, והאפליקציה פותחת את החלון
        המלא עם התיאור, התמונה ותת-המשימות — לא רק שורה בשורת הסטטוס. */
-    window.__alarm = function(id){
+    window.__alarm = function(id,meta){
       if (!id) return false;
-      const target=ReminderLink.resolve(id);
-      if(target?.kind==='checklist'){checklistView(target.taskId,target.checklistId);return true;}
+      // A desktop notification keeps its original cycle even when a manual
+      // checklist is renewed and the same reminder ID is reused.
+      const reminderId=id,target={...ReminderLink.resolve(id),...meta};
+      if(target?.kind==='checklist')return openReminderTarget({...target,reminderId},id);
       if(target?.kind==='event')id=target.eventId;
       else if(target?.taskId)id=target.taskId;
       const t = Store.task(id);
@@ -2554,12 +2561,12 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
         const r = t.reminder;
         const why = Store.isHabit(t) ? 'תזכורת יומית'
                   : (r && r.type === 'time') ? 'הגיע הזמן — ' + r.at : 'תזכורת';
-        UI.showAlert(t, why, 'task');
+        UI.showAlert(t, why, 'task',{...target,reminderId});
         return true;
       }
       const ev = Store.event(id);
       if (ev){
-        UI.showAlert(ev, ev.allDay ? 'היום' : 'מתחיל ב-' + ev.time, 'event');
+        UI.showAlert(ev, ev.allDay ? 'היום' : 'מתחיל ב-' + ev.time, 'event',{...target,reminderId});
         return true;
       }
       return false;
@@ -2576,7 +2583,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     window.__openTask=openTask; window.__newTask=()=>taskModal({}); window.__newEvent=()=>{UI.selDate=Plan.today();eventModal(null);}; window.__openEvent=id=>{const e=Store.event(id);if(e)eventMenu(e);};
     NativeState.init();
     Store.onChange(() => { Native.sync();
-      if(UI.alertItem&&Store.reminderBlocked(ReminderLink.resolve(UI.alertItem.item.id)))UI.closeAlert();
+      if(UI.alertItem&&Store.reminderBlocked(UI.alertItem.meta||ReminderLink.resolve(UI.alertItem.item.id)))UI.closeAlert();
       UI.render(); });
     Native.sync();
     if (Store.all.prefs.geo && UI.originState().canGeo) Geo.start();

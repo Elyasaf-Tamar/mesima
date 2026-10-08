@@ -184,8 +184,8 @@ const Store = (() => {
   data.tasks.forEach(t => {
     const rep = t.repeat && t.repeat.times && t.repeat.times.length;
     if (!rep || t.kind === 'long') return;
-    const kids = data.tasks.filter(x => x.parentId === t.id);
-    kids.forEach(k => { k.parentId = t.parentId || null; });
+    // Preserve historical membership. Active children of an atomic/completed
+    // parent are effective roots; opening the app must not silently move them.
     if ((t.checklists || []).length && t.parentId){
       const host = data.tasks.find(x => x.id === t.parentId);
       if (host){ host.checklists = (host.checklists||[]).concat(t.checklists); t.checklists = []; }
@@ -343,6 +343,9 @@ const Store = (() => {
     /** ילדים ישירים של משימה. null = משימות שורש. */
     parentIds(t){ return [...new Set([t?.parentId,...(t?.parentIds||[])].filter(Boolean))]; },
     parentsOf(t){ return this.parentIds(t).map(id=>this.task(id)).filter(Boolean); },
+    activeParentsOf(t){ return this.parentsOf(t).filter(p=>!p.archived&&!p.done&&this.canHoldContent(p)); },
+    isEffectiveRoot(t){ return !!t&&!t.archived&&!t.done&&!this.activeParentsOf(t).length; },
+    effectiveRoots(){ return this.ordered(data.tasks.filter(t=>this.isEffectiveRoot(t))); },
     belongs(t,id){ return id ? this.parentIds(t).includes(id) : !this.parentIds(t).length; },
     ownedDescendants(id, includeArchived=false){
       const owned=new Set([id]); let changed=true;
@@ -351,6 +354,7 @@ const Store = (() => {
       });} return this.all.tasks.filter(t=>t.id!==id&&owned.has(t.id));
     },
     children(parentId, mission){
+      if(parentId&&this.task(parentId)&&!this.canHoldContent(this.task(parentId)))return [];
       return data.tasks.filter(t => this.belongs(t,parentId) && !t.archived && !t.done &&
                                     (mission == null || mission === 'all' || t.mission === mission));
     },
@@ -370,7 +374,7 @@ const Store = (() => {
     addTask(o){
       const t = { id:uid(), mission:o.mission, title:o.title, done:false,
         createdAt:Date.now(), doneAt:null, reminder:o.reminder||null, rt:o.rt||{},
-        parentId:o.parentId||null, parentIds:o.parentId?[o.parentId]:[], planned:o.planned||null, eventId:o.eventId||null,
+        parentId:o.parentId||o.parentIds?.[0]||null, parentIds:[], planned:o.planned||null, eventId:o.eventId||null,
         note:o.note||'', repeat:o.repeat||null, log:{}, collapsed:true,
         kind:['long','check'].includes(o.kind) ? o.kind : 'short',
         img:o.img||null, archived:false, archivedAt:null, autoArch:false,
@@ -399,6 +403,8 @@ const Store = (() => {
         }
         if (p) t.mission = p.mission;
       }
+      t.parentIds = t.kind==='check'?[]:[...new Set([t.parentId,...(o.parentIds||[]).filter(id=>this.task(id)?.kind==='long')].filter(Boolean))];
+      this.anchorTime(t);
       /* משימה חדשה נכנסת למקום שהעין מחפשת: שורש בראש, תת-משימה בסוף הרשימה */
       t.sortIndex = (typeof o.sortIndex === 'number') ? o.sortIndex : this.freeIndex(t);
       data.tasks.unshift(t); save(); return t;
@@ -415,9 +421,10 @@ const Store = (() => {
     updateTask(id, patch){
       const t=this.task(id); if(!t) return;
       const rt = patch.rt;              /* אפשר לקבוע rt מפורש — למשל "אל תירה היום" */
+      const oldRt=t.rt||{},scheduleChanged=['kind','planned','reminder','repeat'].some(k=>k in patch&&JSON.stringify(patch[k])!==JSON.stringify(t[k]));
       const wasLong = t.kind === 'long';
       Object.assign(t, patch);
-      t.rt = rt || {};
+      t.rt = 'rt' in patch ? (rt||{}) : scheduleChanged?{}:oldRt;
       /* אותם שני חוקים שנאכפים ביצירה נאכפים גם בעריכה, כדי שלא תיווצר
          דרך עוקפת דרך הטופס. */
       if (t.kind === 'long' && (t.parentId || !this.canBeLong(t.id, t.parentId))) t.kind = 'short';
@@ -432,7 +439,13 @@ const Store = (() => {
         t.log = {};
       }
       if(patch.checklists)for(const c of t.checklists||[])this.reconcileChecklist(id,c);
+      this.anchorTime(t);
       save();
+    },
+    anchorTime(t){
+      if(t.kind==='long'||this.isHabit(t)||t.planned||t.reminder?.type!=='time')return;
+      const now=new Date(),hm=now.toTimeString().slice(0,5);if(t.reminder.at<=hm)now.setDate(now.getDate()+1);
+      t.planned=localDay(now);
     },
     setPlanned(id, date){
       const t=this.task(id); if(!t) return;
@@ -516,10 +529,7 @@ const Store = (() => {
       return data.tasks.filter(t => this.isHabit(t) && !t.archived && !t.done && this.habitRequired(t, date));
     },
 
-    /**
-     * סימון ✓ בתצוגה. להרגל זה סימון יומי; לכל השאר זה סיום — והמשימה
-     * עוברת מיד לארכיון, כפי שדורש סעיף 25 באפיון.
-     */
+    /** סימון יומי להרגל, או ביצוע חד-פעמי שנשמר בהיסטוריה. ארכיון הוא פעולה נפרדת. */
     toggleTask(id, date){
       const t = this.task(id); if(!t) return;
       if (this.isHabit(t)){
@@ -562,11 +572,7 @@ const Store = (() => {
     /** נשאר רק בשביל נתונים ישנים; המיגרציה ל-v7 כבר ניקתה אותם. */
     isList(t){ return !!t && t.kind === 'list'; },
 
-    /**
-     * סיום משימה קצרת-טווח. המשמעות היא "אני מחשיב את כל הדבר הזה כגמור",
-     * ולכן כל העץ עובר לארכיון — גם אם נשארו בו תת-משימות פתוחות.
-     * המצב הפנימי של הילדים נשמר כדי שהשחזור יחזיר את התמונה המדויקת.
-     */
+    /** צילום ביצוע: השם והשיוכים נשמרים גם אחרי עריכה או מחיקת המקור. */
     recordCompletion(t,kind,occurrence,day=localDay(),at=Date.now(),cl=null){
       const id=kind+':'+t.id+':'+(cl?cl.id+':':'')+occurrence;
       const old=data.completions.find(r=>r.id===id);
@@ -577,11 +583,28 @@ const Store = (() => {
       if(old)Object.assign(old,row);else data.completions.push(row);return row;
     },
     revokeCompletion(id){const r=data.completions.find(x=>x.id===id);if(r){r.active=false;r.revokedAt=Date.now();}},
+    completedChecklistCycles(id,clId){return data.completions.filter(r=>r.active&&r.taskId===id&&r.checklistId===clId&&r.kind==='checklist').map(r=>r.occurrence);},
+    rehomeChecklistHistory(oldTaskId,newTaskId,clId){
+      if(oldTaskId===newTaskId||!this.task(newTaskId))return 0;
+      const moved=data.completions.filter(r=>r.kind==='checklist'&&r.taskId===oldTaskId&&r.checklistId===clId);
+      for(const row of moved){
+        const id='checklist:'+newTaskId+':'+clId+':'+row.occurrence,target=data.completions.find(r=>r.id===id);
+        const next={...row,id,taskId:newTaskId};
+        // Keep the recorded title, projects and execution time. Only the live
+        // destination and occurrence identity change; this is not a new action.
+        const changed=r=>Math.max(r.at||0,r.revokedAt||0);
+        if(target){if(changed(row)>changed(target))Object.assign(target,next);}
+        else data.completions.push(next);
+      }
+      if(moved.length){const old=new Set(moved);data.completions=data.completions.filter(r=>!old.has(r));save();}
+      return moved.length;
+    },
     reminderBlocked(meta){
       if(!meta?.taskId)return false;const t=this.task(meta.taskId);if(!t||t.archived||t.done)return true;
       if(this.isHabit(t)&&this.habitFull(t,meta.day||Plan.today()))return true;
       if(meta.checklistId){const c=this.checklistOf(t.id,meta.checklistId);if(!c)return true;
         const occurrence=meta.occurrence||meta.day||this.checklistOccurrence(c);
+        if(this.completedChecklistCycles(t.id,c.id).includes(occurrence))return true;
         return c.items.length>0&&c.items.every(i=>i.checked)&&occurrence===this.checklistOccurrence(c);
       }return false;
     },
@@ -794,16 +817,12 @@ const Store = (() => {
      */
     rollChecklist(id, clId){
       const c = this.checklistOf(id, clId); if(!c || !c.repeat) return false;
-      /* מחפשים את המופע שאחרי המחזור הפתוח, לא את המחזור עצמו */
       const open = c.cycleDay || (c.rt && c.rt.cycle) || '';
-      const from = open ? Plan.shift(open, 1) : Plan.today();
-      const nx = Recur.nextOccurrence(c.repeat, from);
-      if (!nx) return false;
+      const day = Recur.cycleAt(c.repeat);
+      if (!day || (open && day <= open)) return false;
       c.rt = c.rt || {};
-      if (Date.now() < nx.resetAt) return false;     /* עוד לא הגיע האיפוס */
-      if (c.rt.cycle === nx.day) return false;       /* המחזור הזה כבר הוכן */
-      c.cycleDay = nx.day;
-      c.rt.cycle = nx.day;
+      c.cycleDay = day;
+      c.rt.cycle = day;
       c.rt.doneAt = null;
       c.items.forEach(x => { x.checked = false; });
       save(); return true;
@@ -976,7 +995,7 @@ const Store = (() => {
        נפרדים שסותרים זה את זה: הזזה בתוך אזור מחליפה שני מקומות ברצף
        הגלובלי, וכל השאר נשאר בדיוק איפה שהיה. */
     allRoots(){
-      return this.ordered(data.tasks.filter(t => !t.parentId && !t.archived && !t.done));
+      return this.effectiveRoots();
     },
     /** ממספר מחדש את הרצף הגלובלי, כדי שהשוואות והחלפות יהיו יציבות */
     normalizeRootOrder(){
@@ -997,7 +1016,7 @@ const Store = (() => {
     },
     moveTask(id, dir){
       const t = this.task(id); if(!t) return false;
-      if (t.parentId) return this.moveChild(id, dir);
+      if (!this.isEffectiveRoot(t)) return this.moveChild(id, dir);
       return this.moveRootIn(id, dir, this.allRoots().map(x => x.id));
     },
     reorder(list, id, dir){
@@ -1126,8 +1145,11 @@ const Store = (() => {
       return out;
     },
 
-    /** אירוע רב-יומי מופיע בכל יום בטווח שלו */
-    onDay(e, date){ return e.endDate ? (date >= e.date && date <= e.endDate) : e.date === date; },
+    /** חפיפה לטווח היום, כולל לילה שחוצה חצות וללא ספירת יום הסיום בחצות. */
+    onDay(e, date){
+      const start=Cal.atMs(date,'00:00'),next=new Date(start);next.setDate(next.getDate()+1);
+      return Cal.startMs(e)<next.getTime()&&Cal.endMs(e)>start;
+    },
     events(date){
       return data.events.filter(e => this.onDay(e, date))
                         .sort((a,b) => (a.time||'').localeCompare(b.time||''));
@@ -1225,11 +1247,69 @@ const Store = (() => {
     pinNote(id){ const n=this.note(id); if(n){ n.pinned=!n.pinned; save(); } },
 
     setPref(k,v){ data.prefs[k]=v; save(); },
-    export(){ return JSON.stringify(data, null, 2); },
-    import(json){
+    export(){ return JSON.stringify({...data,...(typeof BUILD==='string'?{sourceVersion:BUILD}:{})}, null, 2); },
+    validateNativeActions(envelope){
+      if(envelope===undefined)return [];
+      if(envelope?.schema!==1||!Array.isArray(envelope.commands)||envelope.commands.length>20000)throw Error('פעולות המכשיר בגיבוי אינן תקינות');
+      const ids=new Set(),id=x=>typeof x==='string'&&x.length>0&&x.length<=240&&!['__proto__','constructor','prototype'].includes(x);
+      for(const c of envelope.commands){
+        if(!c||typeof c!=='object'||!id(c.id)||ids.has(c.id)||!Number.isFinite(c.at)||c.at<=0)throw Error('פעולת מכשיר פגומה בגיבוי');
+        ids.add(c.id);
+        if(c.action==='complete'){
+          if(!id(c.taskId)||typeof c.day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(c.day)||localDay(new Date(c.day+'T12:00:00'))!==c.day)throw Error('תאריך ביצוע פגום בגיבוי');
+        }else if(c.action==='shopping'){
+          if(!id(c.listId)||!id(c.itemId)||typeof c.done!=='boolean')throw Error('פריט קנייה פגום בגיבוי');
+        }else throw Error('הגיבוי מכיל פעולת מכשיר שאינה נתמכת. עדכן את משימה לפני השחזור.');
+      }
+      return envelope.commands;
+    },
+    applyNativeActions(commands){
+      if(!data.nativeApplied||typeof data.nativeApplied!=='object'||Array.isArray(data.nativeApplied))data.nativeApplied={};
+      for(const c of commands){
+        if(Object.prototype.hasOwnProperty.call(data.nativeApplied,c.id))continue;
+        if(c.action==='shopping')this.updateItem(c.listId,c.itemId,{done:!!c.done});
+        else if(c.action==='complete'){
+          const t=this.task(c.taskId),at=c.at||Date.now();
+          if(t&&at>(t.rt?.resumeAt||0)){
+            if(this.isHabit(t)){if(!this.habitFull(t,c.day))this.tickHabit(t.id,c.day,at);}
+            else if(!t.archived&&!t.done)this.finishTask(t.id,at,c.day);
+          }
+        }
+        data.nativeApplied[c.id]=c.at||Date.now();
+      }
+      const rows=Object.entries(data.nativeApplied);if(rows.length>20000)data.nativeApplied=Object.fromEntries(rows.sort((a,b)=>b[1]-a[1]).slice(0,20000));
+      save();
+    },
+    import(json,{reconcileChecklists=false}={}){
       const p = JSON.parse(json);
       if (!p || typeof p!=='object' || !Array.isArray(p.tasks)) throw new Error('bad');
+      const commands=this.validateNativeActions(p.nativeActions);
       const next = normalize(p);
+      delete next.nativeActions;
+      if(commands.length||reconcileChecklists){
+        // Replay into a temporary database. A malformed command or failed
+        // recovery reservation must leave the live database untouched.
+        const previous=data,wasBatching=batching;data=next;batching=true;
+        try{
+          if(reconcileChecklists)for(const t of data.tasks)for(const c of t.checklists||[]){
+            const complete=!!c.items.length&&c.items.every(i=>i.checked),occ=this.checklistOccurrence(c);
+            const row=data.completions.find(r=>r.kind==='checklist'&&r.taskId===t.id&&r.checklistId===c.id&&r.occurrence===occ);
+            // Concurrent last-item checks may complete a list only after merge.
+            // Preserve older evidenced task history without creating a second
+            // historical completion for the same one-time checklist task.
+            const legacy=t.kind==='check'&&!c.repeat&&data.completions.some(r=>r.taskId===t.id&&r.kind==='task'&&r.legacy&&r.active);
+            const validTime=n=>Number.isSafeInteger(n)&&n>0&&!Number.isNaN(new Date(n).getTime());
+            const known=row?.active&&validTime(row.at)?row.at:validTime(c.rt?.doneAt)?c.rt.doneAt:validTime(c.rt?.mergedCheckAt)?c.rt.mergedCheckAt:Date.now();
+            // Use the recorded completion, then preserved runtime evidence, then
+            // the last contributing check time. Only a newly merged completion
+            // without any dated evidence is observed at the time of this merge.
+            if(complete&&!row?.active&&!legacy||!complete&&row?.active||!legacy&&t.kind==='check'&&!c.repeat&&t.done!==complete)
+              this.reconcileChecklist(t.id,c,known,row?.active&&row.day?row.day:localDay(new Date(known)));
+            if(c.rt)delete c.rt.mergedCheckAt;
+          }
+          if(commands.length)this.applyNativeActions(commands);
+        }finally{data=previous;batching=wasBatching;}
+      }
       // Validate and reserve a recovery copy before touching the current database.
       try {
         localStorage.setItem('mesima.before-import', JSON.stringify(data));

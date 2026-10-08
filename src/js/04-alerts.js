@@ -18,14 +18,14 @@ const Alerts = (() => {
     if (!Store.all.prefs.vib) return;
     try { navigator.vibrate && navigator.vibrate([220,110,220,110,380]); } catch(e){}
   };
-  const system = (title, body, item) => {
+  const system = (title, body, item, explicitMeta) => {
     if (!Store.all.prefs.notif) return;
     /* באפליקציה המותקנת ההתראה מגיעה מ-AlarmManager דרך Kotlin.
        הודעה שנייה מהדפדפן הייתה כפילות. */
     if (Native.on) return;
     try {
       if (typeof Notification!=='undefined' && Notification.permission==='granted')
-        {const meta=ReminderLink.resolve(item.id),n=new Notification(title, {body,tag:'mesima:'+item.id,dir:'rtl',lang:'he'});shown.set(item.id,{n,meta});n.onclick=()=>window.__alarm?.(item.id);if(!subscribed){subscribed=true;Store.onChange(()=>{for(const [id,x] of shown)if(Store.reminderBlocked(x.meta)){x.n.close();shown.delete(id);}});}}
+        {const meta=explicitMeta||ReminderLink.resolve(item.id),id=meta?.reminderId||item.id,n=new Notification(title, {body,tag:'mesima:'+id,dir:'rtl',lang:'he'});shown.set(id,{n,meta});n.onclick=()=>window.__alarm?.(id);if(!subscribed){subscribed=true;Store.onChange(()=>{for(const [id,x] of shown)if(Store.reminderBlocked(x.meta)){x.n.close();shown.delete(id);}});}}
     } catch(e){}
   };
   return {
@@ -40,7 +40,7 @@ const Alerts = (() => {
       if (!this.supported) return false;
       try { return (await Notification.requestPermission()) === 'granted'; } catch(e){ return false; }
     },
-    fire(item, why, kind){ if(NativeState.available()||Store.reminderBlocked(ReminderLink.resolve(item.id)))return; vibrate(); beep(); system(item.title,item.note||why,item); UI.showAlert(item, why, kind); },
+    fire(item, why, kind,meta){ meta=meta||ReminderLink.resolve(item.id);if(NativeState.available()||Store.reminderBlocked(meta))return; vibrate(); beep(); system(item.title,item.note||why,item,meta); UI.showAlert(item, why, kind,meta); },
   };
 })();
 

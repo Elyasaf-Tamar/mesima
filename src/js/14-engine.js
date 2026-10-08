@@ -1,7 +1,40 @@
 const Engine = (() => {
+  function recurring(t,c,now){
+    const rep=c?.repeat||t.repeat,today=Plan.today(),cycle=c?Store.checklistCycle(c):today,rt=c?(c.rt=c.rt||{}):(t.rt=t.rt||{});
+    if(rt.snoozeTo&&now<rt.snoozeTo)return false;
+    const days=new Set([Plan.shift(today,-1),today,Plan.shift(today,1),cycle].filter(Boolean)),ready=[];
+    const completed=c?new Set(Store.completedChecklistCycles(t.id,c.id)):null;
+    for(const day of days){
+      if(!Recur.due(rep,day)||(c?(completed.has(day)||(Store.checklistCycleDone(c)&&day===cycle)):Store.habitFull(t,day)))continue;
+      for(const hm of Recur.times(rep)){
+        const ar=Recur.around(rep,day,hm),base=day+'@';
+        const add=(stage,at,body)=>{const key=base+(stage==='normal'?'':stage+'@')+hm;
+          if(at<=(rt.resumeAt||0)||rt.firedKey===key||rt.firedKeys?.[key]||c&&rt.firedKey===base+stage)return;
+          ready.push({day,hm,stage,at,key,body});};
+        if(ar){
+          // Preparation is useful before the event starts, including the
+          // previous evening. Never deliver a late preparation during it.
+          if(now>=ar.prep&&now<Cal.startMs(ar.ev))add('prep',ar.prep,'שים לב — יש לך אירוע בזמן הזה. תיערך בהתאם.');
+          if(now>=ar.after&&now<ar.after+6*3600000)add('after',ar.after,'שים לב — היית אמור לעשות את זה.');
+        }else if(day===(c?cycle:today)&&Cal.atMs(day,hm)<=now){
+          const more=Recur.times(rep).filter(x=>x>hm);
+          add('normal',Cal.atMs(day,hm),c?(c.items.filter(x=>!x.checked).length+' פריטים פתוחים · '+t.title):'תזכורת יומית '+hm+(more.length?' · תזכורת נוספת ב-'+more[0]:''));
+        }
+      }
+    }
+    if(!ready.length)return false;
+    ready.sort((a,b)=>a.at-b.at||a.key.localeCompare(b.key));const selected=ready.at(-1);
+    rt.firedKeys=rt.firedKeys||{};for(const [key,at]of Object.entries(rt.firedKeys))if(now-at>7*86400000)delete rt.firedKeys[key];
+    ready.forEach(x=>rt.firedKeys[x.key]=now);rt.firedKey=selected.key;
+    const prefix=c?(selected.stage==='prep'?'cp_':selected.stage==='after'?'ca_':'c_'):(selected.stage==='prep'?'hp_':selected.stage==='after'?'ha_':'h_');
+    const reminderId=prefix+t.id+(c?'_'+c.id:'')+'_'+selected.day+'@'+selected.hm;
+    const meta={...ReminderLink.resolve(reminderId),reminderId};
+    Alerts.fire(c?{id:'cl_'+t.id+'_'+c.id,title:c.name,rt}:t,selected.body,'task',meta);
+    return true;
+  }
   function check(){
     const now = Date.now();
-    try{const rows=JSON.parse(localStorage.getItem('mesima.snoozes')||'[]'),due=rows.filter(x=>x.at<=now);if(due.length){localStorage.setItem('mesima.snoozes',JSON.stringify(rows.filter(x=>x.at>now)));due.filter(x=>!Store.reminderBlocked(x.meta||ReminderLink.resolve(x.id))).forEach(x=>Alerts.fire(Store.task(x.id)||{id:x.id,title:x.title,rt:{}},x.body,'task'));}}catch{}
+    try{const rows=JSON.parse(localStorage.getItem('mesima.snoozes')||'[]'),due=rows.filter(x=>x.at<=now);if(due.length){localStorage.setItem('mesima.snoozes',JSON.stringify(rows.filter(x=>x.at>now)));due.filter(x=>!Store.reminderBlocked(x.meta||ReminderLink.resolve(x.id))).forEach(x=>Alerts.fire(Store.task(x.id)||{id:x.id,title:x.title,rt:{}},x.body,'task',x.meta));}}catch{}
     let changed = false;
 
     /* ------- משימות ------- */
@@ -9,51 +42,7 @@ const Engine = (() => {
       /* משימה יומית חוזרת: תזכורת אחת לכל שעה, רק בימי החובה,
          ורק אם עוד לא סימנת מספיק פעמים היום. */
       if (Store.isHabit(t) && !t.archived){
-        const day = Plan.today();
-        /* חריג לפי סוג אירוע: היום הזה פשוט אינו יום חובה. אין תזכורת,
-           והרצף לא נשבר — זו בדיוק ההבחנה מ"התאמה סביב אירועים". */
-        if (!Store.habitRequired(t, day)) return;
-        t.rt = t.rt || {};
-        if (t.rt.snoozeTo && now < t.rt.snoozeTo) return;
-        if (Store.habitFull(t, day)) return;            /* כבר סימנת היום — שקט */
-        /* התזכורות הן ניסיונות חוזרים על אותה משימה: יורים רק על השעה
-           האחרונה שעברה, כדי שלא תקבל ערימה של התראות בבת אחת. */
-        const nowHM = new Date().toTimeString().slice(0,5);
-        /* התאמה סביב אירועים: ההרגל עדיין נדרש, אבל לא באמצע האירוע.
-           נבדק על כל השעות ולא רק על אלה שעברו, כי תזכורת ההכנה מקדימה
-           את שעת ההרגל בשש שעות ולכן נופלת לפניה. */
-        let covered = null;
-        if (t.repeat.around){
-          const evs = Store.events(day);
-          for (const hm2 of t.repeat.times){
-            const cov = Cal.covering(evs, Cal.atMs(day, hm2));
-            if (cov){ covered = { hm:hm2, ev:cov }; break; }
-          }
-        }
-        if (covered){
-          const prep  = Cal.startMs(covered.ev) - 6*3600000;
-          const after = Cal.endMs(covered.ev) + 2*3600000;
-          const pKey = day + '@prep@' + covered.hm;
-          const aKey = day + '@after@' + covered.hm;
-          if (now >= after && after>(t.rt.resumeAt||0) && t.rt.firedKey !== aKey){
-            t.rt.firedKey = aKey; changed = true;
-            Alerts.fire(t, 'שים לב — היית אמור לעשות את זה', 'task');
-          } else if (now >= prep && prep>(t.rt.resumeAt||0) && now < after &&
-                     t.rt.firedKey !== pKey && t.rt.firedKey !== aKey){
-            t.rt.firedKey = pKey; changed = true;
-            Alerts.fire(t, 'שים לב — יש לך אירוע בזמן ההרגל הזה. תיערך בהתאם.', 'task');
-          }
-          return;                                     /* שקט בזמן האירוע */
-        }
-        const due = t.repeat.times.filter(hm => hm <= nowHM);
-        if (!due.length) return;
-        const hm = due[due.length-1];
-        const key = day + '@' + hm;
-        if (t.rt.firedKey !== key && Cal.atMs(day,hm) > (t.rt.resumeAt||0)){
-          t.rt.firedKey = key; changed = true;
-          const more = t.repeat.times.filter(x => x > nowHM);
-          Alerts.fire(t, 'תזכורת יומית ' + hm + (more.length ? ' · תזכורת נוספת ב-' + more[0] : ''), 'task');
-        }
+        if(recurring(t,null,now))changed=true;
         return;
       }
       if (t.archived || t.done || !t.reminder) return;
@@ -167,7 +156,7 @@ const Engine = (() => {
         if (new Date().toTimeString().slice(0,5) < c.once.time) return;
         c.rt = c.rt || {};
         const key = c.once.date + '@' + c.once.time;
-        if (c.rt.firedKey === key || Cal.atMs(c.once?.date||day,c.once?.time||hm)<=(c.rt.resumeAt||0)) return;
+        if (c.rt.firedKey === key || Cal.atMs(c.once.date,c.once.time)<=(c.rt.resumeAt||0)) return;
         c.rt.firedKey = key; changed = true;
         const left = c.items.filter(x => !x.checked).length;
         Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
@@ -185,34 +174,7 @@ const Engine = (() => {
         if (!rep || !Recur.times(rep).length) return;
         /* איפוס: שש שעות לפני המופע הבא, פעם אחת למחזור */
         if (Store.rollChecklist(t.id, c.id)) changed = true;
-        if (Store.checklistCycleDone(c)) return;      /* המחזור נסגר מעצמו */
-        const day = Store.checklistCycle(c);
-        if (!day || day > Plan.today()) return;       /* המופע עוד לפנינו */
-        const hm = Recur.times(rep).filter(h=>Cal.atMs(day,h)<=now).at(-1)||Recur.times(rep)[0];
-        c.rt = c.rt || {};
-        const ar = Recur.around(rep, day, hm);
-        if (ar){
-          const pKey = day + '@prep', aKey = day + '@after';
-          if (now >= ar.after && ar.after>(c.rt.resumeAt||0) && c.rt.firedKey !== aKey){
-            c.rt.firedKey = aKey; changed = true;
-            Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
-                        'שים לב — היית אמור לעבור על זה · ' + t.title, 'task');
-          } else if (now >= ar.prep && ar.prep>(c.rt.resumeAt||0) && now < ar.after &&
-                     c.rt.firedKey !== pKey && c.rt.firedKey !== aKey){
-            c.rt.firedKey = pKey; changed = true;
-            Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
-                        'שים לב — יש לך אירוע בזמן הזה. תיערך בהתאם · ' + t.title, 'task');
-          }
-          return;
-        }
-        /* התזכורת נשארת רלוונטית גם אחרי חצות, כל עוד המחזור פתוח */
-        if (Date.now() < Cal.atMs(day, hm)) return;
-        const key = day + '@' + hm;
-        if (c.rt.firedKey === key || Cal.atMs(c.once?.date||day,c.once?.time||hm)<=(c.rt.resumeAt||0)) return;
-        c.rt.firedKey = key; changed = true;
-        const left = c.items.filter(x => !x.checked).length;
-        Alerts.fire({ id:'cl_'+t.id+'_'+c.id, title:c.name, rt:c.rt },
-                    left ? left + ' פריטים פתוחים · ' + t.title : 'מחזור חדש · ' + t.title, 'task');
+        if(recurring(t,c,now))changed=true;
       });
     });
 

@@ -43,7 +43,7 @@ const Native = (() => {
      ה-JS מחשב את המופעים הקרובים; אנדרואיד רושם אותם ב-AlarmManager
      ומעיר את עצמו בשעה שנקבעה, גם כשהאפליקציה מתה. הסמנטיקה כאן
      חייבת להיות זהה לזו של Engine — אחרת תקבל התראה כפולה או חסרה. */
-  const WINDOW_DAYS = 7;      /* פתיחת האפליקציה מגלגלת את החלון קדימה */
+  const WINDOW_DAYS = 7;      /* תצוגה מקדימה/מעטפת ישנה; מעטפת חדשה שומרת כללי תזמון */
   const ALARM_CAP   = 100;
 
   const ms = (dateKey, hm) => {
@@ -58,7 +58,7 @@ const Native = (() => {
     const soon = now + 500;             /* מה שקורה ממש עכשיו — Engine מטפל */
     const t0   = Plan.today();
     const span = [];
-    for (let i = 0; i < (days || WINDOW_DAYS); i++) span.push(Plan.shift(t0, i));
+    for (let i = -1; i < (days || WINDOW_DAYS); i++) span.push(Plan.shift(t0, i));
     const nowHM = new Date().toTimeString().slice(0,5);
 
     Store.all.tasks.forEach(t => {
@@ -137,6 +137,7 @@ const Native = (() => {
         Recur.times(rep).forEach(hm => {
         span.forEach(day => {
           if (!Recur.due(rep, day)) return;
+          if(Store.completedChecklistCycles(t.id,c.id).includes(day))return;
           if(Store.checklistCycleDone(c) && day <= Store.checklistCycle(c))return;
           const ar = Recur.around(rep, day, hm);
           if (ar){
@@ -163,7 +164,7 @@ const Native = (() => {
       if (ev.remindMin == null || ev.remindMin < 0) return;
       if (ev.rt && ev.rt.firedAt) return;
       const at = Cal.remindAt(ev);
-      if (at < soon || at > now + (days || WINDOW_DAYS) * 86400000) return;
+      if (at < soon) return;
       out.push({ id:'e_'+ev.id, at, title:ev.title,
                  body: ev.allDay
                    ? (ev.date === Plan.today() ? 'היום · כל היום'
@@ -180,7 +181,23 @@ const Native = (() => {
     }).sort((a,b) => a.at - b.at);
   }
   /** הרשימה שנמסרת למערכת — חתוכה לתקרה שהמערכת מסוגלת להחזיק */
-  function alarmList(days){ return buildAlarms(days).slice(0, ALARM_CAP); }
+  function alarmList(days,cap=ALARM_CAP){ const list=buildAlarms(days);return cap==null?list:list.slice(0,cap); }
+  /** Durable definitions: native upkeep computes future occurrences without
+      needing to reopen the WebView. Pictures/editor data are not duplicated. */
+  function alarmPlan(){
+    return {schema:1,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+      tasks:Store.all.tasks.filter(t=>!t.archived&&!t.done).map(t=>({
+        id:t.id,title:t.title,note:t.notificationText??t.note??'',kind:t.kind,createdAt:t.createdAt,
+        planned:t.planned||null,reminder:t.reminder?.type==='time'?t.reminder:null,
+        repeat:Store.isHabit(t)?Recur.norm(t.repeat):null,log:t.log||{},resumeAt:t.rt?.resumeAt||0,
+        checklists:(t.checklists||[]).map(c=>({id:c.id,name:c.name,repeat:Recur.norm(c.repeat),once:c.once||null,
+          cycle:Store.checklistCycle(c),occurrence:Store.checklistOccurrence(c),complete:!!c.items.length&&c.items.every(i=>i.checked),
+          completedCycles:Store.completedChecklistCycles(t.id,c.id),left:c.items.filter(i=>!i.checked).length,total:c.items.length,resumeAt:c.rt?.resumeAt||0}))
+      })),
+      events:Store.all.events.map(e=>({id:e.id,title:e.title,note:e.note||'',date:e.date,time:e.time,end:e.end,endDate:e.endDate||'',
+        allDay:!!e.allDay,typeId:e.typeId,remindMin:e.remindMin,firedAt:e.rt?.firedAt||0}))};
+  }
+  function publishAlarms(){return typeof A()?.syncAlarmPlan==='function'?A().syncAlarmPlan(JSON.stringify(alarmPlan())):A().syncAlarms(JSON.stringify(alarmList()));}
   /** כמה מופעים חושבו באמת לפני החיתוך. רק זה יודע אם נגענו בתקרה. */
   function alarmDemand(days){
     const all = buildAlarms(days);
@@ -194,16 +211,16 @@ const Native = (() => {
     sync(){
       if (!A()) return;
       NativeState.publish();
-      try { A().syncAlarms(JSON.stringify(alarmList())); } catch(e){}
+      try { publishAlarms(); } catch(e){}
       clearTimeout(syncT);
       syncT = setTimeout(() => {
         try { A().syncGeofences(JSON.stringify(fenceList())); } catch(e){}
-        try { A().syncAlarms(JSON.stringify(alarmList())); } catch(e){}
+        try { publishAlarms(); } catch(e){}
       }, 600);
     },
     fenceCount(){ return fenceList().length; },
     fenceList,
-    alarmList, alarmDemand,
+    alarmList, alarmDemand, alarmPlan,
     alarmCount(){ return alarmList().length; },
     /** האם המערכת מרשה תזכורת בשנייה המדויקת */
     canExact(){ try { return A() ? !!A().canExactAlarms() : false; } catch(e){ return false; } },
@@ -240,7 +257,7 @@ const Native = (() => {
     syncNow(){
       if (!A()) return -1;
       NativeState.publish();
-      try { return A().syncAlarms(JSON.stringify(alarmList())); } catch(e){ return -1; }
+      try { return publishAlarms(); } catch(e){ return -1; }
     },
     /* גרסת מעטפת האנדרואיד. מעטפת ישנה לא מכירה את המתודה הזאת ולכן
        מחזירה '' — וזה בדיוק הסימן שצריך להתקין APK חדש. */
@@ -262,7 +279,7 @@ const Native = (() => {
     askFullScreen(){ try { A().requestFullScreen(); } catch(e){} },
     openChannel(){ try { A().openChannelSettings(); } catch(e){} },
     ready(){ try { A().ready(); } catch(e){} },
-    setSource(u){ try { A().setSourceUrl(u); } catch(e){} },
+    setSource(u){ try {const result=A().setSourceUrl(u);return result===true||(result!==false&&this.status()?.sourceUrl===u);}catch(e){return false;} },
     checkUpdate(){ try { A().checkUpdate(); } catch(e){} },
     applyUpdate(){ try { A().applyUpdate(); } catch(e){} },
   };

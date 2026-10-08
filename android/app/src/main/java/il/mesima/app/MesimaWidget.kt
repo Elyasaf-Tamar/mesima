@@ -25,7 +25,7 @@ open class MesimaWidget:AppWidgetProvider(){
    WidgetPrefs.providers.forEach{(cls,kind)->val ids=m.getAppWidgetIds(ComponentName(c,cls));ids.forEach{render(c,m,it,kind)};if(ids.isNotEmpty())m.notifyAppWidgetViewDataChanged(ids,R.id.widget_list)}
   }
   fun render(c:Context,m:AppWidgetManager,id:Int,kind:String){
-   val v=RemoteViews(c.packageName,R.layout.mesima_widget);val day=NativeRepo.today();val snap=NativeRepo.snapshot(c)
+   val v=RemoteViews(c.packageName,R.layout.mesima_widget);val day=NativeRepo.today();val snap=Sched.widgetSnapshot(c,day)
    val config=WidgetPrefs.get(c,id,kind);val content=WidgetModel.content(snap,config)
    val rows=WidgetModel.rows(snap,NativeRepo.pending(c),config,day)
    val title=when(kind){"calendar"->"יומן";"shopping"->content.optString("title").ifBlank{"קניות"};"notes"->content.optString("title").ifBlank{"הערות"};else->"היום והמשימות שלי"}
@@ -64,7 +64,7 @@ class WidgetRowsService:RemoteViewsService(){
  override fun onGetViewFactory(intent:Intent):RemoteViewsFactory=object:RemoteViewsFactory{
   var rows=listOf<JSONObject>();val kind=intent.getStringExtra("kind")?:"tasks";val id=intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,0)
   override fun onCreate(){onDataSetChanged()}
-  override fun onDataSetChanged(){rows=WidgetModel.rows(NativeRepo.snapshot(this@WidgetRowsService),NativeRepo.pending(this@WidgetRowsService),WidgetPrefs.get(this@WidgetRowsService,id,kind),NativeRepo.today())}
+  override fun onDataSetChanged(){val day=NativeRepo.today();rows=WidgetModel.rows(Sched.widgetSnapshot(this@WidgetRowsService,day),NativeRepo.pending(this@WidgetRowsService),WidgetPrefs.get(this@WidgetRowsService,id,kind),day)}
   override fun onDestroy(){};override fun getCount()=rows.size
   override fun getViewAt(position:Int):RemoteViews?{
    val r=rows.getOrNull(position)?:return null;val header=r.optString("kind")=="header"

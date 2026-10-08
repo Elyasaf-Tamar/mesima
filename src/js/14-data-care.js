@@ -1,6 +1,5 @@
-/* Version 4.5: device backups, opt-in archive retention and cloud controls.
-   Local data remains authoritative. Cloud operations are explicit snapshots,
-   never an implicit two-way sync or replacement of the local database. */
+/* Device backups, opt-in archive retention and explicit cloud snapshots.
+   Automatic cross-device merging is implemented separately by CloudSync. */
 const DataCare = (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const bridge = () => window.MesimaNative || window.DesktopBackup;
@@ -46,8 +45,19 @@ const DataCare = (() => {
     Store.all.prefs.lastArchiveCleanup=now;Store.commit();return ids.length;
   }
   function snapshot(){
-    if(!available()) return;
-    try{bridge().saveSnapshot(Store.export());}catch{ /* status shows native write failure */ }
+    if(!available()) return false;
+    try{const result=bridge().saveSnapshot(Store.export());
+      if(result?.then)return result.then(ok=>ok===true).catch(()=>false);
+      if(result===true||result===false)return result;
+      // Some older Android bridges expose a void method. Their synchronous
+      // backup status reports snapshot failure explicitly; desktop IPC must
+      // still return true after its asynchronous write.
+      const s=status();return !!window.MesimaNative&&Object.prototype.hasOwnProperty.call(s,'error')&&!s.error;
+    }catch{return false;}
+  }
+  async function prepareBackup(){
+    if(await snapshot())return true;
+    UI.toast(status().error||'לא התקבל אישור שמירת גיבוי. בדוק את מצב הגיבוי ועדכן את האפליקציה אם המעטפת ישנה.');return false;
   }
   function settingsHTML(){
     const s=status(), cloud=s.cloud||{};
@@ -113,20 +123,20 @@ const DataCare = (() => {
       const el=e.target.closest('[data-copy-note-id]');
       if(el && (e.key==='Enter'||e.key===' ')){e.preventDefault();e.stopImmediatePropagation();copyDescription(el);}
     },true);
-    document.addEventListener('click',e=>{
+    document.addEventListener('click',async e=>{
       const copy=e.target.closest('[data-copy-note-id]');
       if(copy){e.preventDefault();e.stopImmediatePropagation();copyDescription(copy);return;}
       const el=e.target.closest('[data-care]');if(!el)return;
       e.preventDefault();e.stopPropagation();
       switch(el.dataset.care){
-        case 'now': {snapshot();const s=status();if(s.folder)bridge().backupNow();if(s.cloud?.email)bridge().cloudBackup();if(!s.folder&&!s.cloud?.email)UI.download('mesima-backup.json',Store.export(),'application/json');break;}
+        case 'now': {const s=status();if(s.folder||s.cloud?.email){if(!await prepareBackup())break;if(s.folder)bridge().backupNow();if(s.cloud?.email)bridge().cloudBackup();}else UI.download('mesima-backup.json',Store.export(),'application/json');break;}
         case 'folder':bridge().chooseBackupFolder();break;
         case 'recover-import':{const s=localStorage.getItem('mesima.before-import');if(s)UI.download('Mesima_before_restore.json',s,'application/json');break;}
-        case 'local-now':snapshot();bridge().backupNow();break;
+        case 'local-now':if(await prepareBackup())bridge().backupNow();break;
         case 'recover':{const s=localStorage.getItem('mesima.before-archive-cleanup');if(s)UI.download('Mesima_before_archive_cleanup.json',s,'application/json');break;}
         case 'login':login();break;
         case 'logout':bridge().cloudSignOut();UI.render();break;
-        case 'cloud-now':snapshot();bridge().cloudBackup();UI.render();break;
+        case 'cloud-now':if(await prepareBackup())bridge().cloudBackup();UI.render();break;
         case 'cloud-list':bridge().cloudList();break;
       }
     },true);

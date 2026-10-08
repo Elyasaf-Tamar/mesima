@@ -11,9 +11,10 @@ import android.content.Intent
  */
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        val link=runCatching{intent.getStringExtra("meta")?.let{org.json.JSONObject(it)}}.getOrNull()
         if(intent.action=="il.mesima.COMPLETE"){
             val id=intent.getStringExtra("id")?:return
-            val meta=NativeRepo.meta(ctx,id)
+            val meta=link?:NativeRepo.meta(ctx,id)
             NativeRepo.complete(ctx,meta.optString("taskId"),meta.optString("day").ifBlank{NativeRepo.today()})
             return
         }
@@ -24,10 +25,10 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         if (intent.action == "il.mesima.SNOOZE") {
             val id = intent.getStringExtra("id") ?: return
-            androidx.core.app.NotificationManagerCompat.from(ctx).cancel(id.hashCode())
-            Sched.snooze(ctx, id,
+            val saved=Sched.snooze(ctx, id,
                 intent.getStringExtra("title") ?: "משימה",
-                intent.getStringExtra("body") ?: "", 15)
+                intent.getStringExtra("body") ?: "", 15, link)
+            if(saved)androidx.core.app.NotificationManagerCompat.from(ctx).cancel(id.hashCode())
             return
         }
         if (intent.action == "il.mesima.UPKEEP") {
@@ -39,7 +40,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra("id") ?: return
         val title = intent.getStringExtra("title") ?: "משימה"
         val body = intent.getStringExtra("body") ?: ""
-        if(Sched.allowFire(ctx,id))Notif.show(ctx, id, title, body)
+        Sched.fire(ctx,id,title,body,link)
         /* הפריט שירה כבר בעבר; רישום מחדש מנקה אותו ומשאיר את השאר */
         Sched.reapply(ctx)
     }

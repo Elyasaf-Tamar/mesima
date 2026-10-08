@@ -1,20 +1,33 @@
-# משימה 4.9.1
+# משימה 4.9.2
 
-תיקון סיכומי ימים קודמים והעברת השלמות מהארכיון להיסטוריה: [CHANGELOG-4.9.1-HE.md](CHANGELOG-4.9.1-HE.md). כולל Windows 4.9.1 ו־Android 1.8.1 (קוד גרסה 20).
+גרסת תיקונים לאמינות העריכה, הסנכרון, היומן, התזכורות והגיבויים. קוד הווב ו־Windows הם בגרסה 4.9.2; מעטפת Android היא 1.8.2, קוד גרסה 21.
 
-הוראות התקנה, רשימת השינויים ומידע על סנכרון: [README-4.9.1-HE.md](README-4.9.1-HE.md).
+- [מה תוקן](CHANGELOG-4.9.2-HE.md)
+- [התקנה, פיתוח ועדכון מכשירים](README-4.9.2-HE.md)
+- [ממצאי הסקירה והאימות](REVIEW-4.9.2-HE.md)
+- [הגדרת Firebase וכללי הגישה](firebase/SETUP.md)
+- [בניית גרסה ואריזתה](RELEASE-WORKFLOW.md)
 
-הורדת ה־APK החתום: [Releases](https://github.com/Elyasaf-Tamar/mesima/releases).
+האפליקציה מנהלת משימות, פרויקטים, הרגלים, צ׳קליסטים, אירועים, רשימות קניות, מקומות, הערות והיסטוריית ביצועים. הממשק בעברית ומימין לשמאל. המידע נשמר מקומית; במעטפות Android ו־Windows אפשר להפעיל גיבוי וסנכרון באמצעות Firebase.
 
-האתר וכתובת העדכונים: [Mesima](https://elyasaf-tamar.github.io/mesima/).
+## עבודה על הקוד
 
-פרסום גרסאות: [GITHUB-UPLOAD-HE.md](GITHUB-UPLOAD-HE.md).
+המקור נמצא ב־`src/`. קובץ `build-manifest.json` מגדיר את סדר טעינת מודולי JavaScript. לא עורכים ידנית את שני קובצי ה־HTML המורכבים.
 
-שמירת כלי בנייה וניקוי תיקיות ישנות: [RELEASE-WORKFLOW.md](RELEASE-WORKFLOW.md).
+```sh
+npm ci
+npm run build
+npm test
+npm run test:archive
+npx playwright install chromium
+npm run test:ui
+npm run test:rules
+```
 
-הקוד מחולק למודולים בתיקיית src; להרכבת האתר מריצים `node tools/build.mjs`.
+בדיקות כללי הענן מריצות אמולטורים מקומיים בפרויקט הבדיקה `demo-mesima`; הן אינן מתחברות לחשבון אמיתי. דרישות סביבת הפיתוח ופירוט הבנייה נמצאים במדריך הגרסה.
 
-`node --test tests/*.test.mjs` מריץ את בדיקות המודל. קוד Android נמצא בתיקיית `android`.
-GitHub Actions בודק את הקוד ובונה APK לפיתוח; להתקנה על האפליקציה הקיימת משתמשים ב־APK החתום שב־Releases.
+GitHub Actions בודק מודל, דפדפן, כללי ענן ו־Android. פרסום Pages תלוי בהצלחת אותן בדיקות באותו commit. APK שמופק בבדיקות הוא קובץ פיתוח; עדכון התקנה קיימת דורש APK חתום במפתח ההפצה המקורי.
 
-מפתחות חתימה ותצורת Firebase נשמרים מקומית מחוץ למאגר. קובצי מקור ישנים וכפולים הוחלפו במבנה המקור של 4.8; אין צורך לחלץ ZIP כדי לבנות.
+האתר: [Mesima](https://elyasaf-tamar.github.io/mesima/). חבילות שפורסמו: [Releases](https://github.com/Elyasaf-Tamar/mesima/releases). קיומו של תיקון בענף מקור אינו מעיד שהאתר, כללי Firebase או חבילת ההתקנה כבר עודכנו.
+
+מסמכי 4.4–4.9.1 מתארים גרסאות קודמות ונשמרים כהיסטוריה. הוראות העבודה העדכניות הן במסמכי 4.9.2.

@@ -69,11 +69,12 @@ const UI = (() => {
     const p = location.protocol;
     const opaque = (p==='content:' || p==='file:' || p==='blob:');
     const secure = (window.isSecureContext !== false) && !opaque;
-    return { protocol:p, opaque, secure, canGeo: secure && !!navigator.geolocation };
+    return { protocol:p, opaque, secure, canGeo: !window.MesimaDesktop && secure && !!navigator.geolocation };
   }
   function originWarn(){
     const st = originState();
     if (st.canGeo || Native.on) return '';
+    if (window.MesimaDesktop) return '<div class="notice">תזכורות מיקום ונסיעה פועלות ב־Android. במחשב אפשר לנהל את המקומות והמשימות ולהעביר אותם בסנכרון לטלפון.</div>';
     return `<div class="notice warn"><b>המיקום חסום, וזה לא באפליקציה.</b><br>
       הקובץ נפתח מכתובת ${esc(st.protocol)}// וכרום אוסר גישה למיקום מכתובת כזאת.
       כל השאר עובד רגיל.</div>`;
@@ -536,7 +537,7 @@ const UI = (() => {
   function emptyTasks(){
     return `<div class="empty">
       <div class="h">אין משימות פתוחות</div>
-      <div class="d">כל מה שסיימת נשאר זמין בארכיון.</div>
+      <div class="d">משימות שבוצעו נשמרות בסיכום היום שלהן. פרויקטים שסגרת נשארים בארכיון.</div>
       <button class="btn" data-act="add">+ משימה חדשה</button></div>`;
   }
 
@@ -787,14 +788,15 @@ const UI = (() => {
     const pts = Store.all.places.filter(p => names.includes(p.name));
     if (names.length >= 2 && pts.length < 2){
       const missing = names.filter(n => !Store.placeByName(n));
-      return `<div class="notice">רוצה <b>מסלול מומלץ</b> בין החנויות? שמור אותן כמקומות
+      return `<div class="notice">רוצה <b>סדר חנויות לפי קרבה</b>? שמור אותן כמקומות
         (תפריט ⋯ ← מקומות), באותו שם בדיוק.
         ${missing.length ? '<br>עוד לא שמורות: ' + missing.slice(0,4).map(esc).join(' · ') : ''}</div>`;
     }
     if (!Geo.last || pts.length < 2) return '';
     const { stops, total } = Geo.route(Geo.last, pts);
-    const mins = Math.round(total/1000/25*60) + stops.length*8;
-    return `<h2 class="sh">מסלול מומלץ · ${(total/1000).toFixed(1)} ק״מ · כ-${mins} דק׳</h2>
+    if(stops.length<2)return '';
+    return `<h2 class="sh">סדר חנויות לפי קרבה · ${(total/1000).toFixed(1)} ק״מ בקו אווירי</h2>
+      <div class="note">הסדר משוער לפי קרבה. כפתור הניווט פותח מסלול נסיעה לכל תחנה.</div>
       <div class="stops">${stops.map((st,i) => `<div class="stop">
         <span class="num">${i+1}</span><span class="sn">${esc(st.name)}</span>
         <span class="sd2">${fmtM(st.leg)}</span>
@@ -1033,7 +1035,7 @@ const UI = (() => {
 
     /* ---------- 2. הרשאות והתקנה — מאשרים פעם אחת ושוכחים ---------- */
     const permsBody = !Native.on
-      ? `<div class="notice">בדפדפן אין הרשאות מערכת לאשר.</div>`
+      ? window.MesimaDesktop ? `<div class="notice">הרשאות והצגת ההתראות נקבעות בהגדרות Windows. תזכורות מיקום ונסיעה דורשות את אפליקציית Android.</div>` : `<div class="notice">אפשר לנהל הרשאות מיקום והתראות בהגדרות האתר בדפדפן.</div>`
       : `
       ${perm(n.locationBackground,'מיקום כל הזמן',
              n.locationBackground ? 'גדרות המיקום פעילות'
@@ -1041,20 +1043,17 @@ const UI = (() => {
       ${perm(n.notifications,'התראות',
              n.notifications ? 'מאושר' : 'בלי זה לא תראה כלום כשהאפליקציה סגורה','notif')}
       ${perm(n.batteryUnrestricted,'ללא הגבלת סוללה',
-             n.batteryUnrestricted ? 'אנדרואיד לא ירדים את האפליקציה'
-             : 'בלי זה סמסונג תרדים את האפליקציה אחרי כמה ימים','batt')}
+             n.batteryUnrestricted ? 'האפליקציה מוחרגת מחיסכון בסוללה'
+             : 'חיסכון בסוללה עשוי להגביל פעילות ברקע','batt')}
       ${perm((n.alarms||{}).exact !== false, 'התראות ותזכורות',
-             (n.alarms||{}).exact !== false ? 'תזכורות שעה יורות בשנייה המדויקת'
-             : 'בלי זה אנדרואיד ידחה תזכורות בכמה דקות כדי לחסוך סוללה','exact')}
-      ${typeof n.fullScreen !== 'boolean'
-        ? `<div class="set"><div class="sb"><div class="st">התראה במסך מלא</div>
-             <div class="sd">לא ידוע — המעטפת המותקנת לא יודעת לענות על זה.</div></div></div>`
-        : perm(n.fullScreen, 'התראה במסך מלא',
-             n.fullScreen ? 'התזכורת יכולה לקפוץ מעל מה שפתוח'
-               : 'בלי זה אנדרואיד לא ירשה פופ-אפ מלא — רק שורה בשורת הסטטוס','fullscreen')}
+             (n.alarms||{}).exact !== false ? 'הרשאה לתזמן תזכורות מדויקות פעילה'
+             : 'ללא הרשאה זו התזכורות עשויות להתעכב','exact')}
+      <div class="set"><div class="sb"><div class="st">התראת מערכת</div>
+        <div class="sd">התזכורות נשלחות לערוץ ההתראות של Android. צליל, באנר ומסך נעילה נקבעים בהגדרות הטלפון. לחיצה על ההתראה פותחת את הפרטים במשימה.</div></div>
+        <button class="txtbtn" data-nat="chan">הגדרות התראות</button></div>
       ${String(n.manufacturer||'').toLowerCase().includes('samsung') ? `
-        <div class="notice"><b>סמסונג מרדימה אפליקציות אחרי 3 ימים.</b>
-          זה הצעד הכי חשוב כאן — הוסף את "משימה" ל-Never sleeping apps.
+        <div class="notice"><b>הגדרות פעילות ברקע בסמסונג</b>
+          אם תזכורות מתעכבות, בדוק שמשימה אינה ברשימת היישומים במצב שינה והוסף אותה ל־Never sleeping apps לפי הצורך.
           <button class="btn wide" data-nat="samsung">פתח את ההגדרה</button></div>` : ''}`;
 
     const permsNote = Native.on
@@ -1067,7 +1066,7 @@ const UI = (() => {
 
     /* ---------- 3. אבחון התראות — כלים, מוסתרים בשימוש רגיל ---------- */
     const diagBody = !Native.on
-      ? `<div class="notice">בדפדפן אין מה לאבחן — התראות רקע לא קיימות שם.</div>`
+      ? window.MesimaDesktop ? `<div class="notice">תזכורות המחשב פועלות כל עוד משימה רצה, גם כשהחלון ממוזער למגש. יציאה מהתפריט מפסיקה אותן.</div>` : `<div class="notice">תזכורות הדפדפן דורשות שהדף יישאר פתוח. בדוק את הרשאת ההתראות בהגדרות האתר.</div>`
       : `
       ${(() => {
         const a = n.alarms || {};
@@ -1077,16 +1076,17 @@ const UI = (() => {
                           + nx.toTimeString().slice(0,5) : '';
         return `<div class="set"><div class="sb"><div class="st">שרשרת התזכורות</div>
           <div class="sd">משימות עם שעה: <b>${withTime()}</b><br>
-            האפליקציה חישבה קדימה: <b>${Native.alarmList().length}</b><br>
-            המערכת רשמה בפועל: <b>${a.scheduled||0}</b>${
+            תזכורות בחלון הקרוב: <b>${a.occurrences ?? Native.alarmDemand().wanted}</b><br>
+            מועדי התראה רשומים במערכת: <b>${a.scheduled||0}</b>${
+            a.source==='rules'?'<br>תזכורות באותו מועד חולקות רישום, והתור מתחדש אוטומטית.':''}${
             when ? '<br>הקרובה: ' + esc(when) : ''}</div></div>
           <button class="txtbtn" data-nat="resync">רענן</button></div>`;
       })()}
       ${(Native.alarmList().length && !((n.alarms||{}).scheduled||0)) ? `
         <div class="notice">האפליקציה חישבה תזכורות אבל המערכת לא רשמה אף אחת.
           לחץ על <b>"בדוק התראה עכשיו"</b> כדי לראות איפה זה נתקע.</div>` : ''}
-      ${!withTime() ? `<div class="notice">אף משימה לא מחזיקה <b>שעה</b>.
-        תזכורת נרשמת רק כשיש שעה — תאריך לבד לא מספיק.</div>` : ''}
+      ${!(Native.alarmDemand().wanted) ? `<div class="notice">אין תזכורות עם שעה בחלון הקרוב. תאריך לבדו אינו קובע שעת התראה.</div>` : ''}
+      ${n.alarms?.error?`<div class="notice warn">${esc(n.alarms.error)}</div>`:''}
       ${(() => {
         const c = n.channel;
         if (!c || typeof c !== 'object') return `<div class="set"><div class="sb">
@@ -1098,34 +1098,30 @@ const UI = (() => {
         const ok = !c.blocked && (c.importance == null || c.importance >= 4);
         return `<div class="set"><div class="sb"><div class="st">ערוץ ההתראות</div>
           <div class="sd">${c.blocked ? 'מושתק לגמרי בהגדרות הטלפון'
-            : ok ? 'פעיל, עם קפיצה וצליל'
-                 : 'פעיל אבל בלי קפיצה — צריך "התראה" ולא "שקט"'}</div></div>
+            : ok ? 'פעיל בעדיפות גבוהה; צורת ההצגה והצליל נקבעים בטלפון'
+                 : 'פעיל בעדיפות נמוכה; אפשר לשנות בהגדרות הערוץ'}</div></div>
           ${ok ? '' : `<button class="txtbtn" data-nat="chan">פתח</button>`}</div>`;
       })()}
-      <div class="notice">שתי הבדיקות האלה עוברות בדיוק באותו מסלול של תזכורת אמיתית.
-        אם הן עובדות — הצינור תקין והבעיה בנתונים. אם לא — הבעיה בהרשאות.</div>
+      ${n.notificationError ? `<div class="notice warn">${esc(n.notificationError)}</div>` : ''}
+      <div class="notice">הבדיקה המיידית בודקת מסירת התראה למערכת. הבדיקה בעוד דקה בודקת גם תזמון. הצלחה בהן אינה מבטיחה שכל תזכורת תוצג בכל מצב.</div>
       <button class="btn wide" data-nat="testnow">בדוק התראה עכשיו</button>
       <button class="btn wide" data-nat="test60" style="margin-top:8px">
         תזכורת מבחן בעוד דקה</button>
       <div class="set" style="margin-top:10px"><div class="sb"><div class="st">תזכורות מקום רשומות</div>
         <div class="sd">${n.fences||0} מתוך ${Native.fenceCount()} רשומות במערכת${
           n.fencesResult ? ' · ' + esc(n.fencesResult) : ''}</div></div></div>
-      <div class="notice">תזכורת מקום נשענת על שירותי המיקום של אנדרואיד. היא ממשיכה
-        לעבוד כשהאפליקציה סגורה, אבל היא <b>לא מיידית</b>: המערכת בודקת כל כמה דקות,
-        ורדיוס קטן מ-140 מטר מורחב אוטומטית.</div>
+      <div class="notice">תזכורות מקום ונסיעה משתמשות בשירותי המיקום של Android. מעקב פעיל יכול להמשיך גם כשהמסך סגור ומציג התראה קבועה. הדיוק והתזמון תלויים בהרשאות, בקליטת המיקום ובהגבלות המכשיר; רדיוס קטן מ־140 מטר מורחב.</div>
       <button class="btn wide" data-nat="alarms">פתח את השעון של הטלפון</button>`;
 
     /* ---------- 4. עוד הגדרות — נדיר, הרסני, וטכני ---------- */
     const moreBody = `
       <h2 class="sh">התראות באפליקציה</h2>
-      ${sw('swGeo','מעקב מיקום','נדרש לתזכורות לפי מקום ולפי מרחק נסיעה', Geo.on)}
+      ${window.MesimaDesktop ? '<div class="notice">מעקב מיקום ונסיעה זמין באפליקציית Android.</div>' : sw('swGeo','מעקב מיקום','נדרש לתזכורות לפי מקום ולפי מרחק נסיעה', Geo.on)}
       ${sw('swVib','רטט','', d.prefs.vib)}
       ${sw('swSnd','צליל','', d.prefs.snd)}
       ${Native.on
         ? `<div class="set"><div class="sb"><div class="st">התראות מערכת</div>
-             <div class="sd">באפליקציה המותקנת ההתראות מגיעות מהאפליקציה עצמה,
-               והן נשלטות בשורת <b>"התראות"</b> תחת "הרשאות והתקנה".
-               המתג שהיה כאן לא שלט בכלום.</div></div></div>`
+             <div class="sd">Android מציג את ההתראות בהתאם להרשאות ולהגדרות הערוץ. אפשר לבחור צליל ודפוס רטט בעמוד ההתראות.</div></div></div>`
         : sw('swNotif','התראות מערכת',
            !Alerts.supported ? 'הדפדפן הזה לא תומך בהתראות'
            : !st.secure ? 'דורש כתובת https'
@@ -1158,24 +1154,19 @@ const UI = (() => {
 
       <h2 class="sh">איך זה עובד</h2>
       <div class="notice">
-        ${Native.on ? `<b>מה עובד כשהאפליקציה סגורה:</b> תזכורות לפי מקום, לפי שעה,
-          תזכורות חוזרות ותזכורות אירוע — מערכת ההפעלה מחזיקה את כולן.<br>
-          <b>מה דורש שהאפליקציה תהיה פתוחה:</b> תזכורת לפי מרחק נסיעה בלבד.<br>
-          <span class="dim">האפליקציה רושמת תזכורות לשבוע קדימה. כל פתיחה שלה
-          מגלגלת את החלון, וגם בלי פתיחה יש רענון עצמי פעמיים ביום.</span>`
-        : `<b>בדפדפן שום תזכורת לא עובדת כשהחלון סגור.</b> זו מגבלת דפדפן, לא באג.
-           הגרסה המותקנת עושה את שניהם.`}</div>
+        ${Native.on ? `<b>כשהמסך סגור:</b> Android מתזמן תזכורות שעה, חזרה ואירועים. מעקב מיקום ונסיעה יכול להמשיך באמצעות שירות פעיל, עם הרשאות מתאימות והתראה קבועה.<br>
+          האפליקציה מתזמנת תזכורות לשבוע קדימה ומרעננת אותן בפתיחה ובאמצעות עבודת רקע. עבודת הרקע עשויה להתעכב בגלל הגבלות המערכת.`
+        : window.MesimaDesktop ? `במחשב, תזכורות פועלות כל עוד משימה רצה. סגירת החלון משאירה אותה במגש; יציאה מהתפריט מפסיקה את התזכורות. מעקב מיקום ונסיעה דורש Android.`
+        : `בדפדפן, תזכורות ומעקב מיקום דורשים שהדף יישאר פתוח. סגירת החלון מפסיקה את הפעילות.`}</div>
 
       <h2 class="sh">מסוכן</h2>
       <button class="btn d wide" id="btnWipe">מחיקת כל הנתונים</button>`;
 
     /* ---------- אזהרת תקרה — רק כשבאמת מתקרבים אליה ---------- */
     const cap = Native.on ? Native.alarmDemand() : null;
-    const capWarn = (cap && cap.wanted >= cap.cap * 0.9) ? `
-      <div class="notice warn">יש לך יותר תזכורות קרובות ממה שאנדרואיד מוכן להחזיק
-        בבת אחת (${cap.wanted} מול ${cap.cap}). התזכורות הקרובות רשומות כרגיל;
-        המאוחרות יותר יירשמו מאליהן ככל שהזמן מתקדם. אין מה לעשות עם זה —
-        זה רק כדי שתדע.</div>` : '';
+    const capWarn = (cap && n.alarms?.source!=='rules' && cap.wanted >= cap.cap * 0.9) ? `
+      <div class="notice warn">המעטפת המותקנת רושמת עד ${cap.cap} תזכורות בחלון הקרוב;
+        כרגע חושבו ${cap.wanted}. עדכון מעטפת Android מוסיף תור שמתחדש ברקע גם בלי לפתוח את האפליקציה.</div>` : '';
 
     Settings.render({updateBody, permsBody, diagBody, moreBody, n, capWarn});
   }
@@ -1296,15 +1287,15 @@ const UI = (() => {
   /* ---- תור התראות ---- */
   const alertQ = [];
   let alertT = null;
-  function showAlert(item, why, kind){
-    alertQ.push({ item, why, kind });
+  function showAlert(item, why, kind, meta){
+    alertQ.push({ item, why, kind, meta:meta||ReminderLink.resolve(item.id) });
     if (!alertItem && !alertT) alertT = setTimeout(() => { alertT = null; nextAlert(); }, 0);
   }
   function nextAlert(){
     let a = alertQ.shift();
-    while(a&&Store.reminderBlocked(ReminderLink.resolve(a.item.id)))a=alertQ.shift();
+    while(a&&Store.reminderBlocked(a.meta||ReminderLink.resolve(a.item.id)))a=alertQ.shift();
     if (!a){ alertItem = null; $('#alert').classList.remove('on'); return; }
-    alertItem = { item:a.item, kind:a.kind, why:a.why };
+    alertItem = { item:a.item, kind:a.kind, why:a.why,meta:a.meta };
     $('#alMsg').textContent = a.item.title;
     $('#alSub').textContent = a.why + (alertQ.length ? '  ·  ועוד ' + alertQ.length : '');
     $('#alTtl').textContent = a.kind === 'event' ? 'אירוע ביומן'
@@ -1313,9 +1304,10 @@ const UI = (() => {
     $('#alDet').hidden = !$('#alDet').innerHTML;
     /* "פתח" מוביל לפרטי המשימה — אותו מודל מנטלי כמו נגיעה בכרטיס.
        התראה לא זורקת אותך לתוך טופס עריכה. */
-    const canOpen = a.kind === 'task' && !!Store.task(a.item.id);
-    $('#alOpen').hidden = !canOpen;
-    $('#alComplete').hidden = !canOpen || Store.task(a.item.id)?.kind!=='short';
+    const task=Store.task(a.meta?.taskId||a.item.id);
+    const canOpen=!!task&&a.kind!=='event';
+    $('#alOpen').hidden=!canOpen;
+    $('#alComplete').hidden=!canOpen||a.meta?.kind==='checklist'||task.kind!=='short';
     $('#alert').classList.add('on');
   }
   function closeAlert(){ alertItem = null; nextAlert(); }
