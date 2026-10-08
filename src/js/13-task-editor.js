@@ -41,7 +41,13 @@ const TaskEditor = (() => {
       let planned = d ? d.date : (t ? t.planned : (o.planned || null));
       /* מה שטרם נשמר — קיים רק בזיכרון עד שההורה נשמר.
          pending = תת-משימות והרגלים · pendLists = צ׳קליסטים */
-      let pending   = d ? d.pending.slice()   : [];
+      let pending   = d ? JSON.parse(JSON.stringify(d.pending || [])) : [];
+      pending.forEach(c => { if(!c.draftKey)c.draftKey='draft:'+crypto.randomUUID(); });
+      let childEdits = JSON.parse(JSON.stringify(d?.childEdits || {}));
+      let removedChildren = (d?.removedChildren || []).slice();
+      let childOrder = (d?.childOrder || []).slice();
+      let detached = !!d?.detached;
+      let baseline = d?.baseline || null;
       /* צ׳קליסטים ממתינים ליצירה — קיימים בזיכרון עד שההורה נשמר */
       const clone = value => JSON.parse(JSON.stringify(value));
       let pendLists = clone(d ? d.pendLists : t ? (t.checklists || [])
@@ -144,27 +150,32 @@ const TaskEditor = (() => {
 
       /* ---- תת-משימות והרגלים: שני מקטעים נפרדים, לעולם לא עץ מעורבב ---- */
       /** מקטע אחד בכל קריאה — תת-משימות והרגלים לעולם לא מעורבבים */
-      function childRows(which){
-        const mk = (c, key, hab) => ({ key:String(key), title:c.title, hab,
-          meta: isNew ? pendingMeta(c) : UI.taskMeta(c, { noCat:true, noKids:true }) });
-        let l;
-        if (isNew){
-          l = pending.map((c,i) => mk(c, i, !!c.repeat))
-                     .filter(x => which === 'habs' ? x.hab : !x.hab);
-        } else {
-          l = which === 'habs' ? Store.habitsOf(t.id).map(c => mk(c, c.id, true))
-                               : Store.subtasksOf(t.id).map(c => mk(c, c.id, false));
+      function childEntries(which){
+        const rows=[];
+        if(t)for(const saved of Store.ordered(Store.children(t.id))){
+          if(removedChildren.includes(saved.id))continue;
+          const edit=childEdits[saved.id];
+          if(edit?.draft.detached)continue;
+          const item=edit?{...saved,...edit.data,checklists:edit.draft.pendLists}:saved;
+          rows.push({key:saved.id,item,hab:!!item.repeat});
         }
+        for(const c of pending)rows.push({key:c.draftKey,item:c,hab:!!c.repeat});
+        for(const x of rows)if(!childOrder.includes(x.key))childOrder.push(x.key);
+        return rows.filter(x=>!which||(which==='habs')===x.hab)
+          .sort((a,b)=>childOrder.indexOf(a.key)-childOrder.indexOf(b.key));
+      }
+      function childRows(which){
+        const l=childEntries(which);
         if (!l.length) return `<div class="subempty">${
           which === 'habs' ? 'אין עדיין הרגלים' : 'אין עדיין תת-משימות'}</div>`;
         return l.map((x,i) => `<div class="subrow">
             <button class="sb2" data-open="${x.key}">
-              <div class="st2">${esc(x.title)}</div>
-              ${x.meta ? `<div class="sm2">${esc(x.meta)}</div>` : ''}</button>
-            ${isNew ? '' : `<span class="ord">
+              <div class="st2">${esc(x.item.title)}</div>
+              <div class="sm2">${esc(pendingMeta(x.item))}</div></button>
+            <span class="ord">
               <button data-cmv="${x.key}|-1" ${i===0?'disabled':''} aria-label="הזז למעלה">↑</button>
-              <button data-cmv="${x.key}|1" ${i===l.length-1?'disabled':''} aria-label="הזז למטה">↓</button></span>`}
-            <button class="x" data-rm="${x.key}" aria-label="הסר">×</button></div>`).join('');
+              <button data-cmv="${x.key}|1" ${i===l.length-1?'disabled':''} aria-label="הזז למטה">↓</button></span>
+            <button class="x" data-rm="${x.key}" aria-label="מחק תת־משימה">×</button></div>`).join('');
       }
       function repaintKids(){
         if (g('etKids')) g('etKids').innerHTML = childRows('subs');
@@ -209,8 +220,8 @@ const TaskEditor = (() => {
          זה נכון בכל עומק, לא רק לילד ישיר. */
       const underLong = !Store.canBeLong(o.id || null,
                           o.parentId || (t && t.parentId) || null);
-      if (underLong) kind = 'short';
-      const showKind = isNew && !isHabitEditor && !underLong;
+      if (underLong || isChild) kind = 'short';
+      const showKind = isNew && !isChild && !isHabitEditor && !underLong;
       const showCat  = isNew && !isChild && !isHabitEditor && UI.filter === 'all';
       if (isNew && !isChild && UI.filter !== 'all') cat = UI.filter;
 
@@ -309,8 +320,8 @@ const TaskEditor = (() => {
           </div>
           <div class="ex">קבל התראה כשאתה מגיע למקום.
             למשל "להזכיר לי לקחת ציוד כשאני מגיע לבסיס".
-            ${Native.on ? 'עובד גם כשהאפליקציה סגורה, אבל לא בשנייה המדויקת — אנדרואיד בודק כל כמה דקות.'
-                        : 'בדפדפן זה עובד רק כשהאפליקציה פתוחה.'}</div>
+            ${Native.on ? 'מעקב פעיל יכול להמשיך כשהמסך סגור. הדיוק והתזמון תלויים בהרשאות ובקליטת המיקום.'
+                        : window.MesimaDesktop?'ההגדרה מסתנכרנת לטלפון; מעקב מיקום זמין באפליקציית Android.':'בדפדפן נדרש שהדף יישאר פתוח.'}</div>
         </div>`;
 
       const tripBlock = () => `
@@ -319,7 +330,7 @@ const TaskEditor = (() => {
           <input type="number" id="etKm" value="${esc(d ? d.km : (r.type==='trip'?r.km:''))}"
                  min="1" max="500" inputmode="decimal" placeholder="למשל 100">
           <div class="ex">קבל התראה אחרי שנסעת מרחק מסוים ברצף.
-            למשל "להזכיר לי לעצור אחרי 100 ק״מ". עובד רק כשהאפליקציה פתוחה.</div>
+            למשל "להזכיר לי לעצור אחרי 100 ק״מ". ${Native.on?'ב־Android מעקב פעיל יכול להמשיך כשהמסך סגור, עם הרשאות מיקום והתראה קבועה.':window.MesimaDesktop?'אפשר להגדיר כאן ולסנכרן ל־Android; אין מעקב מיקום בגרסת המחשב.':'בדפדפן נדרש שהדף יישאר פתוח.'}</div>
         </div>`;
 
       /* התוכן בעורך. מציג רק מה שקיים: צ׳קליסט שנוצר, תת-משימות שיש,
@@ -340,8 +351,8 @@ const TaskEditor = (() => {
         const lists = pendLists;
         const subs  = childRows('subs');
         const habs  = childRows('habs');
-        const hasSubs = isNew ? pending.some(c => !c.repeat) : Store.subtasksOf(t.id).length;
-        const hasHabs = isNew ? pending.some(c => !!c.repeat) : Store.habitsOf(t.id).length;
+        const hasSubs = childEntries('subs').length;
+        const hasHabs = childEntries('habs').length;
         let inner = '';
         lists.forEach(c => {
           const rep = c.repeat && (c.repeat.days||[]).length;
@@ -375,6 +386,7 @@ const TaskEditor = (() => {
         </div>`;
         if (kind === 'long') inner += `<div class="ex">רוצה הרגל? הוסף
           <b>תת-משימה</b> ובחר לה התראה <b>חוזרת</b> — זה ההרגל.</div>`;
+        if(removedChildren.length)inner+=`<div class="note">${removedChildren.length} תת־משימות יימחקו בעת שמירת המשימה. <button class="txtbtn" data-restore-children>בטל מחיקות</button></div>`;
         return `<div id="etContent">${inner}</div>`;
       };
 
@@ -497,10 +509,11 @@ const TaskEditor = (() => {
         </div>
 
         ${(!isNew && t.parentId) ? `<button class="txtbtn" id="etIndep"
-            style="margin-top:14px">הפוך למשימה עצמאית</button>` : ''}`,
+            style="margin-top:14px">${detached?'בטל הפיכה לעצמאית':'הפוך למשימה עצמאית'}</button>` : ''}
+        ${o.back?'<p class="note">השינויים כאן הם חלק מטיוטת המשימה הקודמת. הנתונים יישמרו לאחר שמירת המשימה הראשית.</p>':''}`,
         buttons:[
           ...(isNew ? [{label:'ביטול',act:()=>closeEditor()}]
-                    : [{label:'מחק',act:()=>{ Store.delTask(t.id); Modal.shut(); UI.toast('נמחק'); }}]),
+                    : [{label:'מחק',act:()=>deleteEditedTask()}]),
           {label: isNew ? 'הוסף' : 'שמור', kind:'p', act:save}]});
 
       const B = Modal.body;
@@ -515,7 +528,7 @@ const TaskEditor = (() => {
         host.innerHTML=`<div class="membership-box">${extra.length?`<div class="esechead"><span>מופיעה גם ב־</span></div>${extra.map(p=>`<button class="settings-row" data-membership-open="${p.id}"><span>${esc(p.title)}</span><span>‹</span></button>`).join('')}`:''}<details><summary>${extra.length?'נהל הופעות נוספות':'הצג גם במשימה אחרת'}</summary>${Store.all.tasks.filter(p=>p.kind==='long'&&!p.archived&&p.id!==t.id&&p.id!==contextParent).map(p=>`<label class="membership"><input type="checkbox" data-parent="${p.id}" ${membershipIds.includes(p.id)?'checked':''}>${esc(p.title)}</label>`).join('')||'<p class="note">אין משימות ארוכות טווח נוספות</p>'}</details></div>`;
       }
       B.addEventListener('change',e=>{const id=e.target.dataset.parent;if(!id)return;e.target.checked?membershipIds.push(id):membershipIds=membershipIds.filter(x=>x!==id);});
-      B.addEventListener('click',e=>{const b=e.target.closest('[data-membership-open]');if(!b)return;const draft=snapshot();Modal.shut();taskModal({id:b.dataset.membershipOpen,back:{id:o.id,draft,contextParentId:contextParent}});});
+      B.addEventListener('click',e=>{const b=e.target.closest('[data-membership-open]');if(!b)return;const draft=snapshot();Modal.shut();taskModal({id:b.dataset.membershipOpen,back:{options:{...o,draft}}});});
       paintMembership();
       function paintRelated(){
         const rows=relatedIds.map(id=>Store.task(id)).filter(Boolean);
@@ -525,12 +538,13 @@ const TaskEditor = (() => {
       }
       B.addEventListener('click',e=>{
         const link=e.target.closest('[data-rel-open]');
-        if(link){const draft=snapshot();Modal.shut();taskModal({id:link.dataset.relOpen,back:{id:o.id,draft}});return;}
+        if(link){const draft=snapshot();Modal.shut();taskModal({id:link.dataset.relOpen,back:{options:{...o,draft}}});return;}
         if(!e.target.closest('[data-rel-manage]'))return;
         const draft=snapshot(),selected=new Set(relatedIds),available=Store.all.tasks.filter(x=>x.id!==o.id&&x.kind==='short'&&!x.archived&&!x.done);
         Modal.shut();Modal.open({title:'קישור בין משימות',body:'<input id="relationQuery" type="search" placeholder="חיפוש משימה"><div id="relationRows"></div>',buttons:[{label:'ביטול',act:()=>{Modal.shut();taskModal({...o,draft});}},{label:'בחר',kind:'p',act:()=>{draft.relatedIds=[...selected];Modal.shut();taskModal({...o,draft});}}]});
         const box=Modal.body,paint=()=>{const q=box.querySelector('#relationQuery').value.trim();box.querySelector('#relationRows').innerHTML=available.filter(x=>!q||x.title.includes(q)).map(x=>`<label class="membership"><input type="checkbox" data-rel-choice="${x.id}" ${selected.has(x.id)?'checked':''}>${esc(x.title)}</label>`).join('')||'<p class="note">אין משימות מתאימות</p>';};
         box.querySelector('#relationQuery').oninput=paint;box.onchange=e=>{const id=e.target.dataset.relChoice;if(id)e.target.checked?selected.add(id):selected.delete(id);};paint();
+        Modal.closeGuard=()=>{Modal.shut();taskModal({...o,draft});return false;};
       });
       paintRelated();
 
@@ -656,8 +670,7 @@ const TaskEditor = (() => {
           tmp.innerHTML = contentBlock();
           box = tmp.firstElementChild;
         }
-        const populated = listsNow().length || pending.length ||
-                          (!isNew && (Store.subtasksOf(t.id).length || Store.habitsOf(t.id).length));
+        const populated = listsNow().length || childEntries().length || removedChildren.length;
         const inline = (kind === 'long') || kind === 'check' || !!populated || isChild;
         (inline ? main : adv).appendChild(box);
         /* פריט חוזר הוא פעולה אטומית: אין בו תוכן מקונן, ולכן גם אין
@@ -669,9 +682,7 @@ const TaskEditor = (() => {
       }
 
       function applyKind(){
-        /* ארוכת-טווח היא מיכל, נקודה: בלי תאריך, בלי שעה, בלי תזכורת
-           ובלי קישור ליומן. כל אלה שייכים למה שיושב בתוכה. שום יכולת
-           לא נמחקת מהאפליקציה — היא פשוט לא קיימת ברמת המיכל. */
+        /* מיכל אינו מתוזמן בעצמו; קישור לאירוע מתאר את הפרויקט שמכין אליו. */
         const isLong = kind === 'long';
         const isCheck = kind === 'check';
         if (isLong){ mode = 'none'; setDate(''); if (g('etTime')) g('etTime').value = ''; }
@@ -682,7 +693,7 @@ const TaskEditor = (() => {
         const chkEx = g('etCheckEx');
         if (chkEx) chkEx.textContent = checkMode === 'rep'
           ? 'חוזר על עצמו, בדיוק כמו הרגל: ימים קבועים, שעה, דילוג לפי סוג אירוע, ואי-הפרעה באמצע אירוע.'
-          : 'רשימה אחת. ברגע שתסמן את כל הפריטים היא עוברת לארכיון.';
+          : 'רשימה אחת. סימון כל הפריטים משלים אותה ושומר את הביצוע בסיכום היום.';
         syncKindPicker();
         /* בצ׳קליסט אין שני בוררים שחופפים: "חד-פעמי / רב-פעמי" *הוא*
            בורר ההתראה. חד-פעמי מראה את התזכורת החד-פעמית, רב-פעמי מראה
@@ -737,18 +748,32 @@ const TaskEditor = (() => {
                  km:g('etKm') ? g('etKm').value : '',
                  img, evId, contextParentId:contextParent, membershipIds:membershipIds.slice(), relatedIds:relatedIds.slice(),
                  pendLists: clone(pendLists), originalLists:clone(originalLists), beforeCheck:clone(beforeCheck),
-                 pending:pending.slice() };
+                 pending:clone(pending), childEdits:clone(childEdits),
+                 removedChildren:removedChildren.slice(),childOrder:childOrder.slice(),detached,baseline };
       }
-      function openChild(asHabit, existingId){
-        const draft = snapshot();
-        const back = { id:o.id, draft };
+      function returnOptions(){return o.back?.options || (o.back?{id:o.back.id,draft:o.back.draft}:null);}
+      function returnToParent(){const back=returnOptions();if(back)taskModal(back);}
+      function openChild(asHabit, key){
+        const draft=snapshot(),entry=pending.find(c=>c.draftKey===key);
+        const childId=key&&!entry?key:null;
         Modal.shut();
         taskModal({
-          id: existingId || null,
-          parentId: isNew ? null : t.id,
-          pendingUnder: isNew ? (draft.title.trim() || 'המשימה החדשה') : null,
-          mission: cat, habit: asHabit, back,
+          id:childId,parentId:isNew?null:t.id,
+          pendingUnder:isNew?(draft.title.trim()||'המשימה החדשה'):null,
+          mission:cat,habit:asHabit,
+          draft:entry?.editorDraft || (childId?childEdits[childId]?.draft:null),
+          preset:entry?.editorDraft?null:entry,
+          back:{options:{...o,draft},pendingKey:entry?.draftKey || null},
         });
+      }
+      function deleteEditedTask(){
+        const draft=snapshot(),back=returnOptions();
+        Modal.shut();
+        Modal.open({title:'למחוק את המשימה?',body:`<p class="note">${esc(t.title)} תימחק, כולל תת־המשימות ששייכות רק לה. אם היא מופיעה בכמה פרויקטים, היא תימחק מכולם.${back?' המחיקה תתבצע בשמירת המשימה הראשית.':''}</p>`,buttons:[
+          {label:'ביטול',act:()=>{Modal.shut();taskModal({...o,draft});}},
+          {label:'מחק',kind:'p',act:()=>{Modal.shut();if(back){back.draft.removedChildren=[...new Set([...(back.draft.removedChildren||[]),t.id])];taskModal(back);}else{Store.delTask(t.id);UI.toast('נמחק');}}}
+        ]});
+        Modal.closeGuard=()=>{Modal.shut();taskModal({...o,draft});return false;};
       }
 
       /* "חד-פעמית" חייבת להיות פעם אחת, ולכן היא חייבת תאריך. במקום
@@ -833,7 +858,7 @@ const TaskEditor = (() => {
           pickEvent(id => {
             draft.evId = id;
             taskModal({ ...o, draft });
-          });
+          },()=>taskModal({...o,draft}));
           return;
         }
         if (e.target.closest('#etEvOff')){ evId = ''; repaintEvent(); refreshSummaries(); return; }
@@ -910,7 +935,10 @@ const TaskEditor = (() => {
         if (e.target.closest('#etAddKid')){   openChild(false); return; }
         if (e.target.closest('#etAddHabit')){ openChild(true);  return; }
         if (e.target.closest('#etIndep')){
-          Store.toIndependent(t.id); Modal.shut(); UI.toast('עומדת בפני עצמה'); return;
+          detached=!detached;
+          membershipIds=detached?[]:Store.parentIds(t);
+          e.target.closest('#etIndep').textContent=detached?'בטל הפיכה לעצמאית':'הפוך למשימה עצמאית';
+          paintMembership();UI.toast(detached?'תהפוך לעצמאית לאחר השמירה':'ההפיכה לעצמאית בוטלה');return;
         }
 
         /* ---- פריטי הצ׳קליסטים ---- */
@@ -973,34 +1001,30 @@ const TaskEditor = (() => {
           return;
         }
 
+        if(e.target.closest('[data-restore-children]')){removedChildren=[];applyKind();return;}
         const rm = e.target.closest('[data-rm]');
         if (rm){
-          const key = rm.dataset.rm;
-          if (isNew){ pending.splice(+key, 1); }
-          else { Store.delTask(key); }
-          repaintKids();
-          return;
+          const key=rm.dataset.rm,entry=pending.find(c=>c.draftKey===key);
+          if(entry){pending=pending.filter(c=>c.draftKey!==key);applyKind();return;}
+          const draft=snapshot(),child=Store.task(key);
+          Modal.shut();
+          const back=()=>taskModal({...o,draft});
+          Modal.open({title:'למחוק את תת־המשימה?',body:`<p class="note">${esc(child?.title||'תת־המשימה')} תימחק מכל הפרויקטים בעת שמירת המשימה. סגירת הטיוטה ללא שמירה תבטל את המחיקה.</p>`,buttons:[
+            {label:'ביטול',act:()=>{Modal.shut();back();}},
+            {label:'סמן למחיקה',kind:'p',act:()=>{draft.removedChildren.push(key);Modal.shut();back();}}
+          ]});
+          Modal.closeGuard=()=>{Modal.shut();back();return false;};return;
         }
         const cmv = e.target.closest('[data-cmv]');
         if (cmv){
-          const bar = cmv.dataset.cmv, i = bar.lastIndexOf('|');
-          if (Store.moveChild(bar.slice(0,i), +bar.slice(i+1))) repaintKids();
+          const bar=cmv.dataset.cmv,i=bar.lastIndexOf('|'),key=bar.slice(0,i),direction=+bar.slice(i+1);
+          const row=childEntries().find(x=>x.key===key),group=childEntries(row?.hab?'habs':'subs');
+          const at=group.findIndex(x=>x.key===key),other=group[at+direction];
+          if(other){const a=childOrder.indexOf(key),b=childOrder.indexOf(other.key);[childOrder[a],childOrder[b]]=[childOrder[b],childOrder[a]];repaintKids();}
           return;
         }
         const op = e.target.closest('[data-open]');
-        if (op){
-          const key = op.dataset.open;
-          if (isNew){
-            /* עריכת ילד ממתין: מסירים אותו ופותחים מחדש עם הערכים שלו */
-            const c = pending[+key];
-            const draft = snapshot();
-            draft.pending.splice(+key, 1);
-            Modal.shut();
-            taskModal({ pendingUnder: draft.title.trim() || 'המשימה החדשה',
-                        mission: cat, back:{ id:o.id, draft }, preset:c });
-          } else openChild(false, key);
-          return;
-        }
+        if (op){openChild(false,op.dataset.open);return;}
       });
       /* הוספת פריט לצ׳קליסט מסוים, במקום, בלי לצאת מהעורך.
          שדה הקלט נשאר על המסך ומקבל פריט אחרי פריט. */
@@ -1158,13 +1182,11 @@ const TaskEditor = (() => {
 
       /* יצירה יכולה להחזיק פריטים ותת-משימות שקיימים רק בזיכרון.
          סגירה לא תזרוק אותם בשקט — אבל טופס ריק לא מקפיץ שום שאלה. */
-      function dirty(){
-        if (!isNew) return JSON.stringify(pendLists) !== JSON.stringify(originalLists);
-        return !!(g('etTitle').value.trim() || g('etNote').value.trim() ||
-                  pendLists.length || pending.length || img);
-      }
+      const comparable=value=>JSON.stringify(value,(key,v)=>['baseline','originalLists','beforeCheck'].includes(key)?undefined:v);
+      if(!baseline)baseline=comparable(snapshot());
+      function dirty(){return comparable(snapshot())!==baseline;}
       function closeEditor(){
-        if (!dirty()){ Modal.shut(); if(o.back) taskModal({id:o.back.id,draft:o.back.draft}); return false; }
+        if (!dirty()){ Modal.shut();returnToParent();return false; }
         const draft = snapshot();
         Modal.shut();
         Modal.open({ title:'לזרוק את הטיוטה?',
@@ -1174,7 +1196,7 @@ const TaskEditor = (() => {
                               pending.length ? pending.length + ' תת-משימות' : '']
                              .filter(Boolean).join(' ו-') : ''}.</div>`,
           buttons:[{label:'חזור לעריכה',act:()=>{ Modal.shut(); taskModal({ ...o, draft }); }},
-                   {label:'זרוק',kind:'p',act:()=>{ Modal.shut(); if(o.back) taskModal({id:o.back.id,draft:o.back.draft}); }}]});
+                   {label:'זרוק',kind:'p',act:()=>{ Modal.shut();returnToParent(); }}]});
         return false;
       }
       Modal.closeGuard = () => closeEditor();
@@ -1264,137 +1286,126 @@ const TaskEditor = (() => {
         const data = collect();
         if (!data){ UI.toast('צריך שם'); g('etTitle').focus(); return; }
         if(kind==='check' && !pendLists.some(c=>c.items.length)){UI.toast('הוסף לפחות פריט אחד לצ׳קליסט');return;}
+        if(mode==='repeat'&&!rep){UI.toast('בחר לפחות יום אחד ושעה תקינה לתזכורת החוזרת');g('etRepeat')?.scrollIntoView({block:'nearest'});return;}
+        if(mode==='place'){const pid=g('etPlace')?.value,delay=Number(g('etDelay')?.value||0);if(!pid||!Store.placeCoordinates(pid)){UI.toast('בחר מקום שמור עם נקודה תקינה במפה');return;}if(!Number.isFinite(delay)||delay<0||delay>600){UI.toast('ההשהיה צריכה להיות בין 0 ל־600 דקות');g('etDelay')?.focus();return;}}
+        if(mode==='trip'){const km=Number(g('etKm')?.value);if(!Number.isFinite(km)||km<1||km>500){UI.toast('הזן מרחק נסיעה בין 1 ל־500 ק״מ');g('etKm')?.focus();return;}}
         pendLists=pendLists.filter(c=>c.items.length || originalLists.some(old=>old.id===c.id));
 
-        /* ---------- המרה להרגל ----------
-           הרגל הוא פעולה חוזרת אחת ואין בו תוכן. אם המשימה שמומרת
-           מחזיקה תת-משימות או צ׳קליסטים, האפליקציה מציעה לנקות — אומרת
-           בדיוק מה יקרה לכל סוג תוכן, ולא נוגעת בכלום בלי אישור.
-           סירוב = שום שינוי, גם לא בשדות האחרים. */
-        if (!isNew && t && data.repeat && !Store.isHabit(t)){
-          const kids = Store.children(t.id);
-          const lists = Store.checklists(t.id);
-          if (kids.length || lists.length){
-            convertToHabitModal(t, kids, lists, () => commit(data));
-            return;
-          }
-        }
-        commit(data);
-      }
-
-      /** אישור מפורש לפני שנוגעים בתוכן קיים */
-      function convertToHabitModal(t, kids, lists, go){
-        const bits = [];
-        if (kids.length)  bits.push(`<li>${kids.length} תת-משימות — יעברו לארכיון,
-          ואפשר יהיה לשחזר אותן משם.</li>`);
-        if (lists.length) bits.push(`<li>${lists.length} צ׳קליסטים — יימחקו מהמשימה.
-          מיד אחרי המחיקה תופיע אפשרות ביטול.</li>`);
-        Modal.open({ title:'להפוך ל"חוזרת"?', body:`
-          <div class="note">פריט חוזר הוא פעולה אחת בפני עצמה, ולכן הוא לא
-            יכול להחזיק תוכן בתוכו. כדי להמיר את "${esc(t.title)}" צריך לפנות
-            את מה שיושב בה:</div>
-          <ul class="ex" style="padding-inline-start:18px;line-height:1.9">${bits.join('')}</ul>
-          <div class="ex">אם תבטל — שום דבר לא ישתנה, גם לא שאר השינויים בטופס.</div>`,
-          buttons:[{label:'ביטול',act:()=>Modal.shut()},
-                   {label:'נקה והמר',kind:'p',act:()=>{
-                      /* תת-משימות עוברות לארכיון ולא נמחקות */
-                      kids.forEach(k => Store.closeProject(k.id));
-                      const gone = [];
-                      lists.slice().forEach(c => {
-                        const g2 = Store.delChecklist(t.id, c.id);
-                        if (g2) gone.push(g2);
-                      });
-                      go();
-                      if (gone.length) UI.undo(gone.length + ' צ׳קליסטים הוסרו',
-                        () => gone.forEach(g2 => Store.insertChecklist(t.id, g2.list, g2.at)));
-                   }}]});
-      }
-
-      function commit(data){ return Store.transaction(() => commitTask(data)); }
-      function commitTask(data){
-
-        /* ילד ממתין: לא נכתב ל-Store, רק חוזר להורה */
-        if (o.back && !o.parentId && !o.id){
-          const draft = o.back.draft;
-          data.checklists = pendLists.map(c => ({ ...c, items:c.items.slice() }));
-          draft.pending.push(data);
-          Modal.shut();
-          taskModal({ id:o.back.id, draft });
+        const draft=snapshot();
+        if(data.repeat&&(childEntries().length||pendLists.length)){
+          const children=childEntries().length,lists=pendLists.length;
+          Modal.open({title:'להפוך למשימה חוזרת?',body:`<p class="note">הרגל הוא פעולה אחת. התוכן שכבר הכנת יישמר:</p><ul class="ex">
+            ${children?`<li>${children} תת־משימות יוצגו כמשימות נפרדות. הן לא יסומנו כבוצעו.</li>`:''}
+            ${lists?`<li>${lists} צ׳קליסטים יהפכו למשימות צ׳קליסט עצמאיות, עם הפריטים והתזכורות שלהם.</li>`:''}
+            </ul><p class="note">ביטול יחזיר אותך לטיוטה. השינוי יבוצע רק לאחר שמירת המשימה הראשית.</p>`,buttons:[
+              {label:'חזור לעריכה',act:()=>{Modal.shut();taskModal({...o,draft});}},
+              {label:'המשך כחוזרת',kind:'p',act:()=>commit(data,draft)}
+            ]});
+          Modal.closeGuard=()=>{Modal.shut();taskModal({...o,draft});return false;};
           return;
         }
+        commit(data,draft);
+      }
 
-        /* משימת צ׳קליסט מחזיקה צ׳קליסט אחד משלה, ועליו יושבת החזרתיות */
-        const applyCheck = (id, name) => {
-          const c = Store.ownChecklist(id);
-          if (!c) return;
-          if (c.name !== name && (!c.name || c.name === 'צ׳קליסט')) Store.renameChecklist(id, c.id, name);
-          const nextRepeat = data.checkRepeat
-            ? { days:data.checkRepeat.days, time:data.checkRepeat.times[0], times:data.checkRepeat.times.slice(),
-                skipTypes:data.checkRepeat.skipTypes, skipScope:data.checkRepeat.skipScope,
-                around:data.checkRepeat.around }
-            : null;
-          if(JSON.stringify(Recur.norm(c.repeat)) !== JSON.stringify(Recur.norm(nextRepeat)))
-            Store.setChecklistRepeat(id, c.id, nextRepeat);
-        };
-
-        if (isNew){
-          const created = Store.addTask({ ...data, rt:initialRt(data), parentId:o.parentId||null });
-          if (data.kind === 'check'){
-            applyCheck(created.id, data.title);
-            /* הפריטים שכבר הוקלדו בטופס נכנסים לצ׳קליסט של המשימה */
-            const own = Store.ownChecklist(created.id);
-            pendLists.forEach(pc => pc.items.forEach(it =>
-              Store.addChecklistItem(created.id, own.id, it.title, it.note)));
-            pendLists.length = 0;
+      function commit(data,draft){
+        const record={id:o.id||null,data:{...clone(data),eventId:evId||null},draft:clone(draft)};
+        const back=returnOptions();
+        if(back){
+          record.draft.baseline=null;
+          if(record.id){
+            back.draft.childEdits=back.draft.childEdits||{};
+            back.draft.childEdits[record.id]=record;
+          }else{
+            const key=o.back.pendingKey||'draft:'+crypto.randomUUID();
+            const entry={...record.data,checklists:clone(draft.pendLists),draftKey:key,editorDraft:record.draft};
+            const at=back.draft.pending.findIndex(c=>c.draftKey===key);
+            if(at<0)back.draft.pending.push(entry);else back.draft.pending[at]=entry;
           }
-          /* הצ׳קליסטים הממתינים נשמרים עם שמותיהם ובסדר שנקבע */
-          pendLists.forEach(c => {
-            const nc = Store.addChecklist(created.id, c.name);
-            if (!nc) return;
-            c.items.forEach(it => Store.addChecklistItem(created.id, nc.id, it.title, it.note));
-            Store.checklistOf(created.id, nc.id).items.forEach((x,i) => {
-              x.checked = !!(c.items[i] && c.items[i].checked); });
-            /* חזרתיות או תזכורת שנבחרו עוד לפני ששמרנו את המשימה */
-            if (c.repeat) Store.setChecklistRepeat(created.id, nc.id, c.repeat);
-            else if (c.once) Store.setChecklistOnce(created.id, nc.id, c.once);
-          });
-          /* ילדים שהמתינו נשמרים עכשיו, בסדר שבו נוצרו */
-          pending.forEach((c, i) => {
-            const kid = Store.addTask({ ...c, mission:created.mission, rt:initialRt(c),
-                                        parentId:created.id, sortIndex:i });
-            (c.checklists || []).forEach(cl => {
-              const nc = Store.addChecklist(kid.id, cl.name);
-              cl.items.forEach(it => Store.addChecklistItem(kid.id, nc.id, it.title, it.note));
-              if(cl.repeat) Store.setChecklistRepeat(kid.id,nc.id,cl.repeat);
-              else if(cl.once) Store.setChecklistOnce(kid.id,nc.id,cl.once);
-            });
-          });
-          Store.setRelatedTasks(created.id,relatedIds);
-          if (evId && Store.event(evId)) Store.linkTask(created.id, evId);
-          if (o.parentId){ const p = Store.task(o.parentId); if (p && p.collapsed) Store.toggleCollapse(p.id); }
-        } else {
-          Store.updateTask(t.id, { ...data, checklists: data.repeat ? [] : clone(pendLists), rt:initialRt(data),
-                                   log: data.kind === 'long' ? {} : (t.log||{}) });
-          if (data.kind === 'check') applyCheck(t.id, data.title);
-          Store.setPlanned(t.id, data.planned);
-          Store.setRelatedTasks(t.id,relatedIds);
-          if ((t.eventId || '') !== (evId || '')) Store.linkTask(t.id, evId || null);
+          Modal.shut();taskModal(back);return;
         }
-
-        /* ההורה חוזר אלינו — אם היינו ילד של עורך פתוח */
-        if (o.back){
-          Modal.shut();
-          taskModal({ id:o.back.id, draft:o.back.draft });
-          return;
-        }
+        const scheduled=[];
+        try{Store.transaction(()=>persistRecord(record,o.parentId||null,new Set(),scheduled));}
+        catch(error){UI.toast(error.message||'לא ניתן לשמור את הטיוטה');return;}
         Modal.shut();
-        Permissions.forTask(data);
-        const extra = [];
-        const nItems = pendLists.reduce((a,c) => a + c.items.length, 0);
-        if (isNew && nItems) extra.push(nItems + ' פריטים');
-        if (isNew && pending.length)   extra.push(pending.length + ' תת-משימות');
-        UI.toast(isNew ? (extra.length ? 'נוסף עם ' + extra.join(' ו-') : 'נוסף') : 'נשמר');
+        const reminder=scheduled.find(x=>x.reminder||x.repeat);
+        if(reminder)Permissions.forTask(reminder);
+        UI.toast(isNew?'נוסף':'נשמר');
       }
+
+      /* A complete editor tree is applied in one Store transaction. No draft is
+         persisted while navigating to a child, related task or picker. */
+      function persistRecord(record,parentId,visited,scheduled){
+        const data=clone(record.data),state=record.draft;
+        if(record.id&&visited.has(record.id))return record.id;
+        if(record.id&&!Store.task(record.id))throw Error('המשימה נמחקה במכשיר אחר. חזור לרשימה לפני שמירה.');
+        const lists=clone(state.pendLists||[]),removed=new Set(state.removedChildren||[]);
+        let task;
+        if(record.id){
+          visited.add(record.id);
+          Store.updateTask(record.id,{...data,checklists:[],rt:initialRt(data),log:data.kind==='long'?{}:Store.task(record.id).log||{}});
+          task=Store.task(record.id);
+        }else{
+          task=Store.addTask({...data,parentId:parentId||data.parentId||null,rt:initialRt(data)});
+          visited.add(task.id);
+          // New children of a just-converted habit retain their relationship;
+          // effective roots make them visible while that parent cannot hold content.
+          if(parentId&&task.parentId!==parentId&&data.kind!=='check'){
+            task.parentId=parentId;task.parentIds=[parentId];
+          }
+        }
+        scheduled.push(data);
+        if(data.kind==='check'){
+          const first=lists[0]||{id:'c'+crypto.randomUUID(),name:data.title,items:[]};
+          const oldRepeat=Recur.norm(first.repeat);
+          first.items=lists.flatMap(c=>c.items||[]);
+          if(data.checkRepeat){
+            const r=data.checkRepeat;
+            first.repeat={...r,time:r.times[0],times:r.times.slice()};
+            first.once=null;
+          }else first.repeat=null;
+          task.checklists=[first];
+          if(JSON.stringify(oldRepeat)!==JSON.stringify(Recur.norm(first.repeat)))Store.setChecklistRepeat(task.id,first.id,first.repeat);
+          Store.reconcileChecklist(task.id,first);
+        }else if(data.repeat){
+          // Preserve each former embedded checklist as one standalone task.
+          // No completion is manufactured during the move.
+          task.checklists=[];
+          for(const list of lists){
+            const once=list.once;
+            const standalone=Store.addTask({title:list.name||data.title,kind:'check',mission:task.mission,
+              planned:once?.date||null,reminder:once?.time?{type:'time',at:once.time}:null});
+            list.once=null;standalone.checklists=[list];
+            Store.rehomeChecklistHistory(task.id,standalone.id,list.id);
+            Store.reconcileChecklist(standalone.id,list);
+            scheduled.push({reminder:standalone.reminder,repeat:list.repeat});
+          }
+        }else{
+          task.checklists=lists;
+          for(const list of task.checklists)Store.reconcileChecklist(task.id,list);
+        }
+        Store.setPlanned(task.id,data.planned);
+        Store.setRelatedTasks(task.id,state.relatedIds||[]);
+        Store.linkTask(task.id,data.eventId||null);
+        for(const id of removed)Store.delTask(id);
+        for(const [id,child] of Object.entries(state.childEdits||{})){
+          if(!removed.has(id))persistRecord(child,null,visited,scheduled);
+        }
+        const ids=new Map();
+        for(const child of state.pending||[]){
+          const childData={...child};delete childData.editorDraft;delete childData.draftKey;
+          const childState=child.editorDraft||{pendLists:child.checklists||[],pending:[],childEdits:{},relatedIds:[],childOrder:[]};
+          const id=persistRecord({id:null,data:childData,draft:childState},task.id,visited,scheduled);
+          ids.set(child.draftKey,id);
+        }
+        for(const [index,key] of (state.childOrder||[]).entries()){
+          const child=Store.task(ids.get(key)||key);
+          if(child&&!removed.has(child.id)&&Store.parentIds(child).includes(task.id))child.sortIndex=index;
+        }
+        Store.commit();
+        if(parentId){const parent=Store.task(parentId);if(parent?.collapsed)Store.toggleCollapse(parentId);}
+        return task.id;
+      }
+
     }
 
   return {open(o,dependencies){hooks=dependencies;taskModal(o);}};

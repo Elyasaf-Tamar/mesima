@@ -13,9 +13,27 @@ const Desktop=(()=>{
     document.documentElement.classList.add('desktop');
     modules.forEach(m=>m.init?.({Store,UI,Native,DataCare}));
     window.MesimaDesktop.onOpen(()=>{UI.screen=null;UI.section='today';UI.render();});
-    Store.onChange(()=>window.MesimaDesktop.schedule(Native.alarmList(),NativeState.projection()));
-    window.MesimaDesktop.schedule(Native.alarmList(),NativeState.projection());
-    window.MesimaDesktop.onReminder(a=>{if(window.__alarm?.(a.id))return;Modal.open({title:a.title,body:`<div class="note">${UI.esc(a.body)}</div>`,buttons:[{label:'סגור',act:()=>Modal.shut()},{label:'דחה ב־15 דקות',kind:'p',act:()=>{window.MesimaDesktop.snooze(a);Modal.shut();}}]});});
+    const refreshSchedule=()=>window.MesimaDesktop.schedule(Native.alarmList(undefined,null),NativeState.projection());
+    Store.onChange(refreshSchedule);
+    window.MesimaDesktop.onScheduleRefresh?.(refreshSchedule);
+    refreshSchedule();
+    window.MesimaDesktop.onReminder(a=>{
+      if(window.__alarm?.(a.id,a.meta||a))return;
+      let pending=false;
+      Modal.open({title:a.title,body:`<div class="note">${UI.esc(a.body)}</div>`,buttons:[
+        {label:'סגור',act:()=>Modal.shut()},
+        {label:'דחה ב־15 דקות',kind:'p',act:async()=>{
+          if(pending)return;pending=true;
+          try{
+            if(await window.MesimaDesktop.snooze(a)===false)throw Error('התזכורת לא נשמרה');
+            if(Modal.body===body)Modal.shut();
+            UI.toast('נדחה ב־15 דקות');
+          }catch(error){UI.toast('לא ניתן לדחות את התזכורת. נסה שוב.');}
+          finally{pending=false;}
+        }}
+      ]});
+      const body=Modal.body;
+    });
     document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key===','){e.preventDefault();UI.screen='settings';UI.render();}});
   }
   return {init,register};

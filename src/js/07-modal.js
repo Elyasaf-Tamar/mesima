@@ -19,8 +19,10 @@ const Modal = (() => {
     guard = null;
     $('#modal').classList.add('on');
   }
-  function shut(){ $('#modal').classList.remove('on'); $('#mBody').innerHTML='';
-                   guard = null; onClose?.(); onClose=null; }
+  function shut(){ const done=onClose;onClose=null;guard=null;
+    $('#modal').classList.remove('on');$('#mBody').innerHTML='';
+    done?.();
+  }
   /** ניסיון סגירה "מבחוץ" — ה-×, כפתור החזרה, לחיצה על הרקע.
       עורך שמחזיק עבודה שלא נשמרה יכול לעצור את זה ולשאול. */
   let guard = null;

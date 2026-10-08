@@ -54,9 +54,13 @@ class WebBridge(private val act: Activity) {
         CloudBackup.signIn(act, email, password, create, ::backupChanged)
     }
     @JavascriptInterface fun cloudSignOut() { CloudBackup.signOut(act, ::backupChanged) }
-    @JavascriptInterface fun snoozeNotification(id: String, title: String, body: String) {
-        Sched.snooze(act,id,title,body,15)
-    }
+    @JavascriptInterface fun snoozeNotification(id: String, title: String, body: String):Boolean = Sched.snooze(act,id,title,body,15)
+    /** Explicit metadata disambiguates reused one-off checklist reminder IDs. */
+    @JavascriptInterface fun snoozeReminder(text:String):Boolean = try {
+        Payloads.bytes(text)
+        val value=JSONObject(text);val id=value.getString("id");require(id.isNotBlank())
+        Sched.snooze(act,id,value.optString("title"),value.optString("body"),15,value.optJSONObject("meta"))
+    }catch(e:Exception){Sched.error(act,e.message?:"לא ניתן לדחות תזכורת");false}
     @JavascriptInterface fun cloudBackup() { CloudBackup.upload(act.applicationContext, ::backupChanged) }
     @JavascriptInterface fun cloudList() {
         CloudBackup.list(act, ::backupChanged) { (act as? MainActivity)?.cloudBackups(it) }
@@ -68,9 +72,16 @@ class WebBridge(private val act: Activity) {
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
     @JavascriptInterface fun searchPlaces(id:String,url:String){PlaceLookup.search(act as MainActivity,id,url)}
-    @JavascriptInterface fun syncState(text:String){
-        NativeRepo.save(act,text)
-        act.runOnUiThread { LocationMonitor.reconcile(act) }
+    @JavascriptInterface fun syncState(text:String):Boolean{
+        return try {
+            NativeRepo.save(act,text)
+            NativeRepo.prefs(act).edit().remove("projectionError").apply()
+            act.runOnUiThread { LocationMonitor.reconcile(act) }
+            true
+        } catch(e:Exception) {
+            NativeRepo.prefs(act).edit().putString("projectionError",e.message?:"לא ניתן לשמור מצב מקומי").apply()
+            false
+        }
     }
     @JavascriptInterface fun pendingActions():String=NativeRepo.pending(act).toString()
     @JavascriptInterface fun ackActions(ids:String){NativeRepo.ack(act,org.json.JSONArray(ids))}
@@ -104,7 +115,9 @@ class WebBridge(private val act: Activity) {
         o.put("fences", Fences.load(act).length())
         o.put("fencesResult", Fences.lastResult(act))
         o.put("alarms", Sched.state(act))
-        o.put("fullScreen", Notif.canFullScreen(act))
+        o.put("projectionError",NativeRepo.prefs(act).getString("projectionError",""))
+        o.put("notificationError",NativeRepo.prefs(act).getString("notificationError",""))
+        o.put("actionError",NativeRepo.prefs(act).getString("actionError",""))
         o.put("channel", Notif.channelState(act))
         val pm = act.getSystemService(Context.POWER_SERVICE) as PowerManager
         o.put("batteryUnrestricted", pm.isIgnoringBatteryOptimizations(act.packageName))
@@ -119,9 +132,12 @@ class WebBridge(private val act: Activity) {
     /* ---------------- עדכון תוכן ---------------- */
 
     @JavascriptInterface
-    fun setSourceUrl(url: String) {
-        Updater.setSourceUrl(act, url)
-        act.runOnUiThread { Toast.makeText(act, "נשמר", Toast.LENGTH_SHORT).show() }
+    fun setSourceUrl(url: String):Boolean {
+        return try { Updater.setSourceUrl(act,url);true }
+        catch(e:Exception){
+            act.runOnUiThread { Toast.makeText(act,e.message?:"לא ניתן לשמור כתובת עדכון",Toast.LENGTH_LONG).show() }
+            false
+        }
     }
 
     /** בודק אם יש גרסה חדשה ב-GitHub Pages ומוריד אותה. */
@@ -171,6 +187,11 @@ class WebBridge(private val act: Activity) {
         return Sched.reapply(act)
     }
 
+    /** Durable rules refill the OS queue after alarms, reboot and maintenance. */
+    @JavascriptInterface
+    fun syncAlarmPlan(json:String):Int = try { Sched.savePlan(act,json) }
+        catch(e:Exception){Sched.error(act,e.message?:"תוכנית תזכורות לא תקינה");-1}
+
     /** האם המערכת מרשה תזכורת בשנייה המדויקת. */
     @JavascriptInterface
     fun canExactAlarms(): Boolean = Sched.canExact(act)
@@ -184,7 +205,6 @@ class WebBridge(private val act: Activity) {
         return try {
             Notif.show(act, "selftest-now", "בדיקת התראה",
                        "אם אתה רואה את זה — ההתראות של משימה עובדות")
-            "sent"
         } catch (e: Exception) { "error: " + (e.message ?: "?") }
     }
 
@@ -192,21 +212,13 @@ class WebBridge(private val act: Activity) {
     @JavascriptInterface
     fun testAlarm(seconds: Int): Long = Sched.testIn(act, seconds)
 
-    /** האם מותר לנו להקפיץ חלון מלא מעל מה שפתוח (אנדרואיד 14+). */
+    /** Legacy compatibility: this wrapper uses ordinary system notifications. */
     @JavascriptInterface
-    fun canFullScreen(): Boolean = Notif.canFullScreen(act)
+    fun canFullScreen(): Boolean = false
 
-    /** פותח את מסך ההרשאה של "התראות במסך מלא". */
+    /** Older HTML is directed to the actual reminder channel settings. */
     @JavascriptInterface
-    fun requestFullScreen() = act.runOnUiThread {
-        try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                act.startActivity(Intent(
-                    "android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT",
-                    Uri.parse("package:" + act.packageName)))
-            } else openChannelSettings()
-        } catch (e: Exception) { openChannelSettings() }
-    }
+    fun requestFullScreen() = openChannelSettings() // Compatibility with older HTML.
 
     /** פותח את הגדרות ערוץ ההתראות של האפליקציה. */
     @JavascriptInterface
@@ -241,7 +253,7 @@ class WebBridge(private val act: Activity) {
     /** מקבל את כל תזכורות המקום בבת אחת ורושם אותן מחדש במערכת ההפעלה. */
     @JavascriptInterface
     fun syncGeofences(json: String) {
-        if(Fences.save(act,json)) Fences.reapply(act) { ok, msg ->
+        if(Fences.save(act,json) || (Fences.hasPermission(act) && Fences.lastResult(act).startsWith("שגיאה:"))) Fences.reapply(act) { ok, msg ->
             act.runOnUiThread {
                 if (!ok) Toast.makeText(act, "גדר מיקום: $msg", Toast.LENGTH_LONG).show()
             }

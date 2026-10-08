@@ -15,7 +15,7 @@ const NativeState=(()=>{
  let busy=false,initialized=false,last='',location=null;
  const available=()=>typeof window.MesimaNative?.syncState==='function';
  function projection(){
-  const tasks=Store.all.tasks.map(t=>({id:t.id,title:t.title,note:t.note||'',kind:t.kind,archived:!!t.archived,done:!!t.done,checklists:(t.checklists||[]).map(c=>({id:c.id,cycle:Store.checklistOccurrence(c),complete:!!c.items.length&&c.items.every(x=>x.checked)})),daily:Store.isHabit(t),manualEligible:Widgets.eligible(t),log:t.log||{},reminder:t.reminder||null,parentNames:Store.parentsOf(t).map(p=>p.title).join(' · ')}));
+  const tasks=Store.all.tasks.map(t=>({id:t.id,title:t.title,note:t.note||'',kind:t.kind,archived:!!t.archived,done:!!t.done,checklists:(t.checklists||[]).map(c=>({id:c.id,cycle:Store.checklistOccurrence(c),complete:!!c.items.length&&c.items.every(x=>x.checked),completedCycles:Store.completedChecklistCycles(t.id,c.id)})),daily:Store.isHabit(t),manualEligible:Widgets.eligible(t),log:t.log||{},reminder:t.reminder||null,parentNames:Store.parentsOf(t).map(p=>p.title).join(' · ')}));
   const days={};
   for(let i=0;i<42;i++){
    const day=Plan.shift(Plan.today(),i),seen=new Set();
@@ -36,17 +36,22 @@ const NativeState=(()=>{
   if(!available()||busy)return;busy=true;
   try{
    const commands=JSON.parse(window.MesimaNative.pendingActions()||'[]');
-   if(commands.length){Store.transaction(()=>commands.forEach(c=>{
-    if(c.action==='shopping'){Store.updateItem(c.listId,c.itemId,{done:!!c.done});return;}
-    const t=Store.task(c.taskId);if(!t)return;
-    if(c.action==='complete'){if(Store.isHabit(t)){if(!Store.habitFull(t,c.day))Store.tickHabit(t.id,c.day,c.at||Date.now());}else if(!t.archived&&!t.done)Store.finishTask(t.id,c.at||Date.now(),c.day);}
-   }));if(Store.canPersist){window.MesimaNative.syncState(JSON.stringify(projection()));window.MesimaNative.ackActions(JSON.stringify(commands.map(c=>c.id)));last="";}}
+   if(commands.length){Store.transaction(()=>Store.applyNativeActions(commands));if(Store.canPersist){
+     const stateSaved=window.MesimaNative.syncState(JSON.stringify(projection()));
+     if(stateSaved===false||typeof window.MesimaNative.syncAlarmPlan==='function'&&stateSaved!==true)throw Error('שמירת מצב המכשיר נכשלה');
+     if(typeof window.MesimaNative.saveSnapshot==='function'){
+       const saved=window.MesimaNative.saveSnapshot(Store.export());
+       let legacyOK=false;if(saved==null&&typeof window.MesimaNative.backupStatus==='function'){const s=JSON.parse(window.MesimaNative.backupStatus());legacyOK=Object.prototype.hasOwnProperty.call(s,'error')&&!s.error;}
+       if(saved!==true&&!legacyOK)throw Error('שמירת עותק הגיבוי נכשלה');
+     }
+     window.MesimaNative.ackActions(JSON.stringify(commands.map(c=>c.id)));last="";
+   }}
    location=JSON.parse(window.MesimaNative.locationState()||'null');
   }catch(e){console.warn('Native state',e.message);}finally{busy=false;}
  }
  function publish(){
   if(!available()||busy||!initialized)return;drain();busy=true;
-  try{const data=JSON.stringify(projection());if(data!==last){window.MesimaNative.syncState(data);last=data;}}
+  try{const data=JSON.stringify(projection());if(data!==last){if(window.MesimaNative.syncState(data)===false)throw Error('שמירת מצב המכשיר נכשלה');last=data;}}
   catch(e){console.warn('Native projection',e.message);}finally{busy=false;}
  }
  function init(){

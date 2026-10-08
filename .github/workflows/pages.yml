@@ -6,6 +6,7 @@ on:
     paths:
       - index.html
       - .github/workflows/pages.yml
+      - .github/workflows/android.yml
   workflow_dispatch:
 
 permissions:
@@ -16,7 +17,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    uses: ./.github/workflows/android.yml
+
   deploy:
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

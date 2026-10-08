@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$toolRoot = Join-Path (Split-Path $PSScriptRoot -Parent) '.build-tools'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$sharedRoot = if ($env:MESIMA_TOOLS_DIR) { $env:MESIMA_TOOLS_DIR } else { Join-Path (Split-Path $repoRoot -Parent) '.mesima-build-tools' }
+$toolRoot = Join-Path $sharedRoot 'android'
 New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
 function Get-CheckedArchive($url, $destination, $checksum) {
     if (!(Test-Path -LiteralPath $destination)) {
@@ -12,7 +14,7 @@ function Get-CheckedArchive($url, $destination, $checksum) {
     }
 }
 if (!(Test-Path -LiteralPath (Join-Path $toolRoot 'jdk'))) {
-    $asset = Invoke-RestMethod 'https://api.adoptium.net/v3/assets/latest/21/hotspot?architecture=x64&image_type=jdk&os=windows'
+    $asset = Invoke-RestMethod 'https://api.adoptium.net/v3/assets/latest/17/hotspot?architecture=x64&image_type=jdk&os=windows'
     $package = $asset[0].binary.package
     Get-CheckedArchive $package.link (Join-Path $toolRoot 'jdk.zip') $package.checksum
     Expand-Archive -LiteralPath (Join-Path $toolRoot 'jdk.zip') -DestinationPath (Join-Path $toolRoot 'jdk')
@@ -34,4 +36,4 @@ $sdkManager = Join-Path $env:ANDROID_HOME 'cmdline-tools/bin/sdkmanager.bat'
 1..20 | ForEach-Object { 'y' } | & $sdkManager "--sdk_root=$env:ANDROID_HOME" --licenses | Out-Null
 & $sdkManager "--sdk_root=$env:ANDROID_HOME" 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
 if ($LASTEXITCODE -ne 0) { throw 'Android SDK setup failed' }
-Write-Output 'Android build tools are ready in the version folder.'
+Write-Output "Android build tools are ready in $toolRoot"

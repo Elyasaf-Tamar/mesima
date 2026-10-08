@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
 import com.google.firebase.storage.FirebaseStorage
@@ -61,7 +62,7 @@ object CloudBackup {
         Backups.executor.execute {
             try {
                 require(Backups.prefs(c).getString("snapshotError", "").isNullOrBlank()) { "Snapshot unavailable" }
-                val text=Backups.read(c); val data=Backups.validate(text);val bytes=text.toByteArray(Charsets.UTF_8)
+                val text=Backups.readForExport(c); val data=Backups.validate(text);val bytes=Payloads.bytes(text)
                 val uid=auth().currentUser!!.uid;val id=UUID.randomUUID().toString()
                 val path="users/$uid/backups/$id.json"
                 val ref=FirebaseStorage.getInstance().reference.child(path)
@@ -69,16 +70,54 @@ object CloudBackup {
                     .addOnFailureListener {finish(error(it),done)}
                     .addOnSuccessListener {
                         val now=System.currentTimeMillis()
+                        val expectedHash=sha(bytes)
                         val meta=hashMapOf<String,Any>("createdAt" to now,"path" to path,
-                            "bytes" to bytes.size,"sha256" to sha(bytes),"taskCount" to data.getJSONArray("tasks").length(),
-                            "appVersion" to "4.6", "schema" to data.optInt("v",10))
-                        FirebaseFirestore.getInstance().collection("users").document(uid).collection("backups").document(id)
-                            .set(meta).addOnSuccessListener {
-                                Backups.prefs(c).edit().putLong("lastCloud",now).apply();finish("הגיבוי נשמר בענן",done)
-                            }.addOnFailureListener { e ->
-                                // Metadata failed: clean up only this upload, never an earlier backup.
-                                ref.delete();finish(error(e),done)
-                            }
+                            "bytes" to bytes.size,"sha256" to expectedHash,"taskCount" to data.getJSONArray("tasks").length(),
+                            "appVersion" to Updater.semanticVersion(data.optString("sourceVersion")).ifBlank { Updater.sourceVersion(c) }, "schema" to data.optInt("v",10))
+                        val document=FirebaseFirestore.getInstance().collection("users").document(uid).collection("backups").document(id)
+                        val committed={
+                            Backups.prefs(c).edit().putLong("lastCloud",now).apply();finish("הגיבוי נשמר בענן",done)
+                        }
+                        val retained={
+                            finish("הקובץ שהועלה לא נמחק; לא ניתן לוודא כרגע אם הגיבוי נרשם בענן. בדוק את רשימת הגיבויים לפני ניסיון נוסף.",done)
+                        }
+                        val cleanupUnconfirmed={
+                            finish("פרטי הגיבוי נדחו; לא ניתן לאשר שניקוי ההעלאה הושלם. בדוק חיבור והרשאות לפני ניסיון נוסף.",done)
+                        }
+                        val metadataFailure:(Exception?)->Unit={ failure ->
+                            // A lost response can hide a successful or still-running
+                            // commit. Verify from the server, without trusting a local
+                            // pending-write overlay or assuming that absence is final.
+                            try {
+                                document.get(Source.SERVER).addOnSuccessListener { stored ->
+                                    val observed=BackupCommitPolicy.observe(stored.exists(),
+                                        !stored.metadata.isFromCache && !stored.metadata.hasPendingWrites(),
+                                        stored.get("path"),stored.get("sha256"),path,expectedHash)
+                                    when(BackupCommitPolicy.decide((failure as? FirebaseFirestoreException)?.code?.name,observed)) {
+                                        BackupCommitPolicy.Decision.COMMITTED -> committed()
+                                        BackupCommitPolicy.Decision.KEEP_UPLOAD -> {
+                                            if(observed==BackupCommitPolicy.Observation.MISMATCHED)
+                                                finish("נמצאו פרטי גיבוי שאינם תואמים להעלאה. הקובץ לא נמחק; לא ניתן לאשר שהגיבוי הושלם.",done)
+                                            else retained()
+                                        }
+                                        BackupCommitPolicy.Decision.CLEAN_UNCOMMITTED -> {
+                                            // Only this rejected, server-confirmed absent
+                                            // upload is eligible. Remain busy until the
+                                            // deletion outcome is known and report it.
+                                            try {
+                                                ref.delete().addOnSuccessListener {
+                                                    finish("פרטי הגיבוי נדחו. ההעלאה שלא הושלמה נוקתה; בדוק את ההרשאות ונסה שוב.",done)
+                                                }.addOnFailureListener { cleanupUnconfirmed() }
+                                                    .addOnCanceledListener { cleanupUnconfirmed() }
+                                            } catch(e:Exception) { cleanupUnconfirmed() }
+                                        }
+                                    }
+                                }.addOnFailureListener { retained() }.addOnCanceledListener { retained() }
+                            } catch(e:Exception) { retained() }
+                        }
+                        document.set(meta).addOnSuccessListener { committed() }
+                            .addOnFailureListener { metadataFailure(it) }
+                            .addOnCanceledListener { metadataFailure(null) }
                     }
             } catch(e: Exception) {finish(error(e),done)}
         }
@@ -107,7 +146,7 @@ object CloudBackup {
                     .addOnFailureListener {finish(error(it),done)}.addOnSuccessListener { bytes ->
                         try {
                             require(sha(bytes)==meta.getString("sha256")) { "Checksum mismatch" }
-                            val text=bytes.toString(Charsets.UTF_8);Backups.validate(text)
+                            val text=Payloads.text(bytes);Backups.validate(text)
                             finish("הגיבוי הורד; יש לאשר את השחזור",done);show(text)
                         }catch(e:Exception){finish("הגיבוי פגום; המידע המקומי לא השתנה",done)}
                     }

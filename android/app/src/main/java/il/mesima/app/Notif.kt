@@ -41,14 +41,8 @@ object Notif {
         mgr.createNotificationChannel(ch)
     }
 
-    /** האם מותר לנו חלון מלא מעל המסך. מאנדרואיד 14 זו הרשאה נפרדת
-     *  שניתנת רק לאפליקציות שעון/שיחות, ובלעדיה אין "פופ-אפ" אמיתי. */
-    fun canFullScreen(ctx: Context): Boolean {
-        if (Build.VERSION.SDK_INT < 34) return true
-        return try {
-            ctx.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
-        } catch (e: Exception) { false }
-    }
+    /** Kept for older HTML only. Reminders use ordinary system notifications. */
+    fun canFullScreen(ctx: Context): Boolean = false
 
     /** מצב ערוץ ההתראות עצמו. אפליקציה יכולה להיות "מאושרת" בכללי
      *  ועדיין עם ערוץ מושתק — וזה נראה בדיוק כמו "לא עובד". */
@@ -68,17 +62,27 @@ object Notif {
         } catch (e: Exception) { o.put("exists", false).put("error", e.message ?: "?") }
     }
 
-    fun show(ctx:Context,id:String,title:String,body:String,link:JSONObject?=null){
-        synchronized(NativeRepo){showLocked(ctx,id,title,body,link)}
+    fun show(ctx:Context,id:String,title:String,body:String,link:JSONObject?=null):String = synchronized(NativeRepo) {
+        try {
+            val result = showLocked(ctx,id,title,body,link)
+            NativeRepo.prefs(ctx).edit().putString("notificationError", if(result=="posted") "" else result).apply()
+            result
+        } catch(e:Exception) {
+            val result = "error: " + (e.message ?: e.javaClass.simpleName)
+            NativeRepo.prefs(ctx).edit().putString("notificationError",result).apply()
+            result
+        }
     }
-    private fun showLocked(ctx: Context, id: String, title: String, body: String, link:JSONObject?) {
-        val meta=link?:NativeRepo.meta(ctx,id)
-        if(NativeRepo.blocked(ctx,meta))return
-        NativeRepo.remember(ctx,id,meta)
+    private fun showLocked(ctx: Context, id: String, title: String, body: String, link:JSONObject?):String {
+        val meta=NativeRepo.route(link?:NativeRepo.meta(ctx,id))
+        if(NativeRepo.blocked(ctx,meta))return "blocked_task"
         channel(ctx)
+        val notifications=NotificationManagerCompat.from(ctx)
+        if(!notifications.areNotificationsEnabled())return "blocked_notifications"
+        if(channelState(ctx).optBoolean("blocked"))return "blocked_channel"
         val open = Intent(ctx, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            .putExtra("taskId", if(meta.optString("kind")=="task")meta.optString("taskId").ifBlank{id} else id)
+            .putExtra("taskId", id) // Preserve occurrence date when the WebView opens it.
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags = flags or PendingIntent.FLAG_IMMUTABLE
         val pi = PendingIntent.getActivity(ctx, id.hashCode(), open, flags)
@@ -87,6 +91,7 @@ object Notif {
         val snooze = Intent(ctx, AlarmReceiver::class.java)
             .setAction("il.mesima.SNOOZE")
             .putExtra("id", id).putExtra("title", title).putExtra("body", body)
+            .putExtra("meta",meta.toString())
         val ack = Intent(ctx, AlarmReceiver::class.java)
             .setAction("il.mesima.ACK").putExtra("id", id)
         var bflags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -94,7 +99,7 @@ object Notif {
         val piSnooze = PendingIntent.getBroadcast(ctx, ("s" + id).hashCode(), snooze, bflags)
         val piAck = PendingIntent.getBroadcast(ctx, ("a" + id).hashCode(), ack, bflags)
 
-        val complete=Intent(ctx,AlarmReceiver::class.java).setAction("il.mesima.COMPLETE").putExtra("id",id)
+        val complete=Intent(ctx,AlarmReceiver::class.java).setAction("il.mesima.COMPLETE").putExtra("id",id).putExtra("meta",meta.toString())
         val piComplete=PendingIntent.getBroadcast(ctx,("done:"+id).hashCode(),complete,bflags)
         val builder = NotificationCompat.Builder(ctx, NotificationPreferences.channelId(ctx))
             .setSmallIcon(R.drawable.ic_stat)
@@ -112,7 +117,10 @@ object Notif {
             .addAction(0, "הבנתי", piAck)
         if(meta.optString("kind")=="task" && NativeRepo.task(ctx,meta.optString("taskId"))?.optString("kind")=="short")builder.addAction(0,"בוצע",piComplete)
         val n=builder.build()
-        try { NotificationManagerCompat.from(ctx).notify(id.hashCode(), n) }
-        catch (e: SecurityException) { /* המשתמש לא אישר POST_NOTIFICATIONS */ }
+        try { notifications.notify(id.hashCode(), n) }
+        catch (e: SecurityException) { return "blocked_notifications" }
+        NativeRepo.remember(ctx,id,meta)
+        // Accepted by NotificationManager, not a claim that a banner was displayed.
+        return "posted"
     }
 }

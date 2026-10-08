@@ -1,57 +1,211 @@
-/* Per-field logical clocks, persistent deletions, optimistic cloud commits.
-   Runtime reminder state and device preferences never leave their device. */
+/* Schema 2 gives nested items independent clocks and persistent tombstones.
+   Schema 1 is read and migrated. Older clients reject schema 2 before writing,
+   so an old whole-array update cannot silently overwrite merged items.
+   Firestore's pointer document remains transport schema 1. */
 const SyncModel=(()=>{
   const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections'];
+  const unsafe=k=>['__proto__','constructor','prototype'].includes(k);
   const clone=x=>JSON.parse(JSON.stringify(x));
   const stable=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
-  const content=x=>JSON.parse(JSON.stringify(x, (key,value)=>key==='rt'?undefined:value));
+  const newer=(a,b)=>!b||a[0]>b[0]||(a[0]===b[0]&&a[1]>b[1]);
+  const pathKey=path=>JSON.stringify(path),orderKey=path=>'order:'+pathKey(path);
+  const empty=()=>({schema:2,clock:0,records:{}});
   function runtime(next,old){
     if(!next||typeof next!=='object')return next;
     if(Array.isArray(next))return next.map((v,i)=>runtime(v,Array.isArray(old)?(v?.id?old.find(x=>x.id===v.id):old[i]):null));
     if(old?.rt&&(!next.cycleDay||next.cycleDay===old.cycleDay))next.rt=clone(old.rt);
     for(const k of Object.keys(next))if(k!=='rt')next[k]=runtime(next[k],old?.[k]);return next;
   }
-  const newer=(a,b)=>!b||a[0]>b[0]||(a[0]===b[0]&&a[1]>b[1]);
-  const empty=()=>({schema:1,clock:0,records:{}});
-  function capture(state,data,device){
-    const next=clone(state),seen=new Set();let clock=state.clock+1,changed=false;
+  function tree(fields){
+    const root={children:new Map()};
+    for(const [key,field]of Object.entries(fields)){
+      if(key==='_alive')continue;
+      const order=key.startsWith('order:'),path=JSON.parse(order?key.slice(6):key);let node=root;
+      for(const part of path){if(!node.children.has(part))node.children.set(part,{children:new Map()});node=node.children.get(part);}
+      if(order)node.position=field;else node.field=field;
+    }return root;
+  }
+  function valueOf(node,root=false){
+    const f=node?.field;if(!root&&(!f||f.deleted))return undefined;
+    const type=root?'object':f.value.type;
+    if(type==='value')return clone(f.value.value);
+    const entries=[...node.children].filter(([key,n])=>!f?.value.legacyMembers||f.value.legacyMembers.includes(key)||n.field&&newer(n.field.stamp,f.stamp))
+      .map(([key,n])=>[key,valueOf(n),n]).filter(x=>x[1]!==undefined);
+    if(type==='list')return entries.sort((a,b)=>(a[2].position?.value||0)-(b[2].position?.value||0)||a[0].localeCompare(b[0])).map(x=>x[1]);
+    if(type==='set')return entries.map(x=>x[0]).sort();
+    return Object.fromEntries(entries.map(([k,v])=>[k,v]));
+  }
+  // Keep the longest unchanged subsequence; a move changes only moved items'
+  // position clocks, and simultaneous insertions retain both new identities.
+  function positions(ids,path,fields){
+    const old=ids.map(id=>({id,f:fields[pathKey([...path,id])],p:fields[orderKey([...path,id])]}))
+      .filter(x=>x.f&&!x.f.deleted&&x.p&&!x.p.deleted).sort((a,b)=>a.p.value-b.p.value||a.id.localeCompare(b.id));
+    const rank=new Map(old.map((x,i)=>[x.id,i])),tails=[],links=new Map();
+    for(const id of ids){if(!rank.has(id))continue;const n=rank.get(id);let lo=0,hi=tails.length;
+      while(lo<hi){const mid=(lo+hi)>>1;if(rank.get(tails[mid])<n)lo=mid+1;else hi=mid;}
+      links.set(id,lo?tails[lo-1]:null);tails[lo]=id;
+    }
+    const keep=new Set();let last=tails.at(-1);while(last!=null){keep.add(last);last=links.get(last);}
+    const out=new Map(),anchors=ids.map((id,i)=>keep.has(id)?i:-1).filter(i=>i>=0);anchors.push(ids.length);
+    let start=0,left=null;
+    for(const end of anchors){const right=end<ids.length?fields[orderKey([...path,ids[end]])].value:null,count=end-start;
+      for(let i=0;i<count;i++){const p=left==null?(right==null?i:right-count+i):right==null?left+i+1:left+(right-left)*(i+1)/(count+1);out.set(ids[start+i],p);}
+      if(end<ids.length){out.set(ids[end],right);left=right;}start=end+1;
+    }
+    const values=ids.map(id=>out.get(id));
+    if(values.some((n,i)=>!Number.isFinite(n)||(i&&n<=values[i-1])))ids.forEach((id,i)=>out.set(id,i));
+    return out;
+  }
+  function checklistOccurrence(c){return c.repeat?(c.cycleDay||c.rt?.cycle||''):'once-'+(c.manualCycle||0);}
+  const checkPath=path=>path.length===6&&path[0]==='checklists'&&path[2]==='items'&&path[4]==='checked';
+  const cycleOrder=(a,b)=>a.startsWith('once-')&&b.startsWith('once-')?Number(a.slice(5))-Number(b.slice(5)):a.localeCompare(b);
+  function pruneChecks(state){
+    for(const [key,r]of Object.entries(state.records)){
+      if(!key.startsWith('tasks/'))continue;
+      const lists=tree(r.fields).children.get('checklists');
+      for(const [cid,node]of lists?.children||[]){
+        const c=valueOf(node);if(!c)continue;const current=checklistOccurrence(c);
+        for(const item of c.items||[]){
+          const values=item.checked;if(!values||typeof values!=='object')continue;
+          const previous=Object.keys(values).filter(day=>cycleOrder(day,current)<0).sort(cycleOrder).at(-1);
+          // Older occurrence registers cannot influence the current cycle.
+          // Retain just the current and nearest earlier cycle; pruning is safe
+          // even when a stale peer later brings an older register back.
+          if(previous!==undefined)for(const day of Object.keys(values))if(cycleOrder(day,previous)<0)
+            delete r.fields[pathKey(['checklists',cid,'items',item.id,'checked',day])];
+        }
+      }
+    }return state;
+  }
+  function flatten(value,path,fields,set,legacy=false,cycle){
+    if(path.length===2&&path[0]==='checklists'&&value&&typeof value==='object')cycle=checklistOccurrence(value);
+    if(path.length===5&&path[0]==='checklists'&&path[2]==='items'&&path[4]==='checked'&&cycle!==undefined){
+      // A check belongs to an occurrence, not to all future uses of the item.
+      // Independent devices can finish an old cycle while another has reset it.
+      set(pathKey(path),{type:'checks'});
+      set(pathKey([...path,cycle]),{type:'value',value:!!value});return;
+    }
+    const container=(type,members)=>{const old=fields[pathKey(path)]?.value;
+      return {type,...(legacy?{legacyMembers:members}:old?.type===type&&old.legacyMembers?{legacyMembers:old.legacyMembers}:{})};};
+    if(Array.isArray(value)){
+      const isSet=['parentIds','relatedTaskIds','skipTypes'].includes(path.at(-1));
+      const ids=value.map(x=>x?.id),isList=!isSet&&(value.length?ids.every(id=>typeof id==='string'&&id)&&new Set(ids).size===ids.length:['items','checklists','projects'].includes(path.at(-1))||fields[pathKey(path)]?.value?.type==='list');
+      if(isSet){const members=[...new Set(value)].filter(x=>typeof x==='string'&&!unsafe(x));set(pathKey(path),container('set',members));for(const id of members)set(pathKey([...path,id]),{type:'value',value:true});return;}
+      if(isList){const order=positions(ids,path,fields);set(pathKey(path),container('list',ids));
+        value.forEach(item=>{flatten(item,[...path,item.id],fields,set,legacy,cycle);set(orderKey([...path,item.id]),order.get(item.id));});return;}
+      set(pathKey(path),{type:'value',value:clone(value)});return;
+    }
+    if(value&&typeof value==='object'){
+      set(pathKey(path),container('object',Object.keys(value).filter(k=>k!=='rt'&&!unsafe(k))));
+      for(const [k,v]of Object.entries(value))if(k!=='rt'&&!unsafe(k))flatten(v,[...path,k],fields,set,legacy,cycle);
+      return;
+    }
+    set(pathKey(path),{type:'value',value:value??null});
+  }
+  function upgrade(state){
+    if(state.schema===2)return state;
+    const out={schema:2,clock:state.clock,records:{}};
+    for(const [key,r]of Object.entries(state.records)){
+      const fields={};out.records[key]={fields};
+      if(r.fields._alive)fields._alive=clone(r.fields._alive);
+      const parts=Object.entries(r.fields).filter(([k])=>key.startsWith('notes/')&&k.startsWith('part:'));
+      for(const [name,f]of Object.entries(r.fields)){
+        if(name==='_alive'||name==='rt'||unsafe(name)||parts.length&&(name==='parts'||name.startsWith('part:')))continue;
+        if(f.deleted)fields[pathKey([name])]={...clone(f),value:{type:'value',value:null}};
+        else flatten(f.value,[name],{},(k,v)=>{fields[k]={stamp:clone(f.stamp),value:v,deleted:false};},true);
+      }
+      if(parts.length){let stamp=parts[0][1].stamp;for(const [,f]of parts)if(newer(f.stamp,stamp))stamp=f.stamp;
+        fields[pathKey(['parts'])]={stamp:clone(stamp),value:{type:'object'},deleted:false};
+        for(const [name,f]of parts){const path=['parts',name.slice(5)];
+          if(f.deleted)fields[pathKey(path)]={...clone(f),value:{type:'object'}};
+          else flatten(f.value,path,{},(k,v)=>{fields[k]={stamp:clone(f.stamp),value:v,deleted:false};},true);
+        }
+      }
+    }return out;
+  }
+  function capture(input,data,device){
+    const state=upgrade(input),next=clone(state),seen=new Set(),clock=state.clock+1;let changed=false;
     for(const type of collections)for(const original of data[type]||[]){
-      const row={...original};if(type==='notes'&&row.parts){delete row.parts;for(const [id,part]of Object.entries(original.parts))row['part:'+id]=part;}
-      if(!row.id)continue;const key=type+'/'+row.id;seen.add(key);
-      const record=next.records[key] ||= {fields:{}};
-      const set=(name,value,deleted=false)=>{const old=record.fields[name];if(!old||old.deleted!==deleted||stable(old.value)!==stable(value)){record.fields[name]={stamp:[clock,device],value,deleted};changed=true;}};
+      if(!original.id)continue;const key=type+'/'+original.id;seen.add(key);
+      const record=next.records[key] ||= {fields:{}},fieldsSeen=new Set(['_alive']);
+      const set=(name,value,deleted=false)=>{fieldsSeen.add(name);const old=record.fields[name];
+        if(!old||!!old.deleted!==deleted||stable(old.value)!==stable(value)){
+          const checked=name[0]==='['&&checkPath(JSON.parse(name));
+          record.fields[name]={stamp:[clock,device],value,deleted,...(checked?{at:Date.now()}: {})};changed=true;}};
       set('_alive',true);
-      for(const k of new Set([...Object.keys(row),...Object.keys(record.fields)])){
-        if(k==='rt'||k==='_alive'||k==='id'||['__proto__','constructor','prototype'].includes(k))continue;
-        set(k,content(row[k]??null),!(k in row));
+      const row={...original};
+      if(type==='tasks'&&row.parentId&&!Array.isArray(row.parentIds))row.parentIds=[row.parentId];
+      for(const [k,v]of Object.entries(row))if(k!=='rt'&&k!=='id'&&!unsafe(k))flatten(v,[k],record.fields,set);
+      for(const [name,f]of Object.entries(record.fields))if(!fieldsSeen.has(name)&&!f.deleted){
+        const order=name.startsWith('order:'),path=JSON.parse(order?name.slice(6):name);
+        let hidden=false;for(let n=order?path.length:path.length-1;n>0;n--){const parent=record.fields[pathKey(path.slice(0,n))];
+          if(parent?.deleted||['value','checks'].includes(parent?.value?.type)){hidden=true;break;}}
+        if(!hidden)set(name,f.value,true);
       }
     }
     for(const [key,record]of Object.entries(next.records))if(!seen.has(key)&&record.fields._alive?.value!==false){record.fields._alive={stamp:[clock,device],value:false,deleted:false};changed=true;}
-    if(changed)next.clock=clock;return next;
+    if(changed)next.clock=clock;return pruneChecks(next);
   }
   function merge(a,b){
-    const out=clone(a);out.clock=Math.max(a.clock,b.clock);
+    a=upgrade(a);b=upgrade(b);const out=clone(a);out.clock=Math.max(a.clock,b.clock);
     for(const [key,record]of Object.entries(b.records)){
       const dst=out.records[key] ||= {fields:{}};
       for(const [k,v]of Object.entries(record.fields))if(newer(v.stamp,dst.fields[k]?.stamp))dst.fields[k]=clone(v);
-    }return out;
+    }
+    // A schema-1 container snapshot implicitly deleted members it no longer
+    // contained. Materialize that evidence as tombstones when an older peer
+    // brings those members back during migration.
+    for(const r of Object.values(out.records)){
+      const walk=(node,path)=>{const f=node.field;
+        for(const [key,child]of node.children){const p=[...path,key];
+          if(f?.value.legacyMembers&&!f.value.legacyMembers.includes(key)&&child.field&&!newer(child.field.stamp,f.stamp)){
+            r.fields[pathKey(p)]={...clone(child.field),stamp:clone(f.stamp),deleted:true};
+          }else walk(child,p);
+        }
+      };walk(tree(r.fields),[]);
+    }
+    return pruneChecks(out);
   }
-  function materialize(state,local){
-    const out=clone(local);collections.forEach(k=>out[k]=[]);
+  function materialize(input,local){
+    const state=upgrade(input),out=clone(local);collections.forEach(k=>out[k]=[]);
     for(const [key,r]of Object.entries(state.records)){
       const at=key.indexOf('/'),type=key.slice(0,at),id=key.slice(at+1);
       if(!collections.includes(type)||r.fields._alive?.value===false)continue;
-      const row={id},old=(local[type]||[]).find(x=>x.id===id);
-      for(const [k,f]of Object.entries(r.fields))if(!f.deleted&&k!=='_alive'&&!['__proto__','constructor','prototype'].includes(k))row[k]=clone(f.value);
-      if(type==='notes'){const entries=Object.entries(row).filter(([k])=>k.startsWith('part:'));if(entries.length||row.multipart){row.parts={...(row.parts||{})};for(const [k,v]of entries){row.parts[k.slice(5)]=v;delete row[k];}}}
-      out[type].push(runtime(row,old));
+      const row={id,...valueOf(tree(r.fields),true)},old=(local[type]||[]).find(x=>x.id===id);
+      if(type==='tasks'&&Array.isArray(row.parentIds))row.parentId=row.parentIds.includes(row.parentId)?row.parentId:row.parentIds[0]||null;
+      const prepared=runtime(row,old);
+      if(type==='tasks')for(const c of prepared.checklists||[]){
+        const occurrence=checklistOccurrence(c);let latest=0;
+        for(const item of c.items||[]){
+          if(item.checked&&typeof item.checked==='object')item.checked=!!item.checked[occurrence];
+          if(item.checked)latest=Math.max(latest,r.fields[pathKey(['checklists',c.id,'items',item.id,'checked',occurrence])]?.at||0);
+        }
+        const completion=state.records['completions/checklist:'+id+':'+c.id+':'+occurrence];
+        const active=completion&&valueOf(tree(completion.fields),true).active;
+        const oldTask=state.records['completions/task:'+id+':once'];
+        const legacy=oldTask&&valueOf(tree(oldTask.fields),true);
+        if(latest&&c.items.length&&c.items.every(i=>i.checked)&&!active&&!(legacy?.active&&legacy.legacy)){
+          c.rt=c.rt||{};c.rt.mergedCheckAt=latest;
+        }
+      }
+      out[type].push(prepared);
     }return out;
   }
   function validate(s){
-    if(s?.schema!==1||!Number.isSafeInteger(s.clock)||s.clock<0||!s.records||typeof s.records!=='object'||Array.isArray(s.records))throw Error('נתוני סנכרון לא תקינים');
+    if(Number.isInteger(s?.schema)&&s.schema>2)throw Error('נתוני הענן נוצרו בגרסה חדשה יותר. עדכן את משימה בכל המכשירים כדי להמשיך בסנכרון.');
+    if(![1,2].includes(s?.schema)||!Number.isSafeInteger(s.clock)||s.clock<0||!s.records||typeof s.records!=='object'||Array.isArray(s.records))throw Error('נתוני סנכרון לא תקינים');
     for(const [key,r]of Object.entries(s.records)){
-      if(!collections.includes(key.split('/')[0])||!r?.fields||typeof r.fields!=='object')throw Error('רשומת סנכרון לא תקינה');
-      for(const [k,v]of Object.entries(r.fields))if(['__proto__','constructor','prototype'].includes(k)||!Array.isArray(v.stamp)||!Number.isSafeInteger(v.stamp[0])||typeof v.stamp[1]!=='string')throw Error('חותמת סנכרון לא תקינה');
+      if(!collections.includes(key.split('/')[0])||!r?.fields||typeof r.fields!=='object'||Array.isArray(r.fields))throw Error('רשומת סנכרון לא תקינה');
+      for(const [k,v]of Object.entries(r.fields)){
+        if(unsafe(k)||!v||!Array.isArray(v.stamp)||!Number.isSafeInteger(v.stamp[0])||v.stamp[0]<0||v.stamp[0]>s.clock||typeof v.stamp[1]!=='string')throw Error('חותמת סנכרון לא תקינה');
+        if(v.at!==undefined&&(!Number.isSafeInteger(v.at)||v.at<=0||Number.isNaN(new Date(v.at).getTime())))throw Error('תאריך סימון בסנכרון אינו תקין');
+        if(s.schema===2&&k!=='_alive'){
+          let path;try{path=JSON.parse(k.startsWith('order:')?k.slice(6):k);}catch{throw Error('שדה סנכרון לא תקין');}
+          if(!Array.isArray(path)||!path.length||path.some(p=>typeof p!=='string'||unsafe(p)))throw Error('נתיב סנכרון לא תקין');
+          if(k.startsWith('order:')?!Number.isFinite(v.value):!['value','object','list','set','checks'].includes(v.value?.type))throw Error('ערך סנכרון לא תקין');
+          if(v.value?.legacyMembers!==undefined&&(!Array.isArray(v.value.legacyMembers)||v.value.legacyMembers.some(p=>typeof p!=='string'||unsafe(p))))throw Error('רשימת שדות בסנכרון אינה תקינה');
+        }
+      }
     }return s;
   }
   return {empty,capture,merge,materialize,validate,stable};
@@ -149,7 +303,7 @@ const CloudSync=(()=>{
         state=SyncModel.merge(SyncModel.capture(state,Store.all,device),combined);
         const next=SyncModel.materialize(state,Store.all);
         if(SyncModel.stable(next)!==SyncModel.stable(Store.all)){
-          applying=true;try{Store.import(JSON.stringify(next));}finally{applying=false;}
+          applying=true;try{Store.import(JSON.stringify(next),{reconcileChecklists:true});}finally{applying=false;}
         }
         save();
       }

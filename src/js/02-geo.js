@@ -96,7 +96,17 @@ const Geo = (() => {
     stop(){ if (watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId = null; } },
 
     route(from, points){
-      const left = points.slice(), out = []; let cur = from, total = 0;
+      const coordinates=p=>{
+        if(!p)return null;
+        const inherited=p.id?Store.placeCoordinates(p.id):null,c=inherited||p;
+        if(c.lat==null||c.lng==null||c.lat===''||c.lng==='')return null;
+        const lat=Number(c.lat),lng=Number(c.lng);
+        return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180?{...p,lat,lng}:null;
+      };
+      // Manual subplaces inherit the point of their parent. Null coordinates
+      // must never be treated as latitude/longitude zero in distance ordering.
+      const left = points.map(coordinates).filter(Boolean), out = []; let cur = coordinates(from), total = 0;
+      if(!cur)return {stops:out,total};
       while (left.length){
         let bi=0, bd=Infinity;
         left.forEach((p,i)=>{ const d=dist(cur,p); if(d<bd){bd=d;bi=i;} });

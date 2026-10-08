@@ -2,9 +2,10 @@ name: Verify web and Android
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'fix/**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -12,24 +13,38 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+
+      - name: Install verification dependencies
+        run: npm ci
+
+      - name: Install Chromium and system libraries
+        run: npx playwright install --with-deps chromium
 
       - name: Build web assets and run model tests
         run: |
           node tools/build.mjs
           node --test tests/*.test.mjs
+          python3 -m unittest discover -s tests -p 'test_*.py'
           git diff --exit-code -- index.html android/app/src/main/assets/index.html
+
+      - name: Exercise browser flows and both sync transports
+        run: npm run test:ui
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Verify Firestore and Storage rules with local emulators
+        run: npm run test:rules
 
       - uses: android-actions/setup-android@v3
         with:
@@ -56,6 +71,14 @@ jobs:
         with:
           name: android-test-results
           path: android/app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Save browser regression screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-regression-results
+          path: test-results/
           if-no-files-found: ignore
 
       # Debug builds are for developers. Install the signed APK in Releases.

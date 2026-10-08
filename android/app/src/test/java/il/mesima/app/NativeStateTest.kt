@@ -4,6 +4,34 @@ import org.junit.Assert.*
 import org.json.JSONObject
 import org.json.JSONArray
 class NativeStateTest {
+ @Test fun shownMetadataKeepsRoutingWithoutDuplicatingTheTaskNote(){
+  val value=JSONObject().put("id","ca_t_c_2026-10-02@09:00").put("taskId","t").put("checklistId","c")
+   .put("kind","checklist").put("occurrence","2026-10-02").put("day","2026-10-02").put("title","title").put("body","a long note")
+  val route=NativeRepo.route(value)
+  assertEquals("2026-10-02",route.getString("occurrence"));assertFalse(route.has("title"));assertFalse(route.has("body"))
+  assertEquals("a long note",value.getString("body"))
+ }
+ @Test fun reminderResolutionKeepsTheOriginalDayWithoutTheTransientAlarmList(){
+  val snapshot=JSONObject("""{"tasks":[{"id":"job","daily":true},{"id":"job_part","daily":true,"checklists":[{"id":"pack","cycle":"2026-10-08"},{"id":"pack_extra","cycle":"once-3"}]}]}""")
+  val habit=NativeRepo.resolve(snapshot,"ha_job_part_2026-10-02@09:00","2026-10-08")
+  assertEquals("job_part",habit.getString("taskId"));assertEquals("2026-10-02",habit.getString("day"));assertTrue(habit.getBoolean("daily"))
+  val list=NativeRepo.resolve(snapshot,"ca_job_part_pack_2026-10-02@09:00","2026-10-08")
+  assertEquals("pack",list.getString("checklistId"));assertEquals("2026-10-02",list.getString("occurrence"))
+  val once=NativeRepo.resolve(snapshot,"co_job_part_pack_extra","2026-10-08")
+  assertEquals("pack_extra",once.getString("checklistId"));assertEquals("once-3",once.getString("occurrence"))
+  assertEquals("appointment",NativeRepo.resolve(snapshot,"e_appointment").getString("eventId"))
+ }
+ @Test fun oldCompletedChecklistOccurrenceStaysBlockedAfterTheCurrentCycleChanges(){
+  val cl=JSONObject().put("id","pack").put("cycle","2026-10-08").put("complete",false)
+   .put("completedCycles",JSONArray().put("2026-10-02"))
+  val task=JSONObject().put("id","project").put("checklists",JSONArray().put(cl))
+  val snapshot=JSONObject().put("tasks",JSONArray().put(task))
+  val meta=JSONObject().put("taskId","project").put("checklistId","pack").put("occurrence","2026-10-02")
+  assertTrue(NativeRepo.blocked(snapshot,JSONArray(),meta))
+  meta.put("occurrence","2026-10-08");assertFalse(NativeRepo.blocked(snapshot,JSONArray(),meta))
+  cl.put("completedCycles",JSONArray());meta.put("occurrence","2026-10-02")
+  assertFalse(NativeRepo.blocked(snapshot,JSONArray(),meta))
+ }
  @Test fun completedChecklistBlocksOnlyItsCycleAndUndoRestoresFutureAlarms(){
   val cl=JSONObject().put("id","pack").put("cycle","2026-09-17").put("complete",true)
   val task=JSONObject().put("id","project").put("checklists",JSONArray().put(cl))

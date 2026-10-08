@@ -18,7 +18,7 @@ import org.json.JSONObject
  *
  * הנקודה המרכזית בכל הארכיטקטורה: את הגדרים מחזיקה מערכת ההפעלה, לא אנחנו.
  * התהליך שלנו יכול להיות מת לגמרי — Play Services מעיר את GeofenceReceiver.
- * לכן אין foreground service, אין התראה קבועה, וצריכת הסוללה אפסית.
+ * שירות המיקום הפעיל משלים את הגדרים; כשהוא פועל מוצגת התראה קבועה.
  *
  * ההמתנה של "הגעת + 15 דקות" נעשית על ידי אנדרואיד עצמו דרך
  * GEOFENCE_TRANSITION_DWELL + setLoiteringDelay — לא על ידי טיימר שלנו.
@@ -27,8 +27,12 @@ object Fences {
 
     private const val PREF = "mesima_fences"
     private const val KEY  = "list"
+    private var registering = false
+    private var rerun = false
+    private val callbacks = mutableListOf<(Boolean, String) -> Unit>()
 
     fun save(ctx:Context,json:String):Boolean {
+        Payloads.bytes(json); require(JSONArray(json).length() <= 100) { "יותר מדי גדרי מיקום" }
         val changed=load(ctx).toString()!=json
         ctx.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(KEY,json).apply()
         return changed
@@ -81,18 +85,44 @@ object Fences {
 
     /** מוחק את כל הגדרים ורושם מחדש את הרשימה שנשמרה. */
     fun reapply(ctx: Context, onResult: ((Boolean, String) -> Unit)? = null) {
-        val arr = load(ctx)
-        val client = LocationServices.getGeofencingClient(ctx)
+        synchronized(this) {
+            if (onResult != null) callbacks.add(onResult)
+            if (registering) { rerun = true; return }
+            registering = true
+        }
+        applyLatest(ctx.applicationContext)
+    }
 
+    /** Serialize remove/add pairs. Permission callbacks and web sync can arrive
+     * together; an older remove must never erase a newer registration. */
+    private fun applyLatest(ctx: Context) {
+        remember(ctx, "רושם גדרים…")
         val done = { ok: Boolean, msg: String ->
-            remember(ctx, if (ok) msg else "שגיאה: $msg")
-            onResult?.invoke(ok, msg)
+            var again = false
+            var notify = emptyList<(Boolean, String) -> Unit>()
+            synchronized(this) {
+                if (rerun) { rerun = false; again = true }
+                else {
+                    remember(ctx, if (ok) msg else "שגיאה: $msg")
+                    registering = false; notify = callbacks.toList(); callbacks.clear()
+                }
+            }
+            if (again) applyLatest(ctx)
+            else {
+                notify.forEach { callback -> runCatching { callback(ok, msg) } }
+            }
             Unit
         }
-
-        if (arr.length() == 0) {
+        try {
+        val arr = load(ctx)
+        val client = LocationServices.getGeofencingClient(ctx)
+        fun remove() {
             client.removeGeofences(pendingIntent(ctx))
-            done(true, "אין גדרים"); return
+                .addOnSuccessListener { done(true, "אין גדרים") }
+                .addOnFailureListener { done(false, it.message ?: "כשל בהסרת גדרים") }
+        }
+        if (arr.length() == 0) {
+            remove(); return
         }
         if (!hasPermission(ctx)) { done(false, "חסרה הרשאת מיקום ברקע"); return }
 
@@ -118,8 +148,7 @@ object Fences {
             fences.add(b.build())
         }
         if (fences.isEmpty()) {
-            client.removeGeofences(pendingIntent(ctx))
-            done(true, "אין גדרים"); return
+            remove(); return
         }
 
         val req = GeofencingRequest.Builder()
@@ -143,6 +172,10 @@ object Fences {
             }
         }
         client.removeGeofences(pendingIntent(ctx))
-            .addOnCompleteListener { add() }
+            .addOnSuccessListener { add() }
+            .addOnFailureListener { done(false, it.message ?: "כשל בהסרת גדרים") }
+        } catch (e: Exception) {
+            done(false, e.message ?: "כשל ברישום גדרים")
+        }
     }
 }

@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private var pendingWidget: Pair<String,String>? = null
     /** גיבוי שהגיע מבחוץ לפני שהדף סיים להיטען */
     private var pendingImport: String? = null
+    private var locationPermission = false
 
     private val backupFolderReq = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -245,6 +246,7 @@ class MainActivity : ComponentActivity() {
         handleAlarmIntent(intent)
         handleImportIntent(intent)
 
+        locationPermission = Fences.hasPermission(this)
         Fences.reapply(this)
         // רישום מחדש של תזכורות השעה מהרשימה השמורה. ה-JS ידרוס אותה
         // ברגע שהוא נטען, אבל ככה הן חיות גם אם ה-WebView נכשל
@@ -253,7 +255,11 @@ class MainActivity : ComponentActivity() {
         if (Updater.sourceUrl(this).isNotBlank()) Updater.check(this) { _, _ -> notifyJs() }
     }
 
-    fun reloadApp() = runOnUiThread { Updater.clearPending(this); web.loadUrl(HOME) }
+    fun reloadApp() = runOnUiThread {
+        webReady = false
+        Updater.clearPending(this)
+        web.loadUrl(HOME)
+    }
 
     private fun showBackgroundExplanation(){
         android.app.AlertDialog.Builder(this).setTitle("תזכורות גם כשהאפליקציה סגורה")
@@ -300,19 +306,22 @@ class MainActivity : ComponentActivity() {
         } ?: return
         i.action = null
         i.data = null
-        val text = try {
-            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-        } catch (e: Exception) { null }
-        if (text.isNullOrBlank()) {
-            Toast.makeText(this, "לא הצלחתי לקרוא את הקובץ", Toast.LENGTH_LONG).show()
-            return
+        Backups.executor.execute {
+            val result = runCatching {
+                val text = contentResolver.openInputStream(uri)?.use { Payloads.readText(it) }
+                    ?: error("לא הצלחתי לקרוא את הקובץ")
+                Backups.validate(text)
+                text
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                result.onSuccess { text ->
+                    if (webReady) fireImportJs(text) else pendingImport = text
+                }.onFailure { error ->
+                    Toast.makeText(this, "לא ניתן לייבא את הגיבוי: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
-        /* גבול שפוי — גיבוי הוא JSON של טקסט, לא מדיה */
-        if (text.length > 8_000_000) {
-            Toast.makeText(this, "הקובץ גדול מדי מכדי להיות גיבוי", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (webReady) fireImportJs(text) else pendingImport = text
     }
 
     private fun fireImportJs(text: String) = runOnUiThread {
@@ -354,6 +363,12 @@ class MainActivity : ComponentActivity() {
         // קולבק שכיבה את עצמו ביציאה קודמת חייב לחזור לפעולה, אחרת
         // הלחיצה הבאה על "חזרה" תעקוף את הדף לגמרי.
         backCb?.isEnabled = true
+        val granted = Fences.hasPermission(this)
+        if (granted != locationPermission) {
+            locationPermission = granted
+            // Returning from Android's settings must retry the saved, unchanged fences.
+            Fences.reapply(this)
+        }
         LocationMonitor.reconcile(this)
         changed()
         notifyJs()

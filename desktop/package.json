@@ -1,6 +1,6 @@
 {
   "name": "mesima-desktop",
-  "version": "4.9.1",
+  "version": "4.9.2",
   "private": true,
   "main": "main.cjs",
   "description": "Mesima desktop",
@@ -8,5 +8,8 @@
   "devDependencies": {
     "electron": "44.2.0",
     "@electron/packager": "20.3.0"
+  },
+  "scripts": {
+    "build": "node build.cjs"
   }
 }

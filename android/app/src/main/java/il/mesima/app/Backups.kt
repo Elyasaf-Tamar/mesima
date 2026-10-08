@@ -22,14 +22,14 @@ import java.util.concurrent.TimeUnit
 /** A validated, atomic mirror of the last committed WebView database.
  * Workers use it without launching the Activity or a hidden WebView. */
 object Backups {
-    const val MAX_BYTES = 20 * 1024 * 1024
+    const val MAX_BYTES = Payloads.MAX_BYTES
     private const val WORK = "mesima-local-backup"
     val executor = Executors.newSingleThreadExecutor()
     fun prefs(c: Context) = c.getSharedPreferences("mesima-backups", Context.MODE_PRIVATE)
     private fun file(c: Context) = AtomicFile(File(c.filesDir, "backup-snapshot.json"))
 
     fun validate(text: String): JSONObject {
-        require(text.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "הגיבוי גדול מ־20MB" }
+        Payloads.bytes(text)
         val data = JSONObject(text)
         require(data.optJSONArray("tasks") != null) { "קובץ הגיבוי אינו תקין" }
         for (key in listOf("events", "notes", "lists", "places", "links", "eventTypes")) {
@@ -54,9 +54,27 @@ object Backups {
     }
 
     @Synchronized fun read(c: Context): String {
-        val text = file(c).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val text = file(c).openRead().use { Payloads.readText(it) }
         validate(text)
         return text
+    }
+
+    /** A backup carries queued native intent until the web database acknowledges it.
+     * Import replays these commands through Store, which owns completion history.
+     * Never alter the live mirror or consume the queue while exporting a backup. */
+    fun withActions(text: String, commands: org.json.JSONArray): String {
+        val data = validate(text)
+        if (commands.length() == 0) return text
+        require(commands.length() <= NativeRepo.MAX_COMMANDS) { "פתח את משימה כדי לסנכרן פעולות ממתינות לפני הגיבוי" }
+        data.put("nativeActions", JSONObject().put("schema", 1)
+            .put("commands", org.json.JSONArray(commands.toString())))
+        val result = data.toString()
+        validate(result)
+        return result
+    }
+
+    fun readForExport(c: Context): String = synchronized(NativeRepo) {
+        withActions(read(c), NativeRepo.pending(c))
     }
 
     fun selectFolder(c: Context, uri: Uri) {
@@ -85,7 +103,7 @@ object Backups {
         return try {
             // Never report success with an older snapshot after a failed mirror write.
             require(prefs(c).getString("snapshotError", "").isNullOrBlank()) { "המידע העדכני לא נשמר לגיבוי" }
-            val text = read(c)
+            val text = readForExport(c)
             val uri = prefs(c).getString("folder", "").orEmpty()
             require(uri.isNotBlank()) { "לא נבחרה תיקיית גיבוי" }
             val folder = DocumentFile.fromTreeUri(c, Uri.parse(uri))

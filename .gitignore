@@ -25,3 +25,5 @@ test-results-*.html
 **/firebase-config.json
 **/signing.properties
 _site/
+__pycache__/
+*.pyc
