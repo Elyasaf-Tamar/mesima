@@ -26,6 +26,16 @@ The Pages workflow calls the verification workflow from the same commit and depl
 
 ## Signed Android release
 
+The `Publish signed Android release` workflow runs after `Verify web and Android` succeeds on `main` in this repository. It checks out the exact verified commit, skips a version that is already published, builds the signed Android package, and uploads a draft GitHub Release. It publishes that release only after its asset sizes and SHA-256 hashes match the local package. A failed build or upload leaves the previous published release intact.
+
+For this personal app, the automated build can recover the original signing key from the owner's historical source archive at a pinned Git commit. `tools/ci-android-release.py` verifies the archive, key and public certificate fingerprints before use. It also recovers the existing Firebase client configuration from the pinned, original public 4.9 APK and compares all six packaged Firebase resource values after building. Signing inputs stay in a temporary directory and are removed after the build; they are not included in new commits or release artifacts. Missing or mismatched inputs fail the release rather than creating another key or publishing a local-only APK.
+
+The release includes the signed APK, standalone HTML, public source archives and checksums. Version-specific Hebrew notes come from `RELEASE-NOTES-<version>-HE.md`, with the version's changelog as a fallback. The published tag must identify the exact verified commit. A published release is never silently replaced by a different commit; increment the app version for a new release.
+
+This workflow does not deploy Firebase rules. The 4.9.2 Firestore rules must be deployed separately with an authorized Firebase management identity to support current-version metadata when creating new cloud backups. Client configuration recovery does not provide that management access. The full sync envelope's format change does not change the Firestore pointer's schema or paths.
+
+For a manual build with locally supplied signing inputs:
+
 Supply the existing release key through `MESIMA_KEYSTORE`, `MESIMA_STORE_PASSWORD`, `MESIMA_KEY_ALIAS` and `MESIMA_KEY_PASSWORD`. Do not generate a replacement key for an existing installation.
 
 ```sh

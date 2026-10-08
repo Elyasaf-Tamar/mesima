@@ -1,0 +1,100 @@
+name: Publish signed Android release
+
+on:
+  workflow_run:
+    workflows: ['Verify web and Android']
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'Elyasaf-Tamar/mesima' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == 'Elyasaf-Tamar/mesima' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.release.outputs.needed }}
+    env:
+      MESIMA_RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Check whether this version needs an Android release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/publish-android-release.py check
+
+  release:
+    needs: prepare
+    if: needs.prepare.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    env:
+      MESIMA_RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild the verified standalone app
+        run: |
+          node tools/build.mjs
+          git diff --exit-code -- index.html android/app/src/main/assets/index.html
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build and verify the compatible signed APK
+        run: python3 tools/ci-android-release.py
+
+      - name: Package public release assets
+        run: |
+          python3 tools/archive-source.py
+          python3 tools/publish-android-release.py package
+
+      - name: Save the verified release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesima-signed-release
+          path: dist/android-release/
+          if-no-files-found: error
+
+      - name: Upload, verify and publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/publish-android-release.py publish
