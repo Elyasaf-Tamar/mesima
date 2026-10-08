@@ -1,0 +1,32 @@
+name: Finish verified Android 4.9.2 release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/resume-android-release.yml
+      - tools/resume-android-release.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  finish:
+    if: github.repository == 'Elyasaf-Tamar/mesima' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resume publication of the original verified package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/resume-android-release.py

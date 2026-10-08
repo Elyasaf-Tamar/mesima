@@ -70,7 +70,19 @@ def find_release(tag):
     result = subprocess.run(['gh', 'api', f'repos/{REPOSITORY}/releases/tags/{tag}'],
                             cwd=ROOT, capture_output=True, text=True)
     if result.returncode and '404' in result.stderr:
-        return None
+        # GitHub's tag endpoint omits drafts, including immediately after a
+        # successful `gh release create --draft` and asset upload.
+        page = 1
+        while True:
+            releases = gh('api', f'repos/{REPOSITORY}/releases?per_page=100&page={page}', json_result=True)
+            matches = [release for release in releases if release['tag_name'] == tag]
+            if len(matches) > 1:
+                raise RuntimeError('Multiple releases have the requested tag')
+            if matches:
+                return gh('api', f'repos/{REPOSITORY}/releases/{matches[0]["id"]}', json_result=True)
+            if len(releases) < 100:
+                return None
+            page += 1
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or 'Could not inspect the release')
     return json.loads(result.stdout)
@@ -93,6 +105,8 @@ def check():
 
 
 def verify_assets(release, metadata):
+    if not release:
+        raise RuntimeError('The release could not be found after creation or upload')
     remote = {asset['name']: asset for asset in release['assets']}
     for expected in metadata['assets']:
         asset = remote.get(expected['name'])
@@ -130,7 +144,7 @@ def verify_tag(metadata, create=False):
         raise RuntimeError('The release tag points to another commit; it will not be moved or overwritten')
 
 
-def publish():
+def publish(resume_only=False):
     metadata = json.loads((DESTINATION / 'release.json').read_text())
     if metadata['repository'] != REPOSITORY:
         raise RuntimeError('Unexpected release repository')
@@ -150,13 +164,16 @@ def publish():
             print('The same verified release is already published: ' + release['html_url'])
             return
     else:
+        if resume_only:
+            raise RuntimeError('Resume requires an existing release; no replacement will be created')
         verify_tag(metadata, create=True)
         gh('release', 'create', metadata['tag'], '--repo', REPOSITORY, '--target', metadata['commit'],
            '--title', metadata['title'], '--notes-file', str(DESTINATION / 'release-notes.md'),
            '--verify-tag', '--draft')
     verify_tag(metadata)
-    gh('release', 'upload', metadata['tag'], '--repo', REPOSITORY, '--clobber',
-       *[str(DESTINATION / asset['name']) for asset in metadata['assets']])
+    if not resume_only:
+        gh('release', 'upload', metadata['tag'], '--repo', REPOSITORY, '--clobber',
+           *[str(DESTINATION / asset['name']) for asset in metadata['assets']])
     release = find_release(metadata['tag'])
     verify_assets(release, metadata)
     verify_tag(metadata)
@@ -172,6 +189,7 @@ def publish():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['check', 'package', 'publish'])
+    parser.add_argument('action', choices=['check', 'package', 'publish', 'finish'])
     args = parser.parse_args()
-    {'check': check, 'package': package, 'publish': publish}[args.action]()
+    {'check': check, 'package': package, 'publish': publish,
+     'finish': lambda: publish(resume_only=True)}[args.action]()
