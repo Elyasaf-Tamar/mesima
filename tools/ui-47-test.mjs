@@ -10,8 +10,22 @@ try{
  await card().locator('[data-act="childrenToggle"]').click();assert.equal(await card().locator('.tsub').count(),7);assert.equal(await p.locator('#modal.on').count(),0);
  await card().locator('[data-act="childrenToggle"]').click();assert.equal(await card().locator('.tsub').count(),4);console.log('PASS inline expansion/collapse and no drag icons');
  const before=await p.evaluate(()=>Store.allRoots().map(t=>t.id)),from=p.locator(`.tcard[data-id="${ids.b}"] [data-act="detail"]`),to=card().locator('[data-act="detail"]');
+ // Expanding the children can scroll this container. Raw mouse coordinates do
+ // not scroll locators into view, and the drag's edge autoscroll can otherwise
+ // move the destination away from coordinates captured before the gesture.
+ await p.locator('main').evaluate(el=>{el.scrollTop=0;});
  let a=await from.boundingBox(),b=await to.boundingBox();await p.mouse.move(a.x+100,a.y+12);await p.mouse.down();await p.mouse.move(b.x+100,b.y+12,{steps:5});await p.mouse.up();assert.deepEqual(await p.evaluate(()=>Store.allRoots().map(t=>t.id)),before);await p.evaluate(()=>Modal.shut());
- a=await from.boundingBox();b=await to.boundingBox();await p.mouse.move(a.x+100,a.y+12);await p.mouse.down();await p.waitForTimeout(550);await p.mouse.move(b.x+100,b.y+12,{steps:8});await p.mouse.up();assert.deepEqual(await p.evaluate(()=>Store.allRoots().map(t=>t.id)),before.reverse());console.log('PASS long-press reorder and quick-gesture protection');
+ // Exercise both directions, including the short downward drag when B is first.
+ for(let pass=0;pass<2;pass++){
+  await p.locator('main').evaluate(el=>{el.scrollTop=0;});
+  a=await from.boundingBox();await p.mouse.move(a.x+100,a.y+12);await p.mouse.down();
+  await p.locator(`.tcard[data-id="${ids.b}"].dragging`).waitFor({state:'visible'});
+  b=await to.boundingBox();await p.mouse.move(b.x+100,b.y+12,{steps:8});
+  assert.equal(await card().evaluate(el=>el.classList.contains('drop-target')),true,'The pointer must reach the other card before releasing');
+  await p.mouse.up();
+  assert.deepEqual(await p.evaluate(()=>Store.allRoots().map(t=>t.id)),pass===0?[...before].reverse():before);
+ }
+ console.log('PASS long-press reorder in both directions and quick-gesture protection');
  await p.evaluate(()=>{UI.selDate=Plan.shift(Plan.today(),5);UI.section='today';UI.render();});await p.locator('#tvModes [data-v="day"]').click();assert.equal(await p.evaluate(()=>UI.selDate),await p.evaluate(()=>Plan.today()));console.log('PASS Today resets selected date');
  const habit=await p.evaluate(()=>Store.addTask({title:'תפילת הדרך',note:'הברכה המלאה לצורך בדיקה',mission:'free',repeat:{days:[0,1,2,3,4,5,6],times:['23:58','23:59']}}).id);
  await p.evaluate(id=>window.__alarm('h_'+id+'_'+Plan.today()+'@23:58'),habit);await p.locator('#alert.on').waitFor();assert.match(await p.locator('#alDet').innerText(),/הברכה המלאה/);await p.locator('#alComplete').click();assert.equal(await p.evaluate(id=>Store.habitFull(Store.task(id),Plan.today()),habit),true);console.log('PASS notification description routing and completion');
