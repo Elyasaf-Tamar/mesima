@@ -122,6 +122,49 @@ try{
   await page.evaluate(()=>{delete window.MesimaNative;});
   console.log('PASS fingerprint enable/unlock, auto prompt, protected screen, sensitive copy; a password change turns it off');
 
+  // 4.9.6: an existing note moves to the vault with its formatting and parts, and can come back.
+  await page.evaluate(()=>Vault.lock());
+  const ids=await page.evaluate(()=>{
+    const a=Store.addNote({title:'הערה מעוצבת',html:'<p><b>מודגש סודי</b> ורגיל</p><ul><li>פריט ברשימה</li></ul><img src="x" onerror="window.__xss=1"><script>window.__xss=2</script>'});
+    const b=Store.addNote({title:'הערה בחלקים'});const now=Date.now();
+    Store.updateNote(b.id,{multipart:true,parts:{p1:{id:'p1',title:'חלק ראשון',html:'<p>תוכן חלק א</p>',order:0,createdAt:now,updatedAt:now},p2:{id:'p2',title:'חלק שני',html:'<p><i>תוכן חלק ב</i></p>',order:1,createdAt:now+1,updatedAt:now}}});
+    UI.screen='notes';UI.openNote=null;UI.render();return [a.id,b.id];});
+  const before=await page.evaluate(()=>Store.secrets().length);
+  await page.locator(`#notesList [data-id="${ids[0]}"] [data-act="nMenu"]`).click();
+  await page.locator('#mBody [data-m="vault"]').click();
+  await page.fill('#vPw',PW2);await foot('פתח').click();
+  await page.waitForFunction(([id,n])=>!Store.note(id)&&Store.secrets().length===n+1,[ids[0],before]);
+  assert.equal(await plainLeak('מודגש סודי'),false,'the moved note leaves no plain copy');
+  assert.equal(await page.evaluate(()=>Vault.unlocked()),false,'relocked after moving');
+  await page.locator(`#notesList [data-id="${ids[1]}"] [data-act="nMenu"]`).click();
+  await page.locator('#mBody [data-m="vault"]').click();
+  await page.fill('#vPw',PW2);await foot('פתח').click();
+  await page.waitForFunction(([id,n])=>!Store.note(id)&&Store.secrets().length===n+2,[ids[1],before]);
+  assert.equal(await plainLeak('תוכן חלק א'),false);
+  await page.locator('#nav [data-s="library"]').click();await page.locator('[data-lib="vault"]').click();
+  await page.fill('#vPwMain',PW2);await page.locator('#vUnlock button[type=submit]').click();
+  await page.locator('[data-vitem]').first().waitFor();
+  await page.locator('[data-vitem]',{hasText:'הערה מעוצבת'}).click();
+  assert.equal(await page.locator('#mBody .note-reading b').innerText(),'מודגש סודי','bold kept');
+  assert.equal(await page.locator('#mBody .note-reading li').count(),1,'list kept');
+  assert.equal(await page.locator('#mBody script').count(),0);assert.equal(await page.evaluate(()=>window.__xss),undefined,'html is sanitized');
+  await page.waitForTimeout(300);await page.screenshot({path:'test-results/vault-rich-note.png'});
+  await foot('ערוך').click();
+  await page.locator('[data-vedit] .vbody').click();await page.keyboard.press('End');await page.keyboard.type(' תוספת חדשה');
+  await foot('שמור').click();await page.waitForFunction(()=>!document.querySelector('[data-vedit]'));
+  await page.locator('[data-vitem]',{hasText:'הערה מעוצבת'}).click();
+  assert.match(await page.locator('#mBody .note-reading').innerText(),/תוספת חדשה/);
+  assert.equal(await page.locator('#mBody .note-reading b').count(),1,'formatting survives editing');
+  await page.evaluate(()=>Modal.shut());
+  await page.locator('[data-vact="search"],#vSearch').first().fill('חלק ב');
+  await page.waitForFunction(()=>document.querySelectorAll('[data-vitem]').length===1);
+  await page.locator('[data-vitem]').first().click();
+  assert.equal(await page.locator('#mBody .vpart').count(),2,'both parts shown');
+  await page.locator('[data-vact="to-notes"]').click();await foot('החזר להערות').click();
+  await page.waitForFunction(()=>Store.notes().some(n=>n.title==='הערה בחלקים'&&n.multipart&&Object.keys(n.parts).length===2));
+  assert.equal(await page.evaluate(()=>Store.secrets().length),before+1);
+  console.log('PASS an existing note (formatted or in parts) moves to the vault, stays formatted and sanitized, edits, searches and can return to notes');
+
   await page.reload();await page.evaluate(()=>Engine.stop());
   assert.equal(await page.evaluate(()=>Vault.unlocked()),false);
   await page.evaluate(()=>{UI.screen='vault';UI.render();});await page.locator('#vUnlock').waitFor();

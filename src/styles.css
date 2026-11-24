@@ -795,3 +795,7 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
     border:1px dashed var(--line2);border-radius:var(--r2);background:var(--surface2);word-break:break-all;user-select:all}
   .vchk{display:flex;gap:8px;align-items:center;margin-top:12px}
   .vtext{white-space:normal;overflow-wrap:anywhere;unicode-bidi:plaintext;background:var(--surface2);border-radius:var(--r2);padding:12px;line-height:1.55}
+  #modal [data-vault] .note-reading{font-size:16px;line-height:1.75;padding:2px 0 8px;max-height:55vh;overflow:auto}
+  .vpart h3{font-size:15px;margin:12px 0 4px}.vpart+.vpart{border-top:1px solid var(--line);padding-top:4px}
+  .vedit{display:flex;flex-direction:column;gap:8px}.vedit .vpart{display:flex;flex-direction:column;gap:6px}
+  .vedit .vbody{min-height:120px;max-height:45vh;overflow:auto;background:var(--surface2);border-radius:var(--r2);padding:10px 12px;outline:none}

@@ -11,6 +11,30 @@ const Vault=(()=>{
   const unlocked=()=>keys.size>0;
   const primary=()=>Store.vaultKeys().find(k=>keys.has(k.id))?.id;
   const first=t=>String(t||'').trim().split('\n')[0].slice(0,80)||'ללא כותרת';
+  /* A secret is {text} (plain) or a formatted note moved from הערות:
+     {text,title,html} or {text,title,parts:[{title,html}]}. text is the plain
+     version used for search and copy. */
+  const rich=v=>!!v&&(typeof v.html==='string'||Array.isArray(v.parts));
+  const label=v=>(v?.title||'').trim().slice(0,80)||first(v?.text);
+  function plain(html){
+    const t=document.createElement('template');
+    t.innerHTML=String(html||'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/(p|div|li|h[1-6]|blockquote|pre|tr)>/gi,'$&\n');
+    return (t.content.textContent||'').replace(/\u00a0/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+  }
+  function textOf(v){
+    if(!rich(v))return String(v?.text||'');
+    const body=v.parts?v.parts.map(p=>[p.title,plain(p.html)].filter(Boolean).join('\n')).join('\n\n'):plain(v.html);
+    return [v.title,body].filter(Boolean).join('\n').trim();
+  }
+  // Only the fields a secret may carry; html is cleaned with the notes sanitizer.
+  function payload(v){
+    if(!rich(v))return {text:String(v?.text??v??'')};
+    const out={title:String(v.title||'').trim()};
+    if(Array.isArray(v.parts))out.parts=v.parts.map(p=>({title:String(p.title||'').trim(),html:NoteView.clean(p.html||'')}));
+    else out.html=NoteView.clean(v.html||'');
+    out.text=textOf(out);return out;
+  }
+  const MAX=700000;
 
   /* ---------- native helpers: fingerprint, protected screen ---------- */
   const N=()=>window.MesimaNative,D=()=>window.MesimaDesktop;
@@ -82,7 +106,7 @@ const Vault=(()=>{
   async function consolidate(){
     const keep=primary();if(!keep||keys.size<2)return;const g=gen;
     for(const s of Store.secrets()){const it=items.get(s.id);
-      if(it&&it.keyId!==keep){await seal(it.text,s.id);if(g!==gen)return;}}
+      if(it&&it.keyId!==keep){await seal(it,s.id);if(g!==gen)return;}}
     for(const id of [...keys.keys()])if(id!==keep&&!Store.secrets().some(s=>s.keyId===id&&!items.has(s.id))){Store.delVaultKey(id);keys.delete(id);}
   }
   const signature=()=>Store.secrets().map(s=>s.id+':'+s.box.length+':'+s.updatedAt).join('|');
@@ -91,9 +115,9 @@ const Vault=(()=>{
     if(UI.screen!=='vault')autoBio=false;
     if(!unlocked()&&!items.size)return;
     // An open editor is sealed as it is, so a lock never throws away typing.
-    const ed=document.getElementById('vText'),draft=ed&&ed.value.trim(),edId=ed?.dataset.id||'',keyId=primary(),k=keys.get(keyId);
+    const draft=readEditor(),edId=document.querySelector('[data-vedit]')?.dataset.id||'',keyId=primary(),k=keys.get(keyId);
     keys.clear();items.clear();clearTimeout(idleTimer);query='';
-    if(draft&&k){const id=edId||Store.newId();VaultCrypto.seal(k,keyId,id,{text:draft}).then(box=>{Store.putSecret({id,keyId,box});UI.toast('הטיוטה נשמרה מוצפנת בכספת');}).catch(()=>{});}
+    if(draft&&k){const id=edId||Store.newId();VaultCrypto.seal(k,keyId,id,draft).then(box=>{Store.putSecret({id,keyId,box});UI.toast('הטיוטה נשמרה מוצפנת בכספת');}).catch(()=>{});}
     // The recovery-code dialog stays open: the user may be copying it.
     const body=Modal.body;if($('#modal.on')&&body?.querySelector('[data-vault]')&&!body.querySelector('#vSaved'))Modal.shut();
     const vb=$('#vaultBody');if(vb)vb.innerHTML='';
@@ -102,11 +126,13 @@ const Vault=(()=>{
   }
   function touch(){clearTimeout(idleTimer);if(unlocked())idleTimer=setTimeout(()=>{lock();UI.toast('הכספת ננעלה');},IDLE);}
 
-  async function seal(text,id=Store.newId()){
+  async function seal(value,id=Store.newId()){
     const keyId=primary(),g=gen;if(!keyId)throw Error('הכספת נעולה');
-    const box=await VaultCrypto.seal(keys.get(keyId),keyId,id,{text});
+    const v=payload(typeof value==='string'?{text:value}:value);
+    if(JSON.stringify(v).length>MAX)throw Error('ההערה גדולה מדי לכספת (כנראה בגלל תמונות). הסר תמונות ונסה שוב');
+    const box=await VaultCrypto.seal(keys.get(keyId),keyId,id,v);
     if(g!==gen)throw Error('הכספת ננעלה לפני השמירה');
-    Store.putSecret({id,keyId,box});items.set(id,{text,box,keyId});lastSecrets=signature();return id;
+    Store.putSecret({id,keyId,box});items.set(id,{...v,box,keyId});lastSecrets=signature();return id;
   }
 
   /* ---------- password prompt for actions from outside the vault ---------- */
@@ -136,6 +162,27 @@ const Vault=(()=>{
   async function storeText(text,after){
     const value=String(text||'').trim();if(!value)return false;
     return withKey(async()=>{await seal(value);UI.toast('נשמר בכספת · מוצפן');after?.();},'הטקסט יישמר מוצפן בכספת.');
+  }
+
+  /* Moves a note from הערות into the vault, formatting and parts included.
+     The note is removed only after the encrypted copy is saved. */
+  async function moveNote(id,after){
+    const n=Store.note(id);if(!n)return false;
+    const v=n.multipart?{title:n.title,parts:NoteView.parts(n).map(p=>({title:p.title,html:p.html}))}:{title:n.title,html:n.html||''};
+    if(!textOf(payload(v)).trim()&&!/<img/i.test(JSON.stringify(v))){UI.toast('ההערה ריקה');return false;}
+    return withKey(async()=>{
+      if(!Store.note(id))throw Error('ההערה כבר לא קיימת');
+      await seal(v);Store.delNote(id);after?.();UI.toast('ההערה הועברה לכספת · מוצפנת');
+    },'ההערה תוצפן ותעבור לכספת, עם העיצוב שלה, ותימחק מרשימת ההערות.');
+  }
+  function backToNotes(id){
+    const v=items.get(id);if(!v||!Store.secret(id))return;
+    Modal.open({title:'להחזיר להערות?',body:'<div data-vault><p class="ex">הפתק יוצא מהכספת ויהיה גלוי שוב לכל מי שפותח את האפליקציה.</p></div>',
+      buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'החזר להערות',kind:'p',act:()=>{
+        const n=Store.addNote({title:v.title||first(v.text),html:v.parts?'':(rich(v)?v.html:esc(v.text).replace(/\n/g,'<br>'))});
+        if(v.parts){const now=Date.now(),parts={};v.parts.forEach((p,i)=>{const pid=crypto.randomUUID();parts[pid]={id:pid,title:p.title,html:p.html,order:i,createdAt:now+i,updatedAt:now};});
+          Store.updateNote(n.id,{multipart:true,parts});}
+        Store.delSecret(id);items.delete(id);lastSecrets=signature();Modal.shut();render();UI.toast('הוחזר להערות');}}]});
   }
 
   // Copied secrets are wiped from the clipboard after 30 seconds (best effort).
@@ -196,14 +243,14 @@ const Vault=(()=>{
   function listView(){
     const q=query.trim().toLowerCase();
     const rows=Store.secrets().filter(s=>items.has(s.id)).map(s=>({s,v:items.get(s.id)}))
-      .filter(({v})=>!q||v.text.toLowerCase().includes(q)).sort((a,b)=>b.s.updatedAt-a.s.updatedAt);
+      .filter(({v})=>!q||String(v.text||'').toLowerCase().includes(q)).sort((a,b)=>b.s.updatedAt-a.s.updatedAt);
     const hidden=Store.secrets().filter(s=>!items.has(s.id)).length;
     return `<div class="vbar"><input type="search" id="vSearch" placeholder="חיפוש בכספת" value="${esc(query)}" autocomplete="off">
         <button class="btn" data-vact="lock">נעל</button></div>
       <button class="btn p wide" data-vact="new" style="margin:10px 0 14px">+ פתק סודי</button>
       ${rows.length?rows.map(({s,v})=>`<button class="row vrow" data-vitem="${esc(s.id)}" style="width:100%;text-align:start">
-        <div class="bd"><div class="t">${esc(first(v.text))}</div><div class="m">${esc(UI.fmtDate(s.updatedAt))}</div></div><span class="chev">‹</span></button>`).join('')
-        :`<div class="empty"><div class="d">${q?'אין התאמות':'אין עדיין פתקים סודיים. גם מתוך מסך הפתקים אפשר לשלוח ישר לכספת (🔒).'}</div></div>`}
+        <div class="bd"><div class="t">${esc(label(v))}</div><div class="m">${rich(v)?'הערה · ':''}${esc(UI.fmtDate(s.updatedAt))}</div></div><span class="chev">‹</span></button>`).join('')
+        :`<div class="empty"><div class="d">${q?'אין התאמות':'אין עדיין פתקים סודיים. אפשר לשלוח ישר לכספת ממסך הפתקים (🔒), או להעביר הערה קיימת דרך התפריט ⋯ שלה.'}</div></div>`}
       ${hidden?`<div class="ex" style="margin-top:10px">${hidden} פתקים לא נפתחו: ${Store.secrets().some(s=>!items.has(s.id)&&!Store.vaultKeys().some(k=>k.id===s.keyId))?'המפתח שלהם לא נמצא (אולי שוחזר גיבוי ישן).':'הם מוצפנים בסיסמה אחרת.'}</div>`:''}
       <h2 class="sh" style="margin-top:26px">אבטחה</h2>
       <button class="row" data-vact="password" style="width:100%;text-align:start"><div class="bd"><div class="t">שינוי סיסמה</div></div><span class="chev">‹</span></button>
@@ -213,23 +260,42 @@ const Vault=(()=>{
   }
 
   /* ---------- note view / edit ---------- */
+  function bodyHtml(v){
+    if(!rich(v))return `<div class="vtext">${esc(v.text).replace(/\n/g,'<br>')}</div>`;
+    if(v.parts)return v.parts.map(p=>`<section class="vpart"><h3>${esc(p.title||'ללא כותרת')}</h3><article class="note-reading">${NoteView.clean(p.html)}</article></section>`).join('');
+    return `<article class="note-reading vrich">${NoteView.clean(v.html)||'<p class="note">אין תוכן</p>'}</article>`;
+  }
   function view(id){
     const v=items.get(id),s=Store.secret(id);if(!v||!s)return;
-    Modal.open({title:first(v.text),body:`<div data-vault><div class="vtext">${esc(v.text).replace(/\n/g,'<br>')}</div>
-        <div class="m" style="margin-top:8px">עודכן ${esc(UI.fmtDate(s.updatedAt))}</div></div>`,
+    Modal.open({title:label(v),body:`<div data-vault>${bodyHtml(v)}
+        <div class="m" style="margin-top:8px">עודכן ${esc(UI.fmtDate(s.updatedAt))}</div>
+        <button class="txtbtn" data-vact="to-notes" data-id="${esc(id)}" style="margin-top:6px">החזר להערות</button></div>`,
       buttons:[{label:'מחק',act:()=>{Modal.shut();const copy=Store.delSecret(id);items.delete(id);render();
           UI.undo('הפתק הסודי נמחק',()=>{Store.restoreSecret(copy);decryptAll().then(render);});}},
         {label:'העתק',act:()=>copySecret(v.text)},
         {label:'ערוך',kind:'p',act:()=>edit(id)}]});
   }
+  // Whatever is in the open editor, as a payload (or null when empty).
+  function readEditor(){
+    const root=document.querySelector('[data-vedit]');if(!root)return null;
+    if(root.dataset.vedit==='plain'){const t=root.value.trim();return t?{text:t}:null;}
+    const title=root.querySelector('.vtitle')?.value.trim()||'';
+    const v=root.dataset.vedit==='parts'
+      ?{title,parts:[...root.querySelectorAll('[data-vpart]')].map(p=>({title:p.querySelector('.vptitle').value.trim(),html:p.querySelector('.vbody').innerHTML}))}
+      :{title,html:root.querySelector('.vbody').innerHTML};
+    const out=payload(v);return out.text.trim()||/<img/i.test(JSON.stringify(out))?out:null;
+  }
   function edit(id){
-    const v=id?items.get(id):null;
-    Modal.open({title:id?'עריכת פתק סודי':'פתק סודי חדש',body:`<div data-vault><textarea id="vText" data-id="${id?esc(id):''}" rows="8" dir="auto" placeholder="מה לשמור בסוד?">${v?esc(v.text):''}</textarea>
-        <div class="verr" id="vErr" role="alert"></div></div>`,
+    const v=id?items.get(id):null,eid=id?esc(id):'';
+    const ed=!rich(v)?`<textarea id="vText" data-vedit="plain" data-id="${eid}" rows="8" dir="auto" placeholder="מה לשמור בסוד?">${v?esc(v.text):''}</textarea>`
+      :`<div data-vedit="${v.parts?'parts':'rich'}" data-id="${eid}" class="vedit"><input class="vtitle" value="${esc(v.title||'')}" placeholder="כותרת" dir="auto">
+        ${v.parts?v.parts.map(p=>`<div data-vpart class="vpart"><input class="vptitle" value="${esc(p.title||'')}" placeholder="כותרת החלק" dir="auto"><div class="vbody note-reading" contenteditable="true" dir="auto">${NoteView.clean(p.html)}</div></div>`).join('')
+          :`<div class="vbody note-reading" contenteditable="true" dir="auto">${NoteView.clean(v.html)}</div>`}</div>`;
+    Modal.open({title:id?'עריכת פתק סודי':'פתק סודי חדש',body:`<div data-vault>${ed}<div class="verr" id="vErr" role="alert"></div></div>`,
       buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'שמור',kind:'p',act:async()=>{
-        const t=$('#vText').value.trim();if(!t){$('#vErr').textContent='פתק ריק לא נשמר';return;}
-        try{await seal(t,id||undefined);Modal.shut();render();UI.toast(id?'נשמר':'נשמר בכספת');}catch(e){$('#vErr').textContent=e.message;}}}]});
-    setTimeout(()=>$('#vText')?.focus(),60);
+        const p=readEditor();if(!p){$('#vErr').textContent='פתק ריק לא נשמר';return;}
+        try{await seal(p,id||undefined);Modal.shut();render();UI.toast(id?'נשמר':'נשמר בכספת');}catch(e){$('#vErr').textContent=e.message;}}}]});
+    setTimeout(()=>($('#vText')||document.querySelector('[data-vedit] .vbody'))?.focus(),60);
   }
 
   /* ---------- password / recovery flows ---------- */
@@ -300,6 +366,7 @@ const Vault=(()=>{
         else if(k==='forgot')forgot();
         else if(k==='password')changePassword();
         else if(k==='recovery')newRecovery();
+        else if(k==='to-notes')backToNotes(a.dataset.id);
         return;}
       const it=t.closest('[data-vitem]');if(it)view(it.dataset.vitem);
     });
@@ -313,5 +380,5 @@ const Vault=(()=>{
     setInterval(()=>{if(unlocked()&&!busy&&UI.screen!=='vault')lock();},800);
     Store.onChange(()=>{if(unlocked()&&signature()!==lastSecrets)decryptAll().then(()=>{if(UI.screen==='vault'&&!UI.typing())render();});});
   }
-  return {init,render,lock,storeText,withKey,isSetUp,unlocked};
+  return {init,render,lock,storeText,moveNote,withKey,isSetUp,unlocked};
 })();

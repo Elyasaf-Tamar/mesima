@@ -1553,6 +1553,7 @@ const Wire = (() => {
           <button class="pick" data-m="pin"><span class="pn">${n.pinned?'בטל נעיצה':'נעץ למעלה'}</span></button>
           <button class="pick" data-m="dup"><span class="pn">שכפל</span></button>
           <button class="pick" data-m="exp"><span class="pn">ייצוא כקובץ</span></button>
+          <button class="pick" data-m="vault"><span class="pn">🔒 העבר לכספת</span></button>
           <button class="pick" data-m="del"><span class="pn" style="color:var(--danger)">מחיקה</span></button>`,
         buttons:[{label:'סגור',act:()=>Modal.shut()}]});
       Modal.body.addEventListener('click', e => {
@@ -1567,6 +1568,8 @@ const Wire = (() => {
             + 'font:16px/1.75 system-ui,sans-serif"><h1>'+esc(n.title||'הערה')+'</h1>'+NoteView.clean(NoteView.html(n))+'</body>';
           UI.download('note-'+(n.title||n.id).slice(0,30)+'.html', doc, 'text/html;charset=utf-8');
         }
+        if (k==='vault'){NoteView.finish(false);Vault.moveNote(id,()=>{
+          if(UI.openNote===id){UI.openNote=null;$('#nTitle').value='';NB().innerHTML='';}UI.render();});}
         if (k==='del'){NoteView.finish(false);if(UI.openNote===id)UI.openNote=null; Store.delNote(id); UI.toast('נמחק'); }
       });
     }
