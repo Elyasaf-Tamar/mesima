@@ -31,7 +31,7 @@ try{
   await page.locator('[data-vact="new"]').click();await page.fill('#vText','סיסמת בנק 1234\nשורה שנייה');await foot('שמור').click();
   await page.locator('[data-vitem]').first().waitFor();
   assert.match(await page.locator('[data-vitem]').first().innerText(),/סיסמת בנק 1234/);
-  assert.equal(await plainLeak('1234'),false,'no plaintext in the store or localStorage');
+  assert.equal(await plainLeak('סיסמת בנק'),false,'no plaintext in the store or localStorage');
   assert.equal(await page.evaluate(()=>Store.secrets().length),1);
   await page.waitForTimeout(300);await page.screenshot({path:'test-results/vault-open.png'});
   console.log('PASS a secret note is listed while open and stored only encrypted');
@@ -54,17 +54,17 @@ try{
   await page.locator('#nav [data-s="capture"]').click();
   await page.locator('#capLock').click();assert.equal(await page.locator('#capBar.secret').count(),1);
   await page.fill('#capInput','קוד כספומט 9876');
-  assert.equal(await plainLeak('9876'),false,'secret mode keeps no draft');
+  assert.equal(await plainLeak('כספומט'),false,'secret mode keeps no draft');
   await page.locator('#capInput').press('Enter');
   await page.fill('#vPw',PW);await foot('פתח').click();
   await page.waitForFunction(()=>Store.secrets().length===2);
   assert.equal(await page.locator('#capBar.secret').count(),0);assert.equal(await page.locator('#capInput').inputValue(),'');
-  assert.equal(await plainLeak('9876'),false);assert.equal(await page.evaluate(()=>Vault.unlocked()),false,'relocked after use');
+  assert.equal(await plainLeak('כספומט'),false);assert.equal(await page.evaluate(()=>Vault.unlocked()),false,'relocked after use');
   await page.fill('#capInput','פרטי כרטיס 5555');await page.locator('#capInput').press('Enter');
   await page.locator('.cbub').last().locator('.ctime').click();await page.locator('[data-capact="vault"]').click();
   await page.fill('#vPw',PW);await foot('פתח').click();
   await page.waitForFunction(()=>Store.secrets().length===3&&!Store.captures().length);
-  assert.equal(await plainLeak('5555'),false);
+  assert.equal(await plainLeak('פרטי כרטיס'),false);
   console.log('PASS the lock button and "move to vault" store notes encrypted, leave no plain copy and relock');
 
   await page.locator('#nav [data-s="library"]').click();await page.locator('[data-lib="vault"]').click();
@@ -82,7 +82,7 @@ try{
   // Review fixes: an open editor is sealed on lock; the recovery dialog survives a lock; a new code applies only after confirming.
   await page.locator('[data-vact="new"]').click();await page.fill('#vText','טיוטה חצי כתובה 777');
   await page.evaluate(()=>Vault.lock());
-  await page.waitForFunction(()=>Store.secrets().length===4);assert.equal(await plainLeak('777'),false);
+  await page.waitForFunction(()=>Store.secrets().length===4);assert.equal(await plainLeak('חצי כתובה'),false);
   await page.fill('#vPwMain',PW2);await page.locator('#vUnlock button[type=submit]').click();await page.locator('[data-vitem]').first().waitFor();
   assert.ok((await page.locator('[data-vitem] .t').allInnerTexts()).includes('טיוטה חצי כתובה 777'));
   const rcBefore=await page.evaluate(()=>Store.vaultKeys()[0].rc);
@@ -95,6 +95,32 @@ try{
   await page.locator('[data-vact="forgot"]').click();await page.fill('#vRc',code2);await page.fill('#vN1',PW);await page.fill('#vN2',PW);await foot('שחזר').click();
   await page.locator('[data-vitem]').first().waitFor();
   console.log('PASS lock seals an open editor, keeps the recovery dialog, and a new code applies only after confirming');
+
+  // Fingerprint (APK 1.8.3 bridge), mocked: enable stores the password natively; unlock returns it after a "scan".
+  await page.evaluate(()=>{window.__bioLog=[];let stored=null;window.MesimaNative={
+    vaultBioAvailable:()=>true,vaultBioEnabled:()=>stored!==null,vaultBioDisable(){stored=null;__bioLog.push('off');},
+    vaultBioEnable(pw){stored=pw;setTimeout(()=>window.__vaultBio({op:'enable',ok:true,error:''}),20);},
+    vaultBioUnlock(){setTimeout(()=>window.__vaultBio(stored?{op:'unlock',ok:true,password:stored,error:''}:{op:'unlock',ok:false,password:'',error:'off'}),20);},
+    setSecure(on){__bioLog.push('secure:'+on);},copySensitive(t){__bioLog.push('copy:'+t.length);return true;}};UI.render();});
+  await page.locator('[data-vact="bio-toggle"]').waitFor();await page.locator('[data-vact="bio-toggle"]').click();
+  await page.fill('#vOld','wrong one!');await foot('המשך').click();await page.waitForFunction(()=>/שגויה/.test(document.getElementById('vErr')?.textContent||''));
+  await page.fill('#vOld',PW);await foot('המשך').click();
+  await page.waitForFunction(()=>window.MesimaNative.vaultBioEnabled());
+  await page.locator('[data-vact="lock"]').click();await page.locator('#vUnlock').waitFor();
+  await page.locator('[data-vact="bio"]').click();await page.locator('[data-vitem]').first().waitFor();
+  const log=await page.evaluate(()=>__bioLog);assert.ok(log.includes('secure:true')&&log.includes('secure:false'),'protected screen follows the lock: '+log);
+  await page.locator('[data-vitem]').first().click();await foot('העתק').click();
+  assert.ok((await page.evaluate(()=>__bioLog)).some(x=>x.startsWith('copy:')),'copy uses the sensitive native clipboard');
+  await page.evaluate(()=>Modal.shut());
+  await page.locator('#nav [data-s="capture"]').click();await page.locator('#capLock').click();await page.fill('#capInput','דרך טביעת אצבע 31');await page.locator('#capInput').press('Enter');
+  await page.waitForFunction(()=>Store.secrets().length===5);assert.equal(await page.evaluate(()=>Vault.unlocked()),false);
+  await page.evaluate(()=>window.__vaultLock());
+  await page.locator('#nav [data-s="library"]').click();await page.locator('[data-lib="vault"]').click();
+  await page.locator('[data-vitem]').first().waitFor(); // auto fingerprint prompt on entering the vault
+  await page.locator('[data-vact="password"]').click();await page.fill('#vOld',PW);await page.fill('#vN1',PW2);await page.fill('#vN2',PW2);await foot('שנה').click();
+  await page.waitForFunction(()=>!window.MesimaNative.vaultBioEnabled());
+  await page.evaluate(()=>{delete window.MesimaNative;});
+  console.log('PASS fingerprint enable/unlock, auto prompt, protected screen, sensitive copy; a password change turns it off');
 
   await page.reload();await page.evaluate(()=>Engine.stop());
   assert.equal(await page.evaluate(()=>Vault.unlocked()),false);

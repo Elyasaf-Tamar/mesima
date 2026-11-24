@@ -12,6 +12,27 @@ const Vault=(()=>{
   const primary=()=>Store.vaultKeys().find(k=>keys.has(k.id))?.id;
   const first=t=>String(t||'').trim().split('\n')[0].slice(0,80)||'ללא כותרת';
 
+  /* ---------- native helpers: fingerprint, protected screen ---------- */
+  const N=()=>window.MesimaNative,D=()=>window.MesimaDesktop;
+  const bioCan=()=>{try{return typeof N()?.vaultBioEnable==='function'&&!!N().vaultBioAvailable();}catch{return false;}};
+  const bioOn=()=>{try{return bioCan()&&!!N().vaultBioEnabled();}catch{return false;}};
+  let bioWait=null,autoBio=false;
+  function bio(op,arg){return new Promise(res=>{bioWait=res;
+    try{op==='enable'?N().vaultBioEnable(arg):N().vaultBioUnlock();}catch(e){bioWait=null;res({ok:false,error:e.message});}});}
+  function secure(on){try{N()?.setSecure?.(!!on);}catch{}try{D()?.setSecure?.(!!on);}catch{}}
+  // Fingerprint returns the stored password, which then unlocks like a typed one.
+  async function bioUnlock(opts){
+    const r=await bio('unlock');
+    if(!r?.ok){
+      if(r?.error==='invalidated')UI.toast('נוספה טביעת אצבע חדשה למכשיר, ולכן הפתיחה בטביעת אצבע כובתה. פתח בסיסמה והפעל מחדש');
+      else if(r?.error&&r.error!=='cancel'&&r.error!=='off')UI.toast(r.error);
+      return false;
+    }
+    try{await unlockWith(r.password,opts);return true;}
+    catch(e){if(/שגויה/.test(e.message)){try{N().vaultBioDisable();}catch{}UI.toast('הסיסמה שונתה. פתח בסיסמה החדשה והפעל מחדש טביעת אצבע');}else UI.toast(e.message);return false;}
+  }
+  function bioOff(){if(bioOn()){try{N().vaultBioDisable();}catch{}return true;}return false;}
+
   /* ---------- attempts ---------- */
   function fails(){try{return JSON.parse(localStorage.getItem(FAILS))||{n:0,until:0};}catch{return {n:0,until:0};}}
   function waitLeft(){return Math.max(0,fails().until-Date.now());}
@@ -35,7 +56,7 @@ const Vault=(()=>{
     }finally{inFlight=false;}
     if(g!==gen)throw Error('הכספת ננעלה');
     if(!ok){failed();throw Error(waitLeft()?'סיסמה שגויה. '+waitText():'סיסמה שגויה');}
-    found.forEach(([id,k])=>keys.set(id,k));succeeded();touch();
+    found.forEach(([id,k])=>keys.set(id,k));succeeded();touch();secure(true);
     if(decrypt){await decryptAll();await consolidate();}
     return true;
   }
@@ -67,6 +88,7 @@ const Vault=(()=>{
   const signature=()=>Store.secrets().map(s=>s.id+':'+s.box.length+':'+s.updatedAt).join('|');
   function lock(){
     gen++;
+    if(UI.screen!=='vault')autoBio=false;
     if(!unlocked()&&!items.size)return;
     // An open editor is sealed as it is, so a lock never throws away typing.
     const ed=document.getElementById('vText'),draft=ed&&ed.value.trim(),edId=ed?.dataset.id||'',keyId=primary(),k=keys.get(keyId);
@@ -75,6 +97,7 @@ const Vault=(()=>{
     // The recovery-code dialog stays open: the user may be copying it.
     const body=Modal.body;if($('#modal.on')&&body?.querySelector('[data-vault]')&&!body.querySelector('#vSaved'))Modal.shut();
     const vb=$('#vaultBody');if(vb)vb.innerHTML='';
+    if(!document.getElementById('vSaved'))secure(false);
     if(UI.screen==='vault')render();
   }
   function touch(){clearTimeout(idleTimer);if(unlocked())idleTimer=setTimeout(()=>{lock();UI.toast('הכספת ננעלה');},IDLE);}
@@ -91,8 +114,10 @@ const Vault=(()=>{
     Modal.open({title,body:`<div data-vault>${why?`<div class="ex" style="margin-bottom:10px">${why}</div>`:''}
         <input type="password" id="vPw" autocomplete="current-password" placeholder="סיסמת הכספת" dir="auto">
         <div class="verr" id="vErr" role="alert"></div></div>`,
-      buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'פתח',kind:'p',act:submit}]});
+      buttons:[{label:'ביטול',act:()=>Modal.shut()},...(bioOn()?[{label:'טביעת אצבע',act:viaBio}]:[]),{label:'פתח',kind:'p',act:submit}]});
     const pw=$('#vPw');setTimeout(()=>pw?.focus(),60);
+    if(bioOn())setTimeout(viaBio,150);
+    async function viaBio(){busy++;try{if(await bioUnlock({decrypt:false})){Modal.shut();await onOk();}}finally{busy--;}}
     pw.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submit();}});
     async function submit(){
       const err=$('#vErr');err.textContent='פותח…';
@@ -116,20 +141,23 @@ const Vault=(()=>{
   // Copied secrets are wiped from the clipboard after 30 seconds (best effort).
   let clipTimer=0;
   async function copySecret(text,msg='הועתק · הלוח יתנקה בעוד 30 שניות'){
-    try{await navigator.clipboard.writeText(text);UI.toast(msg);clearTimeout(clipTimer);
-      clipTimer=setTimeout(()=>{navigator.clipboard.writeText('').catch(()=>{});},30000);}
+    const native=typeof N()?.copySensitive==='function';
+    try{if(native){if(!N().copySensitive(text))throw 0;}else await navigator.clipboard.writeText(text);
+      UI.toast(msg);clearTimeout(clipTimer);
+      clipTimer=setTimeout(()=>{try{native?N().copySensitive(''):navigator.clipboard.writeText('').catch(()=>{});}catch{}},30000);}
     catch{UI.toast('העתקה לא זמינה — העתק ידנית');}
   }
 
   /* ---------- recovery code display ---------- */
   function showCode(code,then,onConfirm){
+    secure(true);
     Modal.open({title:'קוד השחזור שלך',body:`<div data-vault>
         <p class="ex">אם תשכח את הסיסמה, רק הקוד הזה פותח את הכספת. שמור אותו מחוץ לטלפון ולמחשב — הדפס, כתוב על דף, או שמור במנהל סיסמאות. הוא לא יוצג שוב.</p>
         <div class="vcode" dir="ltr">${esc(code)}</div>
         <button class="btn wide" id="vCopy">העתק</button>
         <label class="vchk"><input type="checkbox" id="vSaved"> שמרתי את הקוד במקום בטוח</label>
         <div class="verr" id="vErr" role="alert"></div></div>`,
-      buttons:[{label:'סיום',kind:'p',act:()=>{if(!$('#vSaved').checked){$('#vErr').textContent='סמן שהקוד שמור לפני שממשיכים';return;}onConfirm?.();Modal.shut();then?.();}}]});
+      buttons:[{label:'סיום',kind:'p',act:()=>{if(!$('#vSaved').checked){$('#vErr').textContent='סמן שהקוד שמור לפני שממשיכים';return;}onConfirm?.();Modal.shut();secure(unlocked());then?.();}}]});
     Modal.closeGuard=()=>{if($('#vSaved')?.checked)return true;$('#vErr').textContent='סמן שהקוד שמור לפני שממשיכים';return false;};
     $('#vCopy').addEventListener('click',()=>copySecret(code,'הועתק — הדבק במקום בטוח. הלוח יתנקה בעוד 30 שניות'));
   }
@@ -138,7 +166,9 @@ const Vault=(()=>{
   function render(){
     const box=$('#vaultBody');if(!box)return;
     if(!isSetUp())return void(box.innerHTML=setupView());
-    if(!unlocked())return void(box.innerHTML=lockedView());
+    if(!unlocked()){box.innerHTML=lockedView();
+      if(bioOn()&&!autoBio&&!waitLeft()){autoBio=true;setTimeout(()=>{if(UI.screen==='vault'&&!unlocked())bioUnlock().then(ok=>{if(ok)render();});},200);}
+      return;}
     box.innerHTML=listView();
   }
   function setupView(){
@@ -160,6 +190,7 @@ const Vault=(()=>{
         <input type="password" id="vPwMain" autocomplete="current-password" placeholder="סיסמת הכספת" dir="auto">
         <div class="verr" id="vErr" role="alert">${wait?esc('יותר מדי ניסיונות. '+waitText()):''}</div>
         <button class="btn p wide" type="submit">פתח</button>
+        ${bioOn()?'<button class="btn wide" type="button" data-vact="bio">פתח בטביעת אצבע</button>':''}
         <button class="txtbtn" type="button" data-vact="forgot">שכחתי את הסיסמה</button></form>`;
   }
   function listView(){
@@ -176,7 +207,9 @@ const Vault=(()=>{
       ${hidden?`<div class="ex" style="margin-top:10px">${hidden} פתקים לא נפתחו: ${Store.secrets().some(s=>!items.has(s.id)&&!Store.vaultKeys().some(k=>k.id===s.keyId))?'המפתח שלהם לא נמצא (אולי שוחזר גיבוי ישן).':'הם מוצפנים בסיסמה אחרת.'}</div>`:''}
       <h2 class="sh" style="margin-top:26px">אבטחה</h2>
       <button class="row" data-vact="password" style="width:100%;text-align:start"><div class="bd"><div class="t">שינוי סיסמה</div></div><span class="chev">‹</span></button>
-      <button class="row" data-vact="recovery" style="width:100%;text-align:start"><div class="bd"><div class="t">קוד שחזור חדש</div><div class="m">הקוד הקודם יפסיק לעבוד</div></div><span class="chev">‹</span></button>`;
+      <button class="row" data-vact="recovery" style="width:100%;text-align:start"><div class="bd"><div class="t">קוד שחזור חדש</div><div class="m">הקוד הקודם יפסיק לעבוד</div></div><span class="chev">‹</span></button>
+      ${bioCan()?`<div class="set" style="margin-top:6px"><div class="sb"><div class="st">פתיחה בטביעת אצבע</div><div class="sd">במכשיר הזה בלבד. הסיסמה נשמרת במנעול של Android ונפתחת רק בטביעת אצבע</div></div>
+        <button class="sw" data-vact="bio-toggle" aria-checked="${bioOn()}"></button></div>`:''}`;
   }
 
   /* ---------- note view / edit ---------- */
@@ -217,7 +250,7 @@ const Vault=(()=>{
       same(val('vN1'),val('vN2'));let ok=0;
       for(const rec of Store.vaultKeys()){const next=await VaultCrypto.setPassword(rec,val('vRc'),true,val('vN1'));if(next){Store.setVaultKey(next);ok++;}}
       if(!ok)throw Error('קוד השחזור לא מתאים');
-      succeeded();await unlockWith(val('vN1'));Modal.shut();render();UI.toast('הסיסמה הוחלפה');});
+      succeeded();const hadBio=bioOff();await unlockWith(val('vN1'));Modal.shut();render();UI.toast('הסיסמה הוחלפה'+(hadBio?' · הפעל מחדש טביעת אצבע':''));});
   }
   function changePassword(){
     form('שינוי סיסמה',[{id:'vOld',ph:'הסיסמה הנוכחית',ac:'current-password'},{id:'vN1',ph:'סיסמה חדשה',ac:'new-password'},{id:'vN2',ph:'שוב את הסיסמה החדשה',ac:'new-password'}],'שנה',async val=>{
@@ -225,7 +258,7 @@ const Vault=(()=>{
       same(val('vN1'),val('vN2'));let ok=0;
       for(const rec of Store.vaultKeys()){const next=await VaultCrypto.setPassword(rec,val('vOld'),false,val('vN1'));if(next){Store.setVaultKey(next);ok++;}}
       if(!ok){failed();throw Error('הסיסמה הנוכחית שגויה');}
-      succeeded();Modal.shut();UI.toast('הסיסמה שונתה · קוד השחזור לא השתנה');});
+      succeeded();Modal.shut();UI.toast('הסיסמה שונתה · קוד השחזור לא השתנה'+(bioOff()?' · הפעל מחדש טביעת אצבע':''));render();});
   }
   function newRecovery(){
     form('קוד שחזור חדש',[{note:'הקוד הקודם יפסיק לעבוד. יוצג קוד חדש פעם אחת.'},{id:'vOld',ph:'סיסמת הכספת',ac:'current-password'}],'צור קוד',async val=>{
@@ -234,6 +267,14 @@ const Vault=(()=>{
       if(!out){failed();throw Error('הסיסמה שגויה');}
       // The new code replaces the old one only after the user confirms it is saved.
       succeeded();showCode(out.recovery,null,()=>{const cur=Store.vaultKeys().find(k=>k.id===out.record.id);if(cur)Store.setVaultKey({...cur,rc:out.record.rc});UI.toast('קוד השחזור הוחלף');});});
+  }
+
+  function toggleBio(){
+    if(bioOn()){try{N().vaultBioDisable();}catch{}UI.toast('פתיחה בטביעת אצבע כובתה');render();return;}
+    form('הפעלת טביעת אצבע',[{note:'הקלד את סיסמת הכספת. היא תישמר מוצפנת במנעול של Android ותיפתח רק בטביעת אצבע.'},{id:'vOld',ph:'סיסמת הכספת',ac:'current-password'}],'המשך',async val=>{
+      const rec=Store.vaultKeys().find(k=>k.id===primary());if(!rec||!await VaultCrypto.unlock(rec,val('vOld')))throw Error('הסיסמה שגויה');
+      const pw=val('vOld');Modal.shut();const r=await bio('enable',pw);
+      UI.toast(r?.ok?'מעכשיו אפשר לפתוח בטביעת אצבע':(r?.error==='cancel'?'בוטל':(r?.error||'לא הופעל')));render();});
   }
 
   /* ---------- wiring ---------- */
@@ -252,7 +293,9 @@ const Vault=(()=>{
       if(unlocked())touch();
       const a=t.closest('[data-vact]');
       if(a){const k=a.dataset.vact;
-        if(k==='lock'){lock();UI.toast('הכספת ננעלה');}
+        if(k==='lock'){autoBio=true;lock();UI.toast('הכספת ננעלה');}
+        else if(k==='bio')bioUnlock().then(ok=>{if(ok)render();});
+        else if(k==='bio-toggle')toggleBio();
         else if(k==='new')edit(null);
         else if(k==='forgot')forgot();
         else if(k==='password')changePassword();
@@ -262,7 +305,10 @@ const Vault=(()=>{
     });
     document.addEventListener('input',e=>{if(e.target.closest?.('#s-vault,#modal')&&unlocked())touch();
       if(e.target.id==='vSearch'){query=e.target.value;const pos=e.target.selectionStart;render();const s=$('#vSearch');s.focus();s.setSelectionRange(pos,pos);}});
-    document.addEventListener('visibilitychange',()=>{if(document.hidden)lock();});
+    // While the system fingerprint dialog is up the app may count as hidden; that is not leaving.
+    document.addEventListener('visibilitychange',()=>{if(document.hidden&&!bioWait)lock();});
+    window.__vaultLock=()=>{if(!bioWait)lock();};
+    window.__vaultBio=r=>{const w=bioWait;bioWait=null;w?.(r);};
     // Leaving the vault screen locks it (actions from other screens lock themselves).
     setInterval(()=>{if(unlocked()&&!busy&&UI.screen!=='vault')lock();},800);
     Store.onChange(()=>{if(unlocked()&&signature()!==lastSecrets)decryptAll().then(()=>{if(UI.screen==='vault'&&!UI.typing())render();});});

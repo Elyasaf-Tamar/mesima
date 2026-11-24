@@ -69,6 +69,28 @@ class WebBridge(private val act: Activity) {
         CloudBackup.restore(act, id, ::backupChanged) { (act as? MainActivity)?.restoreCloud(it) }
     }
 
+    /* ---------- כספת: טביעת אצבע, מסך מוגן, העתקה רגישה ---------- */
+    private fun bio(value: JSONObject) { (act as? MainActivity)?.vaultBioResult(value) }
+    @JavascriptInterface fun vaultBioAvailable(): Boolean = VaultBio.available(act)
+    @JavascriptInterface fun vaultBioEnabled(): Boolean = VaultBio.enabled(act)
+    @JavascriptInterface fun vaultBioEnable(password: String) {
+        val a = act as? androidx.fragment.app.FragmentActivity ?: return
+        a.runOnUiThread { VaultBio.enable(a, password) { ok, err -> bio(JSONObject().put("op", "enable").put("ok", ok).put("error", err ?: "")) } }
+    }
+    @JavascriptInterface fun vaultBioUnlock() {
+        val a = act as? androidx.fragment.app.FragmentActivity ?: return
+        a.runOnUiThread { VaultBio.unlock(a) { pw, err -> bio(JSONObject().put("op", "unlock").put("ok", pw != null).put("password", pw ?: "").put("error", err ?: "")) } }
+    }
+    @JavascriptInterface fun vaultBioDisable() { VaultBio.disable(act) }
+    @JavascriptInterface fun setSecure(on: Boolean) { (act as? MainActivity)?.setSecure(on) }
+    @JavascriptInterface fun copySensitive(text: String): Boolean = try {
+        val cm = act.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("Mesima", text)
+        if (Build.VERSION.SDK_INT >= 24) clip.description.extras = android.os.PersistableBundle().apply {
+            putBoolean(if (Build.VERSION.SDK_INT >= 33) android.content.ClipDescription.EXTRA_IS_SENSITIVE else "android.content.extra.IS_SENSITIVE", true) }
+        act.runOnUiThread { cm.setPrimaryClip(clip) }; true
+    } catch (_: Exception) { false }
+
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
     @JavascriptInterface fun searchPlaces(id:String,url:String){PlaceLookup.search(act as MainActivity,id,url)}

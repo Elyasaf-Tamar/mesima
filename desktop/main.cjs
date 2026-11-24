@@ -124,6 +124,8 @@ if(!app.requestSingleInstanceLock()){app.quit();}else app.whenReady().then(()=>{
   handle('schedule',(list,state)=>{if(state?.schema===1&&Array.isArray(state.tasks)){reminderState=state;write('reminder-state.json',state);snoozes=snoozes.filter(a=>!blocked(state,a));write('snoozes.json',snoozes);for(const [id,x] of shown)if(blocked(state,x.meta)){x.notification.close();shown.delete(id);}}if(!Array.isArray(list)||list.length>10000||Buffer.byteLength(JSON.stringify(list),'utf8')>MAX_BYTES)throw Error('תזכורות לא תקינות');alarms=reconcileAlarms(list,alarms);write('alarms.json',alarms);});
   handle('snooze',a=>{if(typeof a?.id!=='string'||blocked(reminderState,a))return false;const next=snoozes.filter(x=>x.id!==a.id);next.push({...a,at:Date.now()+900000,fired:false});write('snoozes.json',next);snoozes=next;return true;});
   handle('open-data',()=>shell.openPath(DATA));
+  // כספת: הסתרת החלון מצילומי מסך ומשיתוף מסך כשהכספת פתוחה.
+  handle('secure',on=>{win?.setContentProtection(!!on);return true;});
   win.loadURL('mesima://app/index.html');setInterval(tick,15000);
 });
 app.on('before-quit',()=>{quitting=true;});

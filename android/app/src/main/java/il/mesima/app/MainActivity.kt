@@ -16,14 +16,14 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.webkit.WebViewAssetLoader
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     companion object {
         /** origin וירטואלי קבוע. הוא https אמיתי מבחינת ה-WebView, ולכן
@@ -348,6 +348,21 @@ class MainActivity : ComponentActivity() {
     private fun fireAlarmJs(id: String) = runOnUiThread {
         val safe = org.json.JSONObject.quote(id)
         web.evaluateJavascript("window.__alarm&&window.__alarm($safe)", null)
+    }
+
+    /* ---------- כספת ---------- */
+    fun vaultBioResult(value: org.json.JSONObject) = runOnUiThread {
+        if (!isDestroyed && ::web.isInitialized) web.evaluateJavascript("window.__vaultBio&&window.__vaultBio($value)", null)
+    }
+    /** מסתיר את המסך מצילומי מסך ומתמונת "אפליקציות אחרונות" כשהכספת פתוחה. */
+    fun setSecure(on: Boolean) = runOnUiThread {
+        if (on) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+    }
+    override fun onPause() {
+        super.onPause()
+        // הכספת ננעלת מיד כשהאפליקציה יוצאת מהמסך, בלי לחכות לאירוע של ה-WebView.
+        if (webReady && ::web.isInitialized) web.evaluateJavascript("window.__vaultLock&&window.__vaultLock()", null)
     }
 
     /** נקרא מה-JS דרך הגשר ברגע שהדף מוכן. */

@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('MesimaDesktop',{
   syncRequest:input=>ipcRenderer.invoke('sync-request',input),
   snapshot:text=>send('snapshot',text),chooseFolder:()=>send('choose-folder'),configure:days=>send('configure',days),
   backup:()=>send('backup-local'),cloud:(action,...args)=>send('cloud',action,args),save:(name,text)=>send('save',name,text),
-  schedule:(list,state)=>send('schedule',list,state),snooze:a=>send('snooze',a),openData:()=>send('open-data'),
+  schedule:(list,state)=>send('schedule',list,state),snooze:a=>send('snooze',a),openData:()=>send('open-data'),setSecure:on=>send('secure',!!on),
   onOpen:cb=>ipcRenderer.on('open',()=>cb()),
   onStatus:cb=>ipcRenderer.on('backup-status',(_e,s)=>{status=s;cb();}),
   onList:cb=>ipcRenderer.on('cloud-list',(_e,rows)=>cb(rows)),
