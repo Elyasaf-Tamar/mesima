@@ -2,7 +2,8 @@ import fs from 'node:fs';import http from 'node:http';import assert from 'node:a
 const {chromium}=await import(pathToFileURL(process.env.MESIMA_PLAYWRIGHT));
 const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html; charset=utf-8');res.end(fs.readFileSync('index.html'));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({headless:true,executablePath:process.env.MESIMA_CHROME}),ctx=await browser.newContext({viewport:{width:412,height:915},timezoneId:'Asia/Jerusalem'}),p=await ctx.newPage(),errors=[];
-p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(6000);fs.mkdirSync('test-results',{recursive:true});
+// 4.9.3 opens on quick notes; this suite starts from the Today screen.
+await ctx.addInitScript((()=>{if(!localStorage.getItem('mesima.v1'))localStorage.setItem('mesima.v1',JSON.stringify({prefs:{captureStart:false}}));}));p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(6000);fs.mkdirSync('test-results',{recursive:true});
 const foot=n=>p.locator('#mFoot').getByRole('button',{name:n,exact:true});
 try{
  await p.clock.setFixedTime(new Date('2026-09-17T09:15:00+03:00'));await p.goto(`http://127.0.0.1:${server.address().port}`);await p.evaluate(()=>{Engine.stop();Store.setPref('syncEnabled',false);});

@@ -755,6 +755,43 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
 .widget-choice button{flex:1;text-align:start}
 .membership-box{padding:12px 0}
 
+  /* ---------------- פתקים מהירים ---------------- */
+  nav button{position:relative}
+  .navbadge{position:absolute;top:6px;inset-inline-start:calc(50% + 14px);min-width:17px;height:17px;padding:0 5px;border-radius:9px;
+    background:var(--accent);color:#0d1117;font-size:10.5px;font-weight:700;line-height:17px;text-align:center}
+  #app.cap-on main{padding-bottom:14px}
+  #capBar{flex:0 0 auto;display:flex;align-items:flex-end;gap:8px;padding:8px 14px 10px;border-top:1px solid var(--line);background:var(--bg)}
+  #capInput{flex:1;resize:none;min-height:42px;max-height:160px;line-height:1.45;padding:10px 12px;border-radius:20px;background:var(--surface2)}
+  #capSend{flex:0 0 42px;height:42px;border-radius:50%;background:var(--accent);color:#0d1117;font-size:17px;display:grid;place-items:center;transform:scaleX(-1)}
+  #capSend:active{opacity:.8}
+  .cday{text-align:center;margin:16px 0 10px}
+  .cday span{font-size:11.5px;color:var(--muted2);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px 10px}
+  .cbub{max-width:86%;margin:0 0 8px;margin-inline-end:auto;padding:8px 12px 6px;border-radius:14px;border-start-start-radius:4px;
+    background:#1b2535;border:1px solid #26344d;cursor:pointer;unicode-bidi:plaintext}
+  .cbub:active{filter:brightness(1.15)}
+  .cbub .ct{font-size:15px;line-height:1.5;white-space:normal;overflow-wrap:anywhere;unicode-bidi:plaintext}
+  .cbub .ct a{color:var(--accent)}
+  .cm{display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap}
+  .ctime{margin-inline-start:auto;font-size:11px;color:var(--muted2)}
+  .cchip{font-size:11.5px;padding:2px 8px;border-radius:8px;background:#22324a;color:var(--army-ink);border:1px solid #2c4262}
+  .cchip.unsure{border-style:dashed}
+  .cchip.past{background:transparent;color:var(--muted2);border-color:var(--line2)}
+  .ctag{color:var(--accent);font-size:inherit;padding:0}
+  .cst{font-size:11.5px;color:var(--muted)}.cst.link{color:var(--free-ink)}
+  .cbub.st-info{background:var(--free-bg);border-color:var(--free-line)}
+  .cbub.st-task,.cbub.st-note{background:transparent;border-style:dashed;border-color:var(--line2)}
+  .cbub.st-task .ct,.cbub.st-note .ct{color:var(--muted)}
+  .ctagbar{font-size:13px;color:var(--muted);margin:-8px 0 12px}
+  .ccard{display:flex;align-items:center;gap:12px;width:100%;text-align:start;margin:0 0 16px;padding:12px 14px;border-radius:var(--r);
+    background:#1b2535;border:1px solid #26344d}
+  .ccard .cc-n{flex:0 0 30px;height:30px;border-radius:50%;background:var(--accent);color:#0d1117;font-weight:700;display:grid;place-items:center}
+  .ccard .cc-b{flex:1;min-width:0}.ccard small{display:block;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;unicode-bidi:plaintext}
+  .cpreview,.creview .ct{background:var(--surface2);border-radius:var(--r2);padding:10px 12px;margin-bottom:12px;overflow-wrap:anywhere;unicode-bidi:plaintext}
+  .creview .ct{font-size:16.5px;line-height:1.55;margin-bottom:6px}
+  .creview .cm{margin:0 0 16px}
+  .crev-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .desktop #capBar{padding-inline:36px}
+
 </style>
 </head>
 <body>
@@ -768,6 +805,15 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
 
   <div class="fabwrap">
   <main>
+
+    <!-- ======================= פתקים מהירים ======================= -->
+    <section class="sec" id="s-capture">
+      <div id="capTools"></div>
+      <div class="searchbar" id="capSearchBar" hidden>
+        <input type="search" id="capSearch" placeholder="חיפוש בפתקים" autocomplete="off" aria-label="חיפוש בפתקים">
+      </div>
+      <div id="capList" aria-live="polite"></div>
+    </section>
 
     <!-- ======================= היום ======================= -->
     <section class="sec on" id="s-today">
@@ -867,9 +913,14 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
 
   </main>
   <button class="fab" id="fab" hidden>+</button>
+  <div id="capBar" hidden>
+    <textarea id="capInput" rows="1" placeholder="כתוב לעצמך…" enterkeyhint="send" aria-label="פתק חדש" dir="auto"></textarea>
+    <button id="capSend" aria-label="שלח">➤</button>
+  </div>
   </div>
 
   <nav id="nav">
+    <button data-s="capture" aria-selected="false">פתקים<span class="navbadge" id="capBadge" hidden></span></button>
     <button data-s="today" aria-selected="true">היום</button>
     <button data-s="tasks" aria-selected="false">משימות</button>
     <button data-s="library" aria-selected="false">ספרייה</button>
@@ -915,7 +966,7 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
    ========================================================================== */
 
 /* חותמת גרסה. הבודק מול השרת מחפש בדיוק את השורה הזאת. */
-const BUILD = '4.9.2 · 2026-10-08';
+const BUILD = '4.9.3 · 2026-11-24';
 /* הגרסה המינימלית של מעטפת האנדרואיד שה-HTML הזה מסתמך עליה. */
 const NEED_APK = '1.8';
 
@@ -924,8 +975,8 @@ const NEED_APK = '1.8';
 const Store = (() => {
   const KEY = 'mesima.v1';
   const seed = () => ({ v:5, tasks:[], places:[], lists:[], events:[], notes:[],
-                        eventTypes:[], links:[], completions:[], reflections:[],
-                        prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1 } });
+                        eventTypes:[], links:[], completions:[], reflections:[], captures:[],
+                        prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1, captureReview:'20:30', captureStart:true } });
 
   function localDay(d=new Date()){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
   let persist = true;
@@ -939,12 +990,16 @@ const Store = (() => {
   } catch(e){ data = seed(); }
   function normalize(input){
     const data = Object.assign(seed(), input);
-    for(const key of ['tasks','places','lists','events','notes','eventTypes','links','completions','reflections']){
+    for(const key of ['tasks','places','lists','events','notes','eventTypes','links','completions','reflections','captures']){
       if(input[key] !== undefined && !Array.isArray(input[key])) throw new Error('מבנה גיבוי לא תקין');
       if(!Array.isArray(data[key])) data[key]=[];
       if(data[key].some(x=>!x || typeof x!=='object' || Array.isArray(x))) throw new Error('פריט פגום בגיבוי');
     }
     data.prefs = {...seed().prefs,...(data.prefs || {})};
+    // Quick notes: keep only well-formed rows; derived data (tags, dates) is never stored.
+    data.captures = data.captures.filter(c=>typeof c.id==='string'&&c.id&&typeof c.text==='string').map(c=>({...c,
+      state:['inbox','info','task','note'].includes(c.state)?c.state:'inbox',
+      createdAt:Number.isFinite(c.createdAt)?c.createdAt:Date.now(),updatedAt:Number.isFinite(c.updatedAt)?c.updatedAt:(Number.isFinite(c.createdAt)?c.createdAt:Date.now())}));
   /* מיגרציות */
   if (!Array.isArray(data.events)) data.events = [];
   if (!data.prefs) data.prefs = seed().prefs;
@@ -2169,6 +2224,28 @@ const Store = (() => {
     delNote(id){ data.notes = data.notes.filter(n=>n.id!==id); save(); },
     pinNote(id){ const n=this.note(id); if(n){ n.pinned=!n.pinned; save(); } },
 
+    /* פתקים מהירים — זרם בסגנון צ׳אט. מצב: inbox (לסדר) / info / task / note */
+    captures(){ return data.captures.slice().sort((a,b)=>a.createdAt-b.createdAt); },
+    capture(id){ return data.captures.find(c=>c.id===id); },
+    unsortedCaptures(){ return this.captures().filter(c=>c.state==='inbox'); },
+    addCapture(text){
+      const value=String(text||'').replace(/\s+$/,'').replace(/^\s+/,'');if(!value)return null;
+      if(value.length>20000)throw Error('הפתק ארוך מדי');
+      const now=Date.now(),c={id:uid(),text:value,state:'inbox',createdAt:now,updatedAt:now};
+      data.captures.push(c);save();return c;
+    },
+    updateCapture(id,patch){
+      const c=this.capture(id);if(!c)return null;
+      const next={...patch};delete next.id;delete next.createdAt;
+      if('text' in next){next.text=String(next.text||'').trim();if(!next.text)return null;}
+      if('state' in next&&!['inbox','info','task','note'].includes(next.state))throw Error('מצב פתק לא תקין');
+      Object.assign(c,next,{updatedAt:Date.now()});
+      for(const k of Object.keys(c))if(c[k]===undefined||c[k]===null&&['taskId','noteId','noDate'].includes(k))delete c[k];
+      save();return c;
+    },
+    delCapture(id){ const c=this.capture(id);if(!c)return null;data.captures=data.captures.filter(x=>x.id!==id);save();return {...c}; },
+    restoreCapture(c){ if(!c?.id||this.capture(c.id))return;data.captures.push({...c});save(); },
+
     setPref(k,v){ data.prefs[k]=v; save(); },
     export(){ return JSON.stringify({...data,...(typeof BUILD==='string'?{sourceVersion:BUILD}:{})}, null, 2); },
     validateNativeActions(envelope){
@@ -3080,6 +3157,15 @@ const Native = (() => {
                      : 'מתחיל עכשיו (' + ev.time + ')' });
     });
 
+    /* תזכורת מיון יומית לפתקים מהירים — רק כשיש מה לסדר. מגיעה למתזמן של
+       Windows; מעטפת Android 1.8.2 מתזמנת מתוך alarmPlan ולכן לא מקבלת אותה. */
+    const review=Store.all.prefs.captureReview,open=(Store.all.captures||[]).filter(c=>c.state==='inbox').length;
+    const planShell=typeof A()?.syncAlarmPlan==='function';
+    if(open&&!planShell&&/^\d{2}:\d{2}$/.test(review||''))[t0,Plan.shift(t0,1)].forEach(day=>{
+      const at=ms(day,review);if(at<soon)return;
+      out.push({id:'cap_'+day,at,title:'פתקים לסדר',body:open===1?'יש פתק אחד שעוד לא סודר':'יש '+open+' פתקים שעוד לא סודרו'});
+    });
+
     return out.map(a=>{
       const link=ReminderLink.resolve(a.id),t=link?.taskId?Store.task(link.taskId):null,ev=link?.eventId?Store.event(link.eventId):null;
       const note=(t?.notificationText ?? t?.note ?? ev?.note ?? '').trim();
@@ -3318,7 +3404,7 @@ const UI = (() => {
 
   const SCREEN_TITLE = { notes:'הערות', lists:'קניות', archive:'ארכיון',
                          places:'מקומות', settings:'הגדרות' };
-  const SEC_TITLE    = { today:'היום', tasks:'משימות', library:'ספרייה' };
+  const SEC_TITLE    = { capture:'פתקים', today:'היום', tasks:'משימות', library:'ספרייה' };
 
   const fmtM = m => m < 1000 ? Math.round(m)+' מ׳' : (m/1000).toFixed(1)+' ק״מ';
   const fmtDate = ts => {
@@ -3398,7 +3484,7 @@ const UI = (() => {
   function renderToday(){
     $$('#tvModes button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === tview));
     const box = $('#todayBody');
-    if (tview === 'day')   return void (box.innerHTML = dayView(selDate));
+    if (tview === 'day')   return void (box.innerHTML = (selDate===Plan.today()?Capture.todayCard():'') + dayView(selDate));
     box.innerHTML = monthView();
   }
 
@@ -4513,6 +4599,7 @@ const UI = (() => {
     const fabOn = (!screen && (section === 'today' || section === 'tasks')) ||
                   (screen === 'notes' && !openNote) || (screen === 'lists');
     $('#fab').hidden = !fabOn;
+    Capture.chrome(!screen && section === 'capture');
   }
 
   function typing(){
@@ -4533,6 +4620,7 @@ const UI = (() => {
     if (screen === 'archive')  return renderArchive();
     if (screen === 'places')   return renderPlaces();
     if (screen === 'settings') return renderSettings();
+    if (section === 'capture') return Capture.render();
     if (section === 'today')   return renderToday();
     if (section === 'tasks')   return renderTasks();
     if (section === 'library') return renderLibrary();
@@ -5811,7 +5899,7 @@ const TaskEditor = (() => {
       B.addEventListener('input',  refreshSummaries);
 
       /* ערכי התחלה שלא נכנסים דרך ה-HTML */
-      const pre = o.preset || null;
+      const pre = d ? null : (o.preset || null);   /* a restored draft already holds the user's edits */
       if (pre){
         g('etTitle').value = pre.title || '';
         g('etNote').value  = pre.note || '';
@@ -6006,12 +6094,15 @@ const TaskEditor = (() => {
           Modal.shut();taskModal(back);return;
         }
         const scheduled=[];
-        try{Store.transaction(()=>persistRecord(record,o.parentId||null,new Set(),scheduled));}
+        // onCreated runs in the same transaction, so a linked quick note is
+        // marked as converted only when the task itself was saved.
+        try{Store.transaction(()=>{const id=persistRecord(record,o.parentId||null,new Set(),scheduled);if(isNew&&typeof o.onCreated==='function')o.onCreated(id);});}
         catch(error){UI.toast(error.message||'לא ניתן לשמור את הטיוטה');return;}
         Modal.shut();
         const reminder=scheduled.find(x=>x.reminder||x.repeat);
         if(reminder)Permissions.forTask(reminder);
         UI.toast(isNew?'נוסף':'נשמר');
+        if(typeof o.afterSave==='function')setTimeout(o.afterSave,0);
       }
 
       /* A complete editor tree is applied in one Store transaction. No draft is
@@ -8645,6 +8736,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
        המלא עם התיאור, התמונה ותת-המשימות — לא רק שורה בשורת הסטטוס. */
     window.__alarm = function(id,meta){
       if (!id) return false;
+      if (typeof id==='string'&&id.startsWith('cap_')){ window.__captureReview?.(); return true; }
       // A desktop notification keeps its original cycle even when a manual
       // checklist is renewed and the same reminder ID is reused.
       const reminderId=id,target={...ReminderLink.resolve(id),...meta};
@@ -8675,7 +8767,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     });
     history.pushState({ m:1 }, '');
 
-    window.__openTask=openTask; window.__newTask=()=>taskModal({}); window.__newEvent=()=>{UI.selDate=Plan.today();eventModal(null);}; window.__openEvent=id=>{const e=Store.event(id);if(e)eventMenu(e);};
+    window.__openTask=openTask; window.__newTask=()=>taskModal({}); window.__taskModal=o=>taskModal(o); window.__newEvent=()=>{UI.selDate=Plan.today();eventModal(null);}; window.__openEvent=id=>{const e=Store.event(id);if(e)eventMenu(e);};
     NativeState.init();
     Store.onChange(() => { Native.sync();
       if(UI.alertItem&&Store.reminderBlocked(UI.alertItem.meta||ReminderLink.resolve(UI.alertItem.item.id)))UI.closeAlert();
@@ -8686,7 +8778,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     UI.render();
     /* מודיעים לאנדרואיד שהדף חי — אם נכנסנו מלחיצה על התראה,
        החלון המלא של התזכורת נפתח עכשיו. */
-    Native.canBack(false);
+    Native.canBack(hasBack());
     Native.ready();
   }
 
@@ -9097,8 +9189,8 @@ const Permissions = (() => {
 })();
 const Settings = (() => {
   let page='home';
-  const titles={home:'הגדרות',update:'עדכון האפליקציה',data:'גיבוי ונתונים',advanced:'מתקדם',notifications:'התראות',auto:'גיבוי אוטומטי',cloud:'גיבוי בענן',archive:'מחיקה מהארכיון',behavior:'התנהגות האפליקציה',perms:'הרשאות מערכת',fix:'נדרשת פעולה',diag:'אבחון',restore:'ייבוא / שחזור',source:'מקור עדכונים',wipe:'מחיקת כל הנתונים'};
-  const parent={update:'home',data:'home',advanced:'home',auto:'data',cloud:'data',archive:'data',fix:'home'};
+  const titles={home:'הגדרות',update:'עדכון האפליקציה',data:'גיבוי ונתונים',advanced:'מתקדם',notifications:'התראות',auto:'גיבוי אוטומטי',cloud:'גיבוי בענן',archive:'מחיקה מהארכיון',behavior:'התנהגות האפליקציה',perms:'הרשאות מערכת',fix:'נדרשת פעולה',diag:'אבחון',restore:'ייבוא / שחזור',source:'מקור עדכונים',wipe:'מחיקת כל הנתונים',capture:'פתקים מהירים'};
+  const parent={capture:'home',update:'home',data:'home',advanced:'home',auto:'data',cloud:'data',archive:'data',fix:'home'};
   const row=(key,note='')=>`<button class="settings-row" data-settings-page="${key}"><span><b>${titles[key]}</b>${note?`<small>${UI.esc(note)}</small>`:''}</span><span aria-hidden="true">‹</span></button>`;
   function section(html,title){
     const box=document.createElement('div');box.innerHTML=html;
@@ -9119,7 +9211,7 @@ const Settings = (() => {
       if(!Store.canPersist)html+='<div class="notice warn">לא ניתן לשמור נתונים במכשיר הזה.</div>';
       if(s.error)html+='<div class="notice warn">הגיבוי דורש טיפול <button class="btn" data-settings-page="auto">בדוק</button></div>';
       if(c.email&&Store.all.prefs.syncEnabled!==false&&/שגיאת|כללי|לא תקין|השתנה|גדול/.test(CloudSync.info().message))html+='<div class="notice warn">הסנכרון דורש טיפול <button class="btn" data-settings-page="cloud">בדוק</button></div>';
-      html+=row('update',n.updatePending?'עדכון זמין':Native.on&&Native.apkOld()?'נדרשת התקנת גרסה חדשה':`גרסה ${BUILD.split(' ·')[0]}`)+row('data',`גיבוי אוטומטי: ${auto} · ענן: ${cloud}`)+row('advanced');
+      html+=row('update',n.updatePending?'עדכון זמין':Native.on&&Native.apkOld()?'נדרשת התקנת גרסה חדשה':`גרסה ${BUILD.split(' ·')[0]}`)+row('data',`גיבוי אוטומטי: ${auto} · ענן: ${cloud}`)+row('capture',Capture.settingsNote())+row('advanced');
     }else if(page==='data'){
       html=row('auto',auto)+row('cloud',cloud)+row('archive',Store.all.prefs.archiveDays?`אחרי ${Store.all.prefs.archiveDays} יום`:'לעולם לא')+'<button class="btn p wide" data-care="now">גבה עכשיו</button>';
       if(c.busy)html+='<div role="status" class="notice">הגיבוי לענן מתבצע…</div>';
@@ -9134,6 +9226,7 @@ const Settings = (() => {
       let pref={};try{pref=JSON.parse(window.MesimaNative?.notificationPreferences?.()||'{}');}catch{}
       html=Native.on?`<button class="settings-row" data-nat="chan"><span><b>צליל ההתראה</b><small>בחר צליל בהגדרות Android</small></span><span>‹</span></button><button class="settings-row" data-notification-vibration><span><b>דפוס רטט</b><small>${UI.esc(pref.pattern||'ברירת מחדל')}</small></span><span>‹</span></button><p class="note">אפשרויות הצליל והרטט תלויות במכשיר. ההגדרות שבחרת בערוץ של Android נשמרות עבור כל דפוס.</p><button class="btn" data-nat="testnow">בדוק התראה</button>`:'<p class="note">בחירת צליל ודפוס רטט זמינה באפליקציית Android.</p>';
     }
+    else if(page==='capture')html=Capture.settingsHTML();
     else if(page==='behavior')html=section(moreBody,'התראות באפליקציה');
     else if(page==='restore')html=section(moreBody,'גיבוי ידני').replace(/<div class="set">[\s\S]*?<\/div><\/div>/g,'')+(localStorage.getItem('mesima.before-import')?'<button class="btn wide" data-care="recover-import">ייצא עותק מלפני השחזור / הסנכרון האחרון</button>':'');
     else if(page==='source')html=section(moreBody,'מקור העדכונים');
@@ -9222,7 +9315,7 @@ const Desktop=(()=>{
    so an old whole-array update cannot silently overwrite merged items.
    Firestore's pointer document remains transport schema 1. */
 const SyncModel=(()=>{
-  const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections'];
+  const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections','captures'];
   const unsafe=k=>['__proto__','constructor','prototype'].includes(k);
   const clone=x=>JSON.parse(JSON.stringify(x));
   const stable=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
@@ -9414,7 +9507,9 @@ const SyncModel=(()=>{
     if(Number.isInteger(s?.schema)&&s.schema>2)throw Error('נתוני הענן נוצרו בגרסה חדשה יותר. עדכן את משימה בכל המכשירים כדי להמשיך בסנכרון.');
     if(![1,2].includes(s?.schema)||!Number.isSafeInteger(s.clock)||s.clock<0||!s.records||typeof s.records!=='object'||Array.isArray(s.records))throw Error('נתוני סנכרון לא תקינים');
     for(const [key,r]of Object.entries(s.records)){
-      if(!collections.includes(key.split('/')[0])||!r?.fields||typeof r.fields!=='object'||Array.isArray(r.fields))throw Error('רשומת סנכרון לא תקינה');
+      // Records of collections added by a newer version are validated for shape,
+      // carried through merges and ignored by materialize, so sync keeps working.
+      if(!/^[a-zA-Z]{1,40}\/./.test(key)||!r?.fields||typeof r.fields!=='object'||Array.isArray(r.fields))throw Error('רשומת סנכרון לא תקינה');
       for(const [k,v]of Object.entries(r.fields)){
         if(unsafe(k)||!v||!Array.isArray(v.stamp)||!Number.isSafeInteger(v.stamp[0])||v.stamp[0]<0||v.stamp[0]>s.clock||typeof v.stamp[1]!=='string')throw Error('חותמת סנכרון לא תקינה');
         if(v.at!==undefined&&(!Number.isSafeInteger(v.at)||v.at<=0||Number.isNaN(new Date(v.at).getTime())))throw Error('תאריך סימון בסנכרון אינו תקין');
@@ -9762,6 +9857,397 @@ const Widgets=(()=>{
  return {eligible,configs,project,payload,open};
 })();
 
+/* Hebrew date/time recognition for quick notes. Rule based and local: it
+   only suggests a date; the user confirms it when turning a note into a task.
+   A bare hour 1–7 is read as afternoon and flagged uncertain. */
+const CaptureParse=(()=>{
+  const B='(?<![\\p{L}\\p{N}])',E='(?![\\p{L}\\p{N}])',SEP='[\\-\\u05BE\\s]?';
+  const pad=n=>String(n).padStart(2,'0');
+  const key=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  const addDays=(d,n)=>{const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()+n);return x;};
+  const WEEK={'ראשון':0,'שני':1,'שלישי':2,'רביעי':3,'חמישי':4,'שישי':5,'שבת':6,
+    'א':0,'ב':1,'ג':2,'ד':3,'ה':4,'ו':5};
+  const DAYNAME=['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','שבת'];
+  const PARTS=[['בבוקר',9],['בצהריים',13],['בצהרים',13],['אחה"צ',16],['אחה״צ',16],['אחר הצהריים',16],['אחרי הצהריים',16],['בערב',20],['בלילה',22]];
+  const NUM={'שעה':[1,'h'],'שעתיים':[2,'h'],'חצי שעה':[30,'m'],'רבע שעה':[15,'m'],'יום':[1,'d'],'יומיים':[2,'d'],
+    'שבוע':[7,'d'],'שבועיים':[14,'d'],'חודש':[1,'M']};
+  const UNIT={'דקות':'m','דק':'m','שעות':'h','ימים':'d','שבועות':'w','חודשים':'M'};
+  const rx=(s,f='gu')=>new RegExp(s,f);
+
+  function parse(text,now=new Date()){
+    if(typeof text!=='string'||!text.trim())return null;
+    const spans=[];let day=null,time=null,uncertain=false,abs=null,part=null;
+    const take=(m)=>spans.push([m.index,m.index+m[0].length]);
+    const free=(m)=>!spans.some(([a,b])=>m.index<b&&m.index+m[0].length>a);
+    let m;
+    // Relative offsets: בעוד 3 ימים / בעוד שעה / בעוד 20 דקות.
+    const rel=rx(B+'בעוד\\s+(?:(\\d{1,3})\\s*('+Object.keys(UNIT).join('|')+')|('+Object.keys(NUM).join('|')+'))'+E);
+    while((m=rel.exec(text))){
+      if(!free(m))continue;const [n,u]=m[1]?[+m[1],UNIT[m[2]]]:NUM[m[3]];
+      const x=new Date(now.getTime());
+      if(u==='m')x.setMinutes(x.getMinutes()+n);else if(u==='h')x.setHours(x.getHours()+n);
+      else if(u==='d')abs=addDays(now,n);else if(u==='w')abs=addDays(now,n*7);
+      else if(u==='M')abs=new Date(now.getFullYear(),now.getMonth()+n,now.getDate());
+      if(u==='m'||u==='h'){abs=x;time=pad(x.getHours())+':'+pad(x.getMinutes());}
+      take(m);break;
+    }
+    // Relative days.
+    const days=rx(B+'(ו?)(היום|הערב|הלילה|מחרתיים|מחר)'+E);
+    while(!abs&&(m=days.exec(text))){
+      if(!free(m))continue;const w=m[2];
+      day=w==='מחרתיים'?2:w==='מחר'?1:0;if(w==='הערב')part=20;if(w==='הלילה')part=22;take(m);break;
+    }
+    // Weekdays: ביום רביעי, יום ב׳, בשבת.
+    const wk=rx(B+'(?:ו?ב?יום\\s+(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|[אבגדהו](?:[\'׳`]|(?=\\s|$)))|ו?ב?(שבת))'+E.replace('\\p{N}','\\p{N}\'׳'));
+    while(day===null&&!abs&&(m=wk.exec(text))){
+      if(!free(m))continue;const name=(m[1]||m[2]).replace(/['׳`]/,'');if(!(name in WEEK))continue;
+      let diff=(WEEK[name]-now.getDay()+7)%7;if(diff===0)diff=7;day=diff;take(m);break;
+    }
+    // Numeric dates: 25/11, 3.1, 1/3/2027.
+    const dt=rx(B+'(ב[\\-\\u05BE]?)?(\\d{1,2})([./])(\\d{1,2})(?:[./](\\d{2}|\\d{4}))?(?![\\d%./])');
+    const SCORE=/(?:ציון|דירוג|גרסה|גירסה|גרסת|מתוך|יחס|כוכבים)\s*$/u;
+    while(day===null&&!abs&&(m=dt.exec(text))){
+      if(!free(m))continue;
+      if(SCORE.test(text.slice(0,m.index))||/^\s*(?:כוכבים|נקודות|אחוז|%)/u.test(text.slice(m.index+m[0].length)))continue;
+      if(m[3]==='.'&&!m[1]&&!m[5])continue; // 1.2 is a number unless "ב-1.2" or a full date
+      m={index:m.index,0:m[0],1:m[2],2:m[4],3:m[5]};
+      const d=+m[1],mo=+m[2];let y=m[3]?(+m[3]<100?2000+ +m[3]:+m[3]):now.getFullYear();
+      const x=new Date(y,mo-1,d);if(x.getMonth()!==mo-1||x.getDate()!==d){spans.length=0;return null;}
+      if(!m[3]&&key(x)<key(now))x.setFullYear(y+1);abs=x;take(m);break;
+    }
+    // Parts of the day.
+    for(const [w,h] of PARTS){
+      const r=rx(B+'ו?'+w.replace(/"/g,'["״]')+E);
+      if((m=r.exec(text))&&free(m)){part=h;take(m);break;}
+    }
+    // Explicit hour: ב-5, ב־17:30, בשעה 9, 17:30.
+    if(!time){
+      const hr=rx(B+'(?:ו?ב(?:שעה)?'+SEP+'(\\d{1,2})(?::(\\d{2}))?|(\\d{1,2}):(\\d{2}))(?![\\d%./,:]|\\s*(?:%|ש["״]?ח|שקל|ק["״]?ג|ק["״]?מ|מ["״]?ל|גרם|ליטר|אחוז|ימים|יום|שעות|דקות|שבועות|חודשים|פעמים|לחודש|בחודש))');
+      while((m=hr.exec(text))){
+        if(!free(m))continue;
+        let h=+(m[1]??m[3]),mi=+(m[2]??m[4]??0);if(h>23||mi>59)continue;
+        if(part!==null){if(part>=20&&h===12)h=0;else if(part===22&&h<=5){}else if(part>=13&&h<12)h+=12;}
+        else if(m[1]!==undefined&&m[2]===undefined&&h>=1&&h<=7){h+=12;uncertain=true;}
+        time=pad(h)+':'+pad(mi);take(m);break;
+      }
+    }
+    if(!time&&part!==null)time=pad(part)+':00';
+    if(!spans.length)return null;
+    let date;
+    if(abs)date=abs;
+    else if(day!==null)date=addDays(now,day);
+    else{
+      // Only a time: today if still ahead, otherwise tomorrow.
+      const [h,mi]=time.split(':').map(Number),t=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,mi);
+      date=t>now?now:addDays(now,1);
+    }
+    spans.sort((a,b)=>a[0]-b[0]);
+    const index=spans[0][0],end=Math.max(...spans.map(s=>s[1]));
+    return {date:key(date),time,uncertain,index,length:end-index,spans,label:label(key(date),time,now)};
+  }
+  function label(date,time,now=new Date()){
+    const d=new Date(date+'T12:00:00'),diff=Math.round((d-new Date(key(now)+'T12:00:00'))/86400000);
+    const name=diff===0?'היום':diff===1?'מחר':diff===2?'מחרתיים':diff>0&&diff<7?'יום '+DAYNAME[d.getDay()]:d.getDate()+'/'+(d.getMonth()+1);
+    return name+(time?' '+time:'');
+  }
+  function strip(text,r){
+    if(!r)return text.trim();let out='';let last=0;
+    for(const [a,b] of r.spans){out+=text.slice(last,a)+' ';last=b;}
+    return (out+text.slice(last)).split('\n').map(l=>l.replace(/[ \t]+/g,' ').replace(/^\s*[,.\-–]\s*|\s*[,\-–]\s*$/g,'').trim()).filter((l,i,a)=>l||i&&a[i-1]).join('\n').trim();
+  }
+  function tags(text){
+    const out=new Set();const r=/(?:^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,40})/gu;let m;
+    while((m=r.exec(String(text||''))))out.add(m[1]);return out;
+  }
+  return {parse,strip,tags,label};
+})();
+
+/* פתקים מהירים — לרשום ולצאת. זרם בסגנון צ׳אט, מיון אחר כך.
+   The composer is static markup in shell.html; this module renders only the
+   list, so a re-render never steals the caret or the open keyboard. */
+const Capture=(()=>{
+  const $=s=>document.querySelector(s);
+  const DRAFT='mesima.captureDraft';
+  let filter='all',tag='',query='',searchOpen=false,booted=false,lastCount=-1;
+  const esc=s=>UI.esc(s);
+  const pad=n=>String(n).padStart(2,'0');
+  const dayKey=t=>{const d=new Date(t);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
+  const hm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes());};
+  const active=()=>!UI.screen&&UI.section==='capture';
+
+  /* ---------- derived data ---------- */
+  // Dates are read relative to when the note was written ("מחר" = the day
+  // after), and labelled relative to today; a passed date is marked as such.
+  function when(c){
+    if(c.noDate||c.state!=='inbox')return null;
+    let r;try{r=CaptureParse.parse(c.text,new Date(c.createdAt));}catch{return null;}
+    if(!r)return null;
+    const today=Plan.today(),past=r.date<today||r.date===today&&!!r.time&&r.time<=new Date().toTimeString().slice(0,5);
+    return {...r,past,label:CaptureParse.label(r.date,r.time,new Date())+(r.date<today?' · עבר':'')};
+  }
+  const unsorted=()=>Store.unsortedCaptures();
+  function visible(){
+    const q=query.trim().toLowerCase();
+    return Store.captures().filter(c=>{
+      if(filter==='inbox'&&c.state!=='inbox')return false;
+      if(filter==='info'&&c.state!=='info')return false;
+      if(tag&&!CaptureParse.tags(c.text).has(tag))return false;
+      return !q||c.text.toLowerCase().includes(q);
+    });
+  }
+  function dayLabel(key){
+    const today=Plan.today();
+    if(key===today)return 'היום';
+    if(key===Plan.shift(today,-1))return 'אתמול';
+    const d=new Date(key+'T12:00:00'),age=Math.round((new Date(today+'T12:00:00')-d)/86400000);
+    if(age>0&&age<7)return 'יום '+UI.DAYL[d.getDay()]+'׳';
+    return d.toLocaleDateString('he-IL',{day:'numeric',month:'long',...(d.getFullYear()!==new Date().getFullYear()?{year:'numeric'}:{})});
+  }
+  // URLs and plain text are split on the raw string first, so a tag inside
+  // a URL (#install) or an escaped quote can never break the link markup.
+  function plainPart(text){
+    return esc(text).replace(/(^|[^\p{L}\p{N}_&#])#([\p{L}\p{N}_]{1,40})/gu,(m,pre,t)=>`${pre}<button class="ctag" data-captag="${t}">#${t}</button>`);
+  }
+  function richText(text){
+    let html='',last=0;const r=/https?:\/\/[^\s<>"'״]+/g;let m;
+    while((m=r.exec(text))){
+      let url=m[0].replace(/[.,;:!?)\]]+$/,'');const safe=Store.cleanUrl(url);
+      html+=plainPart(text.slice(last,m.index));
+      html+=safe?`<a href="${esc(safe)}" data-caplink="${esc(safe)}" dir="ltr">${esc(url)}</a>`:esc(url);
+      last=m.index+url.length;r.lastIndex=last;
+    }
+    html+=plainPart(text.slice(last));
+    return html.replace(/\n/g,'<br>');
+  }
+  function stateLine(c){
+    if(c.state==='info')return '<span class="cst">מידע</span>';
+    if(c.state==='task'){const t=c.taskId&&Store.task(c.taskId);
+      return t?`<button class="cst link" data-capopen="${esc(t.id)}">✓ משימה</button>`:'<span class="cst">הפך למשימה</span>';}
+    if(c.state==='note'){const n=c.noteId&&Store.note(c.noteId);
+      return n?`<button class="cst link" data-capnote="${esc(n.id)}">✓ ${esc(n.title||'הערה')}</button>`:'<span class="cst">הועבר להערה</span>';}
+    return '';
+  }
+  function bubble(c){
+    const w=when(c);
+    const chip=w?`<button class="cchip${w.uncertain?' unsure':''}${w.past?' past':''}" data-capdate="${esc(c.id)}" title="${w.uncertain?'השעה משוערת · לחץ לביטול הזיהוי':'לחץ לביטול הזיהוי'}">${esc(w.label)}${w.uncertain?' ?':''}</button>`:'';
+    return `<div class="cbub st-${c.state}" data-cap="${esc(c.id)}" role="button" tabindex="0">
+      <div class="ct">${richText(c.text)}</div>
+      <div class="cm">${chip}${stateLine(c)}<span class="ctime">${hm(c.createdAt)}</span></div></div>`;
+  }
+
+  /* ---------- rendering ---------- */
+  function tools(){
+    const n=unsorted().length,info=Store.captures().filter(c=>c.state==='info').length;
+    const b=(k,label)=>`<button data-capf="${k}" aria-selected="${filter===k}">${label}</button>`;
+    return `<div class="tabrow"><div class="tabs">${b('all','הכול')}${b('inbox','לסדר'+(n?' · '+n:''))}${b('info','מידע'+(info?' · '+info:''))}</div>
+      ${n?'<button class="hbtn sm" data-capreview aria-label="מיון פתקים" title="מיון">⇅</button>':''}
+      <button class="hbtn sm" data-capsearch aria-label="חיפוש בפתקים">⌕</button></div>
+      ${tag?`<div class="ctagbar">מסונן לפי <b>#${esc(tag)}</b> <button class="txtbtn" data-capclear>× הסר</button></div>`:''}`;
+  }
+  function render(){
+    const list=$('#capList');if(!list)return;
+    $('#capTools').innerHTML=tools();
+    const bar=$('#capSearchBar');bar.hidden=!searchOpen;
+    const rows=visible();
+    if(!Store.captures().length){
+      list.innerHTML=`<div class="empty"><div class="h">כתוב לעצמך</div><div class="d">מילה, רעיון, משהו לזכור או לעשות — כותבים למטה ושולחים.<br>
+        אפשר לכתוב תאריך ושעה כמו ״מחר ב־5״, ולהפוך את הפתק למשימה אחר כך.</div></div>`;
+      return;
+    }
+    if(!rows.length){list.innerHTML='<div class="empty"><div class="d">אין פתקים שמתאימים לסינון</div></div>';return;}
+    let html='',prev='';
+    for(const c of rows){const k=dayKey(c.createdAt);if(k!==prev){html+=`<div class="cday"><span>${esc(dayLabel(k))}</span></div>`;prev=k;}html+=bubble(c);}
+    const main=document.querySelector('main'),atEnd=main.scrollHeight-main.scrollTop-main.clientHeight<80;
+    list.innerHTML=html;
+    if(atEnd||lastCount!==rows.length)requestAnimationFrame(()=>{main.scrollTop=main.scrollHeight;});
+    lastCount=rows.length;
+  }
+  function chrome(on){
+    const bar=$('#capBar');if(bar)bar.hidden=!on;
+    $('#app')?.classList.toggle('cap-on',!!on);
+    const n=unsorted().length,badge=$('#capBadge');
+    if(badge){badge.hidden=!n;badge.textContent=n>99?'99+':String(n);}
+  }
+  function todayCard(){
+    const rows=unsorted();if(!rows.length)return '';
+    return `<button class="ccard" data-capreview><span class="cc-n">${rows.length}</span>
+      <span class="cc-b"><b>${rows.length===1?'פתק אחד לסדר':rows.length+' פתקים לסדר'}</b><small>${esc(rows[0].text.slice(0,70))}</small></span><span class="chev">‹</span></button>`;
+  }
+
+  /* ---------- writing ---------- */
+  function grow(){const i=$('#capInput');i.style.height='auto';i.style.height=Math.min(i.scrollHeight,160)+'px';}
+  function send(){
+    const i=$('#capInput'),text=i.value;
+    if(!text.trim()){i.focus();return;}
+    let c;try{c=Store.addCapture(text);}catch(e){UI.toast(e.message||'לא נשמר');return;}
+    if(!c)return;
+    i.value='';try{localStorage.removeItem(DRAFT);}catch{}
+    grow();filter=filter==='info'?'all':filter;tag='';query='';searchOpen=false;
+    render();chrome(active());i.focus();
+  }
+
+  /* ---------- actions ---------- */
+  function convert(c,afterSave){
+    const w=CaptureParse.parse(c.text,new Date(c.createdAt));
+    const today=Plan.today(),use=!c.noDate&&w,title=use?CaptureParse.strip(c.text,w):c.text.trim();
+    const firstLine=title.split('\n')[0].slice(0,140),rest=title.length>firstLine.length?title.slice(firstLine.length).trim():'';
+    const preset={title:firstLine||c.text.slice(0,140),note:rest};
+    // Never preset a date or reminder that has already passed.
+    if(use&&w.date>=today){preset.planned=w.date;
+      if(w.time&&(w.date>today||w.time>new Date().toTimeString().slice(0,5)))preset.reminder={type:'time',at:w.time};}
+    window.__taskModal?.({preset,planned:preset.planned,
+      onCreated:id=>Store.updateCapture(c.id,{state:'task',taskId:id}),afterSave});
+  }
+  function toNote(c,after){
+    const notes=Store.notes().slice(0,40);
+    Modal.open({title:'העבר להערה',
+      body:`<button class="pick" data-tonote="new"><span class="pn">+ הערה חדשה</span></button>`+
+        notes.map(n=>`<button class="pick" data-tonote="${esc(n.id)}"><span class="pn">${esc(n.title||'ללא כותרת')}</span><span class="pm">${esc(UI.fmtDate(n.updatedAt))}</span></button>`).join(''),
+      buttons:[{label:'ביטול',act:()=>Modal.shut()}]});
+    Modal.body.addEventListener('click',e=>{
+      const b=e.target.closest('[data-tonote]');if(!b)return;
+      const para='<p>'+esc(c.text).replace(/\n/g,'<br>')+'</p>';
+      try{Store.transaction(()=>{
+        let id=b.dataset.tonote;
+        if(id==='new')id=Store.addNote({title:c.text.split('\n')[0].slice(0,60),html:para}).id;
+        else{const n=Store.note(id);if(!n)throw Error('ההערה לא נמצאה');
+          if(n.multipart){const p={id:crypto.randomUUID(),title:dayLabel(dayKey(c.createdAt)),html:para,createdAt:Date.now(),updatedAt:Date.now(),
+              order:Math.max(-1,...Object.values(n.parts||{}).map(x=>x?.order||0))+1};
+            Store.updateNote(id,{parts:{...n.parts,[p.id]:p}});}
+          else Store.updateNote(id,{html:(n.html||'')+para});}
+        Store.updateCapture(c.id,{state:'note',noteId:id});
+      });}catch(error){Modal.shut();UI.toast(error.message||'לא ניתן להעביר להערה');return;}
+      Modal.shut();UI.toast('הועבר להערה');after?.();
+    });
+  }
+  function edit(c){
+    Modal.open({title:'עריכת פתק',body:`<textarea id="capEdit" rows="5">${esc(c.text)}</textarea>`,
+      buttons:[{label:'ביטול',act:()=>Modal.shut()},{label:'שמור',kind:'p',act:()=>{
+        const v=document.getElementById('capEdit').value;if(!v.trim()){UI.toast('פתק ריק לא נשמר');return;}
+        Store.updateCapture(c.id,{text:v});Modal.shut();}}]});
+    setTimeout(()=>document.getElementById('capEdit')?.focus(),60);
+  }
+  function remove(c){
+    const copy=Store.delCapture(c.id);if(!copy)return;
+    UI.undo('הפתק נמחק',()=>Store.restoreCapture(copy));
+  }
+  async function copy(c){
+    try{await navigator.clipboard.writeText(c.text);UI.toast('הועתק');}
+    catch{const t=document.createElement('textarea');t.value=c.text;document.body.append(t);t.select();
+      try{document.execCommand('copy');UI.toast('הועתק');}catch{UI.toast('לא ניתן להעתיק');}t.remove();}
+  }
+  function menu(id){
+    const c=Store.capture(id);if(!c)return;
+    const w=when(c),opt=(k,label,dsc='')=>`<button class="pick" data-capact="${k}"><span class="pn">${label}${dsc?`<div class="dsc">${dsc}</div>`:''}</span></button>`;
+    let body=`<div class="cpreview">${richText(c.text)}</div>`;
+    if(c.state==='task'&&c.taskId&&Store.task(c.taskId))body+=opt('opentask','פתח את המשימה');
+    else body+=opt('task','הפוך למשימה',w?'עם '+esc(w.label):'');
+    body+=c.state==='info'?opt('inbox','החזר ל״לסדר״'):c.state==='inbox'?opt('info','סמן כמידע','נשאר כאן לחיפוש, ויוצא מהמונה'):'';
+    if(c.state!=='note')body+=opt('note','העבר להערה');
+    body+=opt('edit','ערוך')+opt('copy','העתק')+opt('delete','מחק');
+    Modal.open({title:'פתק',body,buttons:[{label:'סגור',act:()=>Modal.shut()}]});
+    Modal.body.addEventListener('click',e=>{
+      const b=e.target.closest('[data-capact]');if(!b)return;const k=b.dataset.capact;
+      if(k==='note'){toNote(c);return;}
+      Modal.shut();
+      if(k==='task')convert(c);
+      else if(k==='opentask')window.__openTask?.(c.taskId);
+      else if(k==='info'||k==='inbox')Store.updateCapture(c.id,{state:k});
+      else if(k==='edit')edit(c);
+      else if(k==='copy')copy(c);
+      else if(k==='delete')remove(c);
+    });
+  }
+
+  /* ---------- review: one note at a time ---------- */
+  // "דלג" moves a note to the back of this review session only.
+  const skipped=new Set();
+  function review(){
+    const rows=unsorted();
+    if(!rows.length){skipped.clear();Modal.shut();UI.toast('הכול מסודר');return;}
+    if(rows.every(c=>skipped.has(c.id)))skipped.clear();
+    const c=rows.find(x=>!skipped.has(x.id)),w=when(c);
+    Modal.open({title:'מיון פתקים · נשארו '+rows.length,
+      body:`<div class="creview"><div class="ct">${richText(c.text)}</div>
+        <div class="cm">${w?`<span class="cchip${w.uncertain?' unsure':''}">${esc(w.label)}</span>`:''}<span class="ctime">${esc(dayLabel(dayKey(c.createdAt)))} · ${hm(c.createdAt)}</span></div></div>
+        <div class="crev-btns">
+          <button class="btn p" data-rev="task">משימה</button>
+          <button class="btn" data-rev="info">מידע</button>
+          <button class="btn" data-rev="note">להערה</button>
+          <button class="btn" data-rev="delete">מחק</button></div>`,
+      buttons:[{label:'סיום',act:()=>{skipped.clear();Modal.shut();}},...(rows.length>1?[{label:'דלג',act:()=>{skipped.add(c.id);review();}}]:[])]});
+    Modal.body.addEventListener('click',e=>{
+      const b=e.target.closest('[data-rev]');if(!b)return;const k=b.dataset.rev;
+      if(k==='task'){Modal.shut();convert(c,()=>{if(unsorted().length)review();});return;}
+      if(k==='note'){toNote(c,()=>setTimeout(review,0));return;}
+      if(k==='info')Store.updateCapture(c.id,{state:'info'});
+      if(k==='delete'){const copy=Store.delCapture(c.id);UI.undo('הפתק נמחק',()=>Store.restoreCapture(copy));}
+      review();
+    });
+  }
+
+  /* ---------- settings ---------- */
+  function settingsNote(){
+    const p=Store.all.prefs;return (p.captureReview?'מיון ב־'+p.captureReview:'בלי תזכורת מיון')+(p.captureStart!==false?' · פתיחה בפתקים':'');
+  }
+  function settingsHTML(){
+    const p=Store.all.prefs;
+    return `<div class="set"><div class="sb"><div class="st">פתיחה במסך הפתקים</div><div class="sd">כשהאפליקציה עולה מחדש, היא נפתחת ישר לכתיבה</div></div>
+        <button class="sw" id="capStartSw" aria-checked="${p.captureStart!==false}"></button></div>
+      <div class="set"><div class="sb"><div class="st">תזכורת מיון יומית</div><div class="sd">פעם ביום, רק אם יש פתקים שעוד לא סודרו${window.MesimaNative?'. בטלפון היא מוצגת כרגע בתוך האפליקציה (כרטיס במסך היום); התראה ברקע תגיע עם גרסת APK הבאה':''}</div></div>
+        <button class="sw" id="capReviewSw" aria-checked="${!!p.captureReview}"></button></div>
+      ${p.captureReview?`<div class="set"><div class="sb"><div class="st">שעת המיון</div></div><input type="time" id="capReviewAt" value="${esc(p.captureReview)}" style="width:auto"></div>`:''}
+      <div class="sd" style="margin-top:14px">טיפים: Enter שולח · אפשר לכתוב ״מחר ב־5״, ״ביום רביעי בערב״ או ״בעוד שעה״ · #מילה הופכת לתגית.</div>`;
+  }
+
+  /* ---------- wiring ---------- */
+  function boot(){
+    // Cold start only: the WebView/Electron page is fresh, so this runs once.
+    if(Store.all.prefs.captureStart!==false)UI.section='capture';
+  }
+  function init(){
+    if(booted)return;booted=true;
+    const i=$('#capInput');
+    try{i.value=localStorage.getItem(DRAFT)||'';}catch{}
+    grow();
+    i.addEventListener('input',()=>{grow();try{if(i.value)localStorage.setItem(DRAFT,i.value);else localStorage.removeItem(DRAFT);}catch{}});
+    i.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}
+    });
+    $('#capSend').addEventListener('click',e=>{e.preventDefault();send();});
+    $('#capSend').addEventListener('mousedown',e=>e.preventDefault()); // keep the keyboard open
+    $('#capSearch').addEventListener('input',e=>{query=e.target.value;render();});
+    document.addEventListener('click',e=>{
+      const t=e.target;
+      const review_=t.closest('[data-capreview]');if(review_){e.preventDefault();skipped.clear();review();return;}
+      // Links may also appear in the note menu and review previews.
+      const link=t.closest('[data-caplink]');if(link){e.preventDefault();e.stopPropagation();try{window.open(link.dataset.caplink,'_blank','noopener');}catch{}return;}
+      if(!t.closest('#s-capture'))return;
+      const tg=t.closest('[data-captag]');if(tg){e.stopPropagation();tag=tg.dataset.captag;filter='all';render();return;}
+      const dt=t.closest('[data-capdate]');if(dt){e.stopPropagation();Store.updateCapture(dt.dataset.capdate,{noDate:true});UI.toast('זיהוי התאריך בוטל');return;}
+      const op=t.closest('[data-capopen]');if(op){e.stopPropagation();window.__openTask?.(op.dataset.capopen);return;}
+      const nt=t.closest('[data-capnote]');if(nt){e.stopPropagation();NoteView.open(nt.dataset.capnote);return;}
+      const f=t.closest('[data-capf]');if(f){filter=f.dataset.capf;render();return;}
+      if(t.closest('[data-capclear]')){tag='';render();return;}
+      if(t.closest('[data-capsearch]')){searchOpen=!searchOpen;if(!searchOpen){query='';$('#capSearch').value='';}render();if(searchOpen)$('#capSearch').focus();return;}
+      const b=t.closest('[data-cap]');if(b&&!window.getSelection()?.toString())menu(b.dataset.cap);
+    });
+    document.addEventListener('keydown',e=>{if(e.target.matches?.('[data-cap]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();menu(e.target.dataset.cap);}});
+    document.addEventListener('click',e=>{
+      const t=e.target;
+      if(t.id==='capStartSw'){Store.setPref('captureStart',Store.all.prefs.captureStart===false);UI.render();}
+      if(t.id==='capReviewSw'){Store.setPref('captureReview',Store.all.prefs.captureReview?'':'20:30');UI.render();}
+    });
+    document.addEventListener('change',e=>{if(e.target.id==='capReviewAt'&&/^\d{2}:\d{2}$/.test(e.target.value)){Store.setPref('captureReview',e.target.value);}});
+    // Sync and edits elsewhere refresh the list even while the composer has focus.
+    Store.onChange(()=>{if(active())render();chrome(active());});
+    window.__captureReview=()=>{document.activeElement?.blur?.();UI.screen=null;UI.section='today';UI.render();skipped.clear();review();};
+  }
+  return {boot,init,render,chrome,todayCard,review,settingsHTML,settingsNote};
+})();
+
+Capture.boot();
+Capture.init();
 UI.init();
 Engine.start();
 

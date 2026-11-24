@@ -23,6 +23,15 @@
   <div class="fabwrap">
   <main>
 
+    <!-- ======================= פתקים מהירים ======================= -->
+    <section class="sec" id="s-capture">
+      <div id="capTools"></div>
+      <div class="searchbar" id="capSearchBar" hidden>
+        <input type="search" id="capSearch" placeholder="חיפוש בפתקים" autocomplete="off" aria-label="חיפוש בפתקים">
+      </div>
+      <div id="capList" aria-live="polite"></div>
+    </section>
+
     <!-- ======================= היום ======================= -->
     <section class="sec on" id="s-today">
       <div class="modes" id="tvModes">
@@ -121,9 +130,14 @@
 
   </main>
   <button class="fab" id="fab" hidden>+</button>
+  <div id="capBar" hidden>
+    <textarea id="capInput" rows="1" placeholder="כתוב לעצמך…" enterkeyhint="send" aria-label="פתק חדש" dir="auto"></textarea>
+    <button id="capSend" aria-label="שלח">➤</button>
+  </div>
   </div>
 
   <nav id="nav">
+    <button data-s="capture" aria-selected="false">פתקים<span class="navbadge" id="capBadge" hidden></span></button>
     <button data-s="today" aria-selected="true">היום</button>
     <button data-s="tasks" aria-selected="false">משימות</button>
     <button data-s="library" aria-selected="false">ספרייה</button>

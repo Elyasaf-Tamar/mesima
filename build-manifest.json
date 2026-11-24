@@ -25,5 +25,7 @@
   "src/js/14-reflection.js",
   "src/js/14-notes.js",
   "src/js/14-widgets.js",
+  "src/js/14-capture-parse.js",
+  "src/js/14-capture.js",
   "src/js/15-boot.js"
 ]

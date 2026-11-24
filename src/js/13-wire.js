@@ -2550,6 +2550,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
        המלא עם התיאור, התמונה ותת-המשימות — לא רק שורה בשורת הסטטוס. */
     window.__alarm = function(id,meta){
       if (!id) return false;
+      if (typeof id==='string'&&id.startsWith('cap_')){ window.__captureReview?.(); return true; }
       // A desktop notification keeps its original cycle even when a manual
       // checklist is renewed and the same reminder ID is reused.
       const reminderId=id,target={...ReminderLink.resolve(id),...meta};
@@ -2580,7 +2581,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     });
     history.pushState({ m:1 }, '');
 
-    window.__openTask=openTask; window.__newTask=()=>taskModal({}); window.__newEvent=()=>{UI.selDate=Plan.today();eventModal(null);}; window.__openEvent=id=>{const e=Store.event(id);if(e)eventMenu(e);};
+    window.__openTask=openTask; window.__newTask=()=>taskModal({}); window.__taskModal=o=>taskModal(o); window.__newEvent=()=>{UI.selDate=Plan.today();eventModal(null);}; window.__openEvent=id=>{const e=Store.event(id);if(e)eventMenu(e);};
     NativeState.init();
     Store.onChange(() => { Native.sync();
       if(UI.alertItem&&Store.reminderBlocked(UI.alertItem.meta||ReminderLink.resolve(UI.alertItem.item.id)))UI.closeAlert();
@@ -2591,7 +2592,7 @@ ${r.date?'תאריך פרסום: '+esc(r.date):'אין תאריך פרסום ב�
     UI.render();
     /* מודיעים לאנדרואיד שהדף חי — אם נכנסנו מלחיצה על התראה,
        החלון המלא של התזכורת נפתח עכשיו. */
-    Native.canBack(false);
+    Native.canBack(hasBack());
     Native.ready();
   }
 

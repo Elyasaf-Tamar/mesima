@@ -1,3 +1,5 @@
+Capture.boot();
+Capture.init();
 UI.init();
 Engine.start();
 

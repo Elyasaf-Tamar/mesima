@@ -25,8 +25,8 @@ const Permissions = (() => {
 })();
 const Settings = (() => {
   let page='home';
-  const titles={home:'הגדרות',update:'עדכון האפליקציה',data:'גיבוי ונתונים',advanced:'מתקדם',notifications:'התראות',auto:'גיבוי אוטומטי',cloud:'גיבוי בענן',archive:'מחיקה מהארכיון',behavior:'התנהגות האפליקציה',perms:'הרשאות מערכת',fix:'נדרשת פעולה',diag:'אבחון',restore:'ייבוא / שחזור',source:'מקור עדכונים',wipe:'מחיקת כל הנתונים'};
-  const parent={update:'home',data:'home',advanced:'home',auto:'data',cloud:'data',archive:'data',fix:'home'};
+  const titles={home:'הגדרות',update:'עדכון האפליקציה',data:'גיבוי ונתונים',advanced:'מתקדם',notifications:'התראות',auto:'גיבוי אוטומטי',cloud:'גיבוי בענן',archive:'מחיקה מהארכיון',behavior:'התנהגות האפליקציה',perms:'הרשאות מערכת',fix:'נדרשת פעולה',diag:'אבחון',restore:'ייבוא / שחזור',source:'מקור עדכונים',wipe:'מחיקת כל הנתונים',capture:'פתקים מהירים'};
+  const parent={capture:'home',update:'home',data:'home',advanced:'home',auto:'data',cloud:'data',archive:'data',fix:'home'};
   const row=(key,note='')=>`<button class="settings-row" data-settings-page="${key}"><span><b>${titles[key]}</b>${note?`<small>${UI.esc(note)}</small>`:''}</span><span aria-hidden="true">‹</span></button>`;
   function section(html,title){
     const box=document.createElement('div');box.innerHTML=html;
@@ -47,7 +47,7 @@ const Settings = (() => {
       if(!Store.canPersist)html+='<div class="notice warn">לא ניתן לשמור נתונים במכשיר הזה.</div>';
       if(s.error)html+='<div class="notice warn">הגיבוי דורש טיפול <button class="btn" data-settings-page="auto">בדוק</button></div>';
       if(c.email&&Store.all.prefs.syncEnabled!==false&&/שגיאת|כללי|לא תקין|השתנה|גדול/.test(CloudSync.info().message))html+='<div class="notice warn">הסנכרון דורש טיפול <button class="btn" data-settings-page="cloud">בדוק</button></div>';
-      html+=row('update',n.updatePending?'עדכון זמין':Native.on&&Native.apkOld()?'נדרשת התקנת גרסה חדשה':`גרסה ${BUILD.split(' ·')[0]}`)+row('data',`גיבוי אוטומטי: ${auto} · ענן: ${cloud}`)+row('advanced');
+      html+=row('update',n.updatePending?'עדכון זמין':Native.on&&Native.apkOld()?'נדרשת התקנת גרסה חדשה':`גרסה ${BUILD.split(' ·')[0]}`)+row('data',`גיבוי אוטומטי: ${auto} · ענן: ${cloud}`)+row('capture',Capture.settingsNote())+row('advanced');
     }else if(page==='data'){
       html=row('auto',auto)+row('cloud',cloud)+row('archive',Store.all.prefs.archiveDays?`אחרי ${Store.all.prefs.archiveDays} יום`:'לעולם לא')+'<button class="btn p wide" data-care="now">גבה עכשיו</button>';
       if(c.busy)html+='<div role="status" class="notice">הגיבוי לענן מתבצע…</div>';
@@ -62,6 +62,7 @@ const Settings = (() => {
       let pref={};try{pref=JSON.parse(window.MesimaNative?.notificationPreferences?.()||'{}');}catch{}
       html=Native.on?`<button class="settings-row" data-nat="chan"><span><b>צליל ההתראה</b><small>בחר צליל בהגדרות Android</small></span><span>‹</span></button><button class="settings-row" data-notification-vibration><span><b>דפוס רטט</b><small>${UI.esc(pref.pattern||'ברירת מחדל')}</small></span><span>‹</span></button><p class="note">אפשרויות הצליל והרטט תלויות במכשיר. ההגדרות שבחרת בערוץ של Android נשמרות עבור כל דפוס.</p><button class="btn" data-nat="testnow">בדוק התראה</button>`:'<p class="note">בחירת צליל ודפוס רטט זמינה באפליקציית Android.</p>';
     }
+    else if(page==='capture')html=Capture.settingsHTML();
     else if(page==='behavior')html=section(moreBody,'התראות באפליקציה');
     else if(page==='restore')html=section(moreBody,'גיבוי ידני').replace(/<div class="set">[\s\S]*?<\/div><\/div>/g,'')+(localStorage.getItem('mesima.before-import')?'<button class="btn wide" data-care="recover-import">ייצא עותק מלפני השחזור / הסנכרון האחרון</button>':'');
     else if(page==='source')html=section(moreBody,'מקור העדכונים');

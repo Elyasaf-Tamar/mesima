@@ -47,7 +47,7 @@ const UI = (() => {
 
   const SCREEN_TITLE = { notes:'הערות', lists:'קניות', archive:'ארכיון',
                          places:'מקומות', settings:'הגדרות' };
-  const SEC_TITLE    = { today:'היום', tasks:'משימות', library:'ספרייה' };
+  const SEC_TITLE    = { capture:'פתקים', today:'היום', tasks:'משימות', library:'ספרייה' };
 
   const fmtM = m => m < 1000 ? Math.round(m)+' מ׳' : (m/1000).toFixed(1)+' ק״מ';
   const fmtDate = ts => {
@@ -127,7 +127,7 @@ const UI = (() => {
   function renderToday(){
     $$('#tvModes button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === tview));
     const box = $('#todayBody');
-    if (tview === 'day')   return void (box.innerHTML = dayView(selDate));
+    if (tview === 'day')   return void (box.innerHTML = (selDate===Plan.today()?Capture.todayCard():'') + dayView(selDate));
     box.innerHTML = monthView();
   }
 
@@ -1242,6 +1242,7 @@ const UI = (() => {
     const fabOn = (!screen && (section === 'today' || section === 'tasks')) ||
                   (screen === 'notes' && !openNote) || (screen === 'lists');
     $('#fab').hidden = !fabOn;
+    Capture.chrome(!screen && section === 'capture');
   }
 
   function typing(){
@@ -1262,6 +1263,7 @@ const UI = (() => {
     if (screen === 'archive')  return renderArchive();
     if (screen === 'places')   return renderPlaces();
     if (screen === 'settings') return renderSettings();
+    if (section === 'capture') return Capture.render();
     if (section === 'today')   return renderToday();
     if (section === 'tasks')   return renderTasks();
     if (section === 'library') return renderLibrary();

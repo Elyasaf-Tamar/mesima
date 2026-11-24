@@ -3,7 +3,7 @@
    so an old whole-array update cannot silently overwrite merged items.
    Firestore's pointer document remains transport schema 1. */
 const SyncModel=(()=>{
-  const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections'];
+  const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections','captures'];
   const unsafe=k=>['__proto__','constructor','prototype'].includes(k);
   const clone=x=>JSON.parse(JSON.stringify(x));
   const stable=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
@@ -195,7 +195,9 @@ const SyncModel=(()=>{
     if(Number.isInteger(s?.schema)&&s.schema>2)throw Error('נתוני הענן נוצרו בגרסה חדשה יותר. עדכן את משימה בכל המכשירים כדי להמשיך בסנכרון.');
     if(![1,2].includes(s?.schema)||!Number.isSafeInteger(s.clock)||s.clock<0||!s.records||typeof s.records!=='object'||Array.isArray(s.records))throw Error('נתוני סנכרון לא תקינים');
     for(const [key,r]of Object.entries(s.records)){
-      if(!collections.includes(key.split('/')[0])||!r?.fields||typeof r.fields!=='object'||Array.isArray(r.fields))throw Error('רשומת סנכרון לא תקינה');
+      // Records of collections added by a newer version are validated for shape,
+      // carried through merges and ignored by materialize, so sync keeps working.
+      if(!/^[a-zA-Z]{1,40}\/./.test(key)||!r?.fields||typeof r.fields!=='object'||Array.isArray(r.fields))throw Error('רשומת סנכרון לא תקינה');
       for(const [k,v]of Object.entries(r.fields)){
         if(unsafe(k)||!v||!Array.isArray(v.stamp)||!Number.isSafeInteger(v.stamp[0])||v.stamp[0]<0||v.stamp[0]>s.clock||typeof v.stamp[1]!=='string')throw Error('חותמת סנכרון לא תקינה');
         if(v.at!==undefined&&(!Number.isSafeInteger(v.at)||v.at<=0||Number.isNaN(new Date(v.at).getTime())))throw Error('תאריך סימון בסנכרון אינו תקין');

@@ -174,6 +174,15 @@ const Native = (() => {
                      : 'מתחיל עכשיו (' + ev.time + ')' });
     });
 
+    /* תזכורת מיון יומית לפתקים מהירים — רק כשיש מה לסדר. מגיעה למתזמן של
+       Windows; מעטפת Android 1.8.2 מתזמנת מתוך alarmPlan ולכן לא מקבלת אותה. */
+    const review=Store.all.prefs.captureReview,open=(Store.all.captures||[]).filter(c=>c.state==='inbox').length;
+    const planShell=typeof A()?.syncAlarmPlan==='function';
+    if(open&&!planShell&&/^\d{2}:\d{2}$/.test(review||''))[t0,Plan.shift(t0,1)].forEach(day=>{
+      const at=ms(day,review);if(at<soon)return;
+      out.push({id:'cap_'+day,at,title:'פתקים לסדר',body:open===1?'יש פתק אחד שעוד לא סודר':'יש '+open+' פתקים שעוד לא סודרו'});
+    });
+
     return out.map(a=>{
       const link=ReminderLink.resolve(a.id),t=link?.taskId?Store.task(link.taskId):null,ev=link?.eventId?Store.event(link.eventId):null;
       const note=(t?.notificationText ?? t?.note ?? ev?.note ?? '').trim();

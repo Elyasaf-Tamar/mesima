@@ -17,7 +17,7 @@ try {
   localStorage.setItem('mesima.v1',JSON.stringify({v:12,tasks:[
    {id:'project',title:'הכנה לצילום',kind:'long',archived:true,archivedAt:1789995600000},
    {id:'finished',title:'בדיקת ציוד הצילום',kind:'short',parentId:'project',note:'התיאור נשמר',done:true,doneAt:new Date('2026-09-19T15:20:00+03:00').getTime(),archived:true,archivedAt:new Date('2026-09-21T10:00:00+03:00').getTime()}
-  ],reflections:[{id:'day:2026-09-19',kind:'day',date:'2026-09-19',text:'היה יום טוב'}],prefs:{syncEnabled:false}}));
+  ],reflections:[{id:'day:2026-09-19',kind:'day',date:'2026-09-19',text:'היה יום טוב'}],prefs:{syncEnabled:false,captureStart:false}})); // 4.9.3 opens on quick notes; start from Today
  });
  await page.goto(`http://127.0.0.1:${server.address().port}`);
  await page.evaluate(()=>Engine.stop());

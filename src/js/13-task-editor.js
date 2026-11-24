@@ -1129,7 +1129,7 @@ const TaskEditor = (() => {
       B.addEventListener('input',  refreshSummaries);
 
       /* ערכי התחלה שלא נכנסים דרך ה-HTML */
-      const pre = o.preset || null;
+      const pre = d ? null : (o.preset || null);   /* a restored draft already holds the user's edits */
       if (pre){
         g('etTitle').value = pre.title || '';
         g('etNote').value  = pre.note || '';
@@ -1324,12 +1324,15 @@ const TaskEditor = (() => {
           Modal.shut();taskModal(back);return;
         }
         const scheduled=[];
-        try{Store.transaction(()=>persistRecord(record,o.parentId||null,new Set(),scheduled));}
+        // onCreated runs in the same transaction, so a linked quick note is
+        // marked as converted only when the task itself was saved.
+        try{Store.transaction(()=>{const id=persistRecord(record,o.parentId||null,new Set(),scheduled);if(isNew&&typeof o.onCreated==='function')o.onCreated(id);});}
         catch(error){UI.toast(error.message||'לא ניתן לשמור את הטיוטה');return;}
         Modal.shut();
         const reminder=scheduled.find(x=>x.reminder||x.repeat);
         if(reminder)Permissions.forTask(reminder);
         UI.toast(isNew?'נוסף':'נשמר');
+        if(typeof o.afterSave==='function')setTimeout(o.afterSave,0);
       }
 
       /* A complete editor tree is applied in one Store transaction. No draft is

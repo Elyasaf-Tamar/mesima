@@ -1,8 +1,8 @@
 const Store = (() => {
   const KEY = 'mesima.v1';
   const seed = () => ({ v:5, tasks:[], places:[], lists:[], events:[], notes:[],
-                        eventTypes:[], links:[], completions:[], reflections:[],
-                        prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1 } });
+                        eventTypes:[], links:[], completions:[], reflections:[], captures:[],
+                        prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1, captureReview:'20:30', captureStart:true } });
 
   function localDay(d=new Date()){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
   let persist = true;
@@ -16,12 +16,16 @@ const Store = (() => {
   } catch(e){ data = seed(); }
   function normalize(input){
     const data = Object.assign(seed(), input);
-    for(const key of ['tasks','places','lists','events','notes','eventTypes','links','completions','reflections']){
+    for(const key of ['tasks','places','lists','events','notes','eventTypes','links','completions','reflections','captures']){
       if(input[key] !== undefined && !Array.isArray(input[key])) throw new Error('מבנה גיבוי לא תקין');
       if(!Array.isArray(data[key])) data[key]=[];
       if(data[key].some(x=>!x || typeof x!=='object' || Array.isArray(x))) throw new Error('פריט פגום בגיבוי');
     }
     data.prefs = {...seed().prefs,...(data.prefs || {})};
+    // Quick notes: keep only well-formed rows; derived data (tags, dates) is never stored.
+    data.captures = data.captures.filter(c=>typeof c.id==='string'&&c.id&&typeof c.text==='string').map(c=>({...c,
+      state:['inbox','info','task','note'].includes(c.state)?c.state:'inbox',
+      createdAt:Number.isFinite(c.createdAt)?c.createdAt:Date.now(),updatedAt:Number.isFinite(c.updatedAt)?c.updatedAt:(Number.isFinite(c.createdAt)?c.createdAt:Date.now())}));
   /* מיגרציות */
   if (!Array.isArray(data.events)) data.events = [];
   if (!data.prefs) data.prefs = seed().prefs;
@@ -1245,6 +1249,28 @@ const Store = (() => {
     },
     delNote(id){ data.notes = data.notes.filter(n=>n.id!==id); save(); },
     pinNote(id){ const n=this.note(id); if(n){ n.pinned=!n.pinned; save(); } },
+
+    /* פתקים מהירים — זרם בסגנון צ׳אט. מצב: inbox (לסדר) / info / task / note */
+    captures(){ return data.captures.slice().sort((a,b)=>a.createdAt-b.createdAt); },
+    capture(id){ return data.captures.find(c=>c.id===id); },
+    unsortedCaptures(){ return this.captures().filter(c=>c.state==='inbox'); },
+    addCapture(text){
+      const value=String(text||'').replace(/\s+$/,'').replace(/^\s+/,'');if(!value)return null;
+      if(value.length>20000)throw Error('הפתק ארוך מדי');
+      const now=Date.now(),c={id:uid(),text:value,state:'inbox',createdAt:now,updatedAt:now};
+      data.captures.push(c);save();return c;
+    },
+    updateCapture(id,patch){
+      const c=this.capture(id);if(!c)return null;
+      const next={...patch};delete next.id;delete next.createdAt;
+      if('text' in next){next.text=String(next.text||'').trim();if(!next.text)return null;}
+      if('state' in next&&!['inbox','info','task','note'].includes(next.state))throw Error('מצב פתק לא תקין');
+      Object.assign(c,next,{updatedAt:Date.now()});
+      for(const k of Object.keys(c))if(c[k]===undefined||c[k]===null&&['taskId','noteId','noDate'].includes(k))delete c[k];
+      save();return c;
+    },
+    delCapture(id){ const c=this.capture(id);if(!c)return null;data.captures=data.captures.filter(x=>x.id!==id);save();return {...c}; },
+    restoreCapture(c){ if(!c?.id||this.capture(c.id))return;data.captures.push({...c});save(); },
 
     setPref(k,v){ data.prefs[k]=v; save(); },
     export(){ return JSON.stringify({...data,...(typeof BUILD==='string'?{sourceVersion:BUILD}:{})}, null, 2); },
