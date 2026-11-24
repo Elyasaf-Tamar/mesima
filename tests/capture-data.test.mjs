@@ -79,3 +79,31 @@ test('the Android plan shell does not count review alarms it cannot show',()=>{
   const desk=setup();desk.Store.addCapture('x');
   assert.equal(desk.Native.alarmList(undefined,null).some(a=>a.id.startsWith('cap_')),true);
 });
+
+test('vault keys and secret boxes merge whole across devices and survive import',()=>{
+  const {Store:S,SyncModel:M}=setup();const base=plain(S.all);
+  base.vaultKeys=[{id:'k',pw:'P1',rc:'R1',createdAt:1,updatedAt:1}];
+  base.secrets=[{id:'s',keyId:'k',box:'IVA.CTA',createdAt:1,updatedAt:1}];
+  const seed=M.capture(M.empty(),base,'seed'),a=plain(base),b=plain(base);
+  a.secrets[0].box='IVB.CTB';a.secrets[0].updatedAt=2;
+  b.secrets[0].box='IVC.CTC';b.secrets[0].updatedAt=3;b.vaultKeys[0].rc='R2';a.vaultKeys[0].pw='P2';
+  const out=M.materialize(M.merge(M.capture(seed,a,'a'),M.capture(seed,b,'b')),base);
+  assert.ok(['IVB.CTB','IVC.CTC'].includes(out.secrets[0].box),'a box is never stitched from two devices');
+  assert.deepEqual([out.vaultKeys[0].pw,out.vaultKeys[0].rc],['P2','R2'],'password and recovery changes on different devices both survive');
+  S.import(JSON.stringify({...plain(S.all),vaultKeys:[{id:'k',pw:'{}',rc:'{}'},{id:'bad',pw:'x'}],secrets:[{id:'s',keyId:'k',box:'a.b'},{id:'t',box:'x'}]}));
+  assert.deepEqual(plain(S.vaultKeys().map(k=>k.id)),['k']);assert.deepEqual(plain(S.secrets().map(x=>x.id)),['s']);
+  assert.throws(()=>S.putSecret({id:'z',keyId:'k',box:'no-dot'}));
+});
+
+test('deleted records are scrubbed from the sync state, also against an older peer',()=>{
+  const {Store:S,SyncModel:M}=setup();
+  const c=S.addCapture('PIN 4482');const s1=M.capture(M.empty(),plain(S.all),'me');
+  assert.match(JSON.stringify(s1),/4482/);
+  S.delCapture(c.id);const s2=M.capture(s1,plain(S.all),'me');
+  assert.doesNotMatch(JSON.stringify(s2),/4482/);
+  const merged=M.merge(s1,s2),back=M.merge(s2,s1);
+  assert.doesNotMatch(JSON.stringify(merged),/4482/);assert.doesNotMatch(JSON.stringify(back),/4482/);
+  assert.equal(M.materialize(merged,plain(S.all)).captures.length,0);
+  S.restoreCapture({...c});const s3=M.capture(merged,plain(S.all),'me');
+  assert.equal(M.materialize(s3,plain(S.all)).captures[0].text,'PIN 4482','undo after delete still restores');
+});

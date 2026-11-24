@@ -4,7 +4,7 @@
 const Capture=(()=>{
   const $=s=>document.querySelector(s);
   const DRAFT='mesima.captureDraft';
-  let filter='all',tag='',query='',searchOpen=false,booted=false,lastCount=-1;
+  let filter='all',tag='',query='',searchOpen=false,booted=false,lastCount=-1,secret=false;
   const esc=s=>UI.esc(s);
   const pad=n=>String(n).padStart(2,'0');
   const dayKey=t=>{const d=new Date(t);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
@@ -112,9 +112,19 @@ const Capture=(()=>{
 
   /* ---------- writing ---------- */
   function grow(){const i=$('#capInput');i.style.height='auto';i.style.height=Math.min(i.scrollHeight,160)+'px';}
+  // Secret mode: the text goes straight to the encrypted vault and is never
+  // stored as a draft or as a plain note.
+  function setSecret(on){
+    secret=!!on;const bar=$('#capBar'),i=$('#capInput');
+    bar.classList.toggle('secret',secret);$('#capLock').setAttribute('aria-pressed',String(secret));
+    i.placeholder=secret?'פתק סודי — יישמר מוצפן בכספת':'כתוב לעצמך…';
+    if(secret){try{localStorage.removeItem(DRAFT);}catch{}}
+    else if(i.value){try{localStorage.setItem(DRAFT,i.value);}catch{}}
+  }
   function send(){
     const i=$('#capInput'),text=i.value;
     if(!text.trim()){i.focus();return;}
+    if(secret){Vault.storeText(text,()=>{i.value='';grow();setSecret(false);});return;}
     let c;try{c=Store.addCapture(text);}catch(e){UI.toast(e.message||'לא נשמר');return;}
     if(!c)return;
     i.value='';try{localStorage.removeItem(DRAFT);}catch{}
@@ -180,11 +190,13 @@ const Capture=(()=>{
     else body+=opt('task','הפוך למשימה',w?'עם '+esc(w.label):'');
     body+=c.state==='info'?opt('inbox','החזר ל״לסדר״'):c.state==='inbox'?opt('info','סמן כמידע','נשאר כאן לחיפוש, ויוצא מהמונה'):'';
     if(c.state!=='note')body+=opt('note','העבר להערה');
+    body+=opt('vault','העבר לכספת','נשמר מוצפן, והפתק הגלוי נמחק');
     body+=opt('edit','ערוך')+opt('copy','העתק')+opt('delete','מחק');
     Modal.open({title:'פתק',body,buttons:[{label:'סגור',act:()=>Modal.shut()}]});
     Modal.body.addEventListener('click',e=>{
       const b=e.target.closest('[data-capact]');if(!b)return;const k=b.dataset.capact;
       if(k==='note'){toNote(c);return;}
+      if(k==='vault'){Modal.shut();Vault.storeText(c.text,()=>Store.delCapture(c.id));return;}
       Modal.shut();
       if(k==='task')convert(c);
       else if(k==='opentask')window.__openTask?.(c.taskId);
@@ -246,7 +258,9 @@ const Capture=(()=>{
     const i=$('#capInput');
     try{i.value=localStorage.getItem(DRAFT)||'';}catch{}
     grow();
-    i.addEventListener('input',()=>{grow();try{if(i.value)localStorage.setItem(DRAFT,i.value);else localStorage.removeItem(DRAFT);}catch{}});
+    i.addEventListener('input',()=>{grow();if(secret)return;try{if(i.value)localStorage.setItem(DRAFT,i.value);else localStorage.removeItem(DRAFT);}catch{}});
+    $('#capLock').addEventListener('click',e=>{e.preventDefault();setSecret(!secret);i.focus();});
+    $('#capLock').addEventListener('mousedown',e=>e.preventDefault());
     i.addEventListener('keydown',e=>{
       if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}
     });

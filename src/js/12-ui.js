@@ -46,7 +46,7 @@ const UI = (() => {
   let addKind = 'search';      /* טופס הוספת מקום */
 
   const SCREEN_TITLE = { notes:'הערות', lists:'קניות', archive:'ארכיון',
-                         places:'מקומות', settings:'הגדרות' };
+                         places:'מקומות', settings:'הגדרות', vault:'כספת' };
   const SEC_TITLE    = { capture:'פתקים', today:'היום', tasks:'משימות', library:'ספרייה' };
 
   const fmtM = m => m < 1000 ? Math.round(m)+' מ׳' : (m/1000).toFixed(1)+' ק״מ';
@@ -1263,6 +1263,7 @@ const UI = (() => {
     if (screen === 'archive')  return renderArchive();
     if (screen === 'places')   return renderPlaces();
     if (screen === 'settings') return renderSettings();
+    if (screen === 'vault')    return Vault.render();
     if (section === 'capture') return Capture.render();
     if (section === 'today')   return renderToday();
     if (section === 'tasks')   return renderTasks();

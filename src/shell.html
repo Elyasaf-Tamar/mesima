@@ -72,12 +72,19 @@
           <div class="bd"><div class="t">קניות</div><div class="m" id="libLists">—</div></div>
           <span class="chev">‹</span>
         </button>
+        <button class="row" data-lib="vault" style="width:100%;text-align:start">
+          <div class="bd"><div class="t">כספת</div><div class="m">פתקים רגישים, מוצפנים בסיסמה</div></div>
+          <span class="chev">‹</span>
+        </button>
 
         <h2 class="sh" style="margin-top:24px">קיצורי אתרים</h2>
         <div id="libLinks"></div>
         <button class="btn wide" id="libAddLink">+ קיצור חדש</button>
       </div>
     </section>
+
+    <!-- ======================= כספת ======================= -->
+    <section class="sec" id="s-vault"><div id="vaultBody"></div></section>
 
     <!-- ======================= הערות ======================= -->
     <section class="sec" id="s-notes">
@@ -131,6 +138,7 @@
   </main>
   <button class="fab" id="fab" hidden>+</button>
   <div id="capBar" hidden>
+    <button id="capLock" aria-label="פתק סודי לכספת" aria-pressed="false" title="פתק סודי — נשמר מוצפן בכספת">🔒</button>
     <textarea id="capInput" rows="1" placeholder="כתוב לעצמך…" enterkeyhint="send" aria-label="פתק חדש" dir="auto"></textarea>
     <button id="capSend" aria-label="שלח">➤</button>
   </div>

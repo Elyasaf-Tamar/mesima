@@ -1,7 +1,7 @@
 const Store = (() => {
   const KEY = 'mesima.v1';
   const seed = () => ({ v:5, tasks:[], places:[], lists:[], events:[], notes:[],
-                        eventTypes:[], links:[], completions:[], reflections:[], captures:[],
+                        eventTypes:[], links:[], completions:[], reflections:[], captures:[], vaultKeys:[], secrets:[],
                         prefs:{ vib:true, snd:true, geo:false, notif:false, noteZoom:1, captureReview:'20:30', captureStart:true } });
 
   function localDay(d=new Date()){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -16,7 +16,7 @@ const Store = (() => {
   } catch(e){ data = seed(); }
   function normalize(input){
     const data = Object.assign(seed(), input);
-    for(const key of ['tasks','places','lists','events','notes','eventTypes','links','completions','reflections','captures']){
+    for(const key of ['tasks','places','lists','events','notes','eventTypes','links','completions','reflections','captures','vaultKeys','secrets']){
       if(input[key] !== undefined && !Array.isArray(input[key])) throw new Error('מבנה גיבוי לא תקין');
       if(!Array.isArray(data[key])) data[key]=[];
       if(data[key].some(x=>!x || typeof x!=='object' || Array.isArray(x))) throw new Error('פריט פגום בגיבוי');
@@ -26,6 +26,8 @@ const Store = (() => {
     data.captures = data.captures.filter(c=>typeof c.id==='string'&&c.id&&typeof c.text==='string').map(c=>({...c,
       state:['inbox','info','task','note'].includes(c.state)?c.state:'inbox',
       createdAt:Number.isFinite(c.createdAt)?c.createdAt:Date.now(),updatedAt:Number.isFinite(c.updatedAt)?c.updatedAt:(Number.isFinite(c.createdAt)?c.createdAt:Date.now())}));
+    data.vaultKeys = data.vaultKeys.filter(k=>typeof k.id==='string'&&k.id&&typeof k.pw==='string'&&typeof k.rc==='string');
+    data.secrets = data.secrets.filter(x=>typeof x.id==='string'&&x.id&&typeof x.keyId==='string'&&typeof x.box==='string').map(x=>({...x,createdAt:Number.isFinite(x.createdAt)?x.createdAt:Date.now()}));
   /* מיגרציות */
   if (!Array.isArray(data.events)) data.events = [];
   if (!data.prefs) data.prefs = seed().prefs;
@@ -1249,6 +1251,30 @@ const Store = (() => {
     },
     delNote(id){ data.notes = data.notes.filter(n=>n.id!==id); save(); },
     pinNote(id){ const n=this.note(id); if(n){ n.pinned=!n.pinned; save(); } },
+
+    /* כספת — רק טקסט מוצפן נשמר כאן. כל עטיפת מפתח (pw / rc) וכל תיבה
+       (secrets.box) היא מחרוזת אחת, כדי שמיזוג סנכרון לא ירכיב חצאים. */
+    vaultKeys(){ return data.vaultKeys.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); },
+    setVaultKey(rec){
+      if(!rec?.id||typeof rec.pw!=='string'||typeof rec.rc!=='string')throw Error('מפתח כספת לא תקין');
+      const old=data.vaultKeys.find(k=>k.id===rec.id),now=Date.now();
+      if(old){if(old.pw!==rec.pw)old.pw=rec.pw;if(old.rc!==rec.rc)old.rc=rec.rc;old.updatedAt=now;}
+      else data.vaultKeys.push({id:rec.id,pw:rec.pw,rc:rec.rc,createdAt:now,updatedAt:now});
+      save();
+    },
+    delVaultKey(id){ data.vaultKeys=data.vaultKeys.filter(k=>k.id!==id);save(); },
+    secrets(){ return data.secrets.slice().sort((a,b)=>a.createdAt-b.createdAt); },
+    secret(id){ return data.secrets.find(x=>x.id===id); },
+    putSecret(rec){
+      if(!rec?.id||!rec.keyId||typeof rec.box!=='string'||!rec.box.includes('.'))throw Error('פתק סודי לא תקין');
+      const old=this.secret(rec.id),now=Date.now();
+      if(old)Object.assign(old,{keyId:rec.keyId,box:rec.box,updatedAt:now});
+      else data.secrets.push({id:rec.id,keyId:rec.keyId,box:rec.box,createdAt:rec.createdAt||now,updatedAt:now});
+      save();return this.secret(rec.id);
+    },
+    delSecret(id){ const x=this.secret(id);if(!x)return null;data.secrets=data.secrets.filter(s=>s.id!==id);save();return {...x}; },
+    restoreSecret(x){ if(!x?.id||this.secret(x.id))return;data.secrets.push({...x});save(); },
+    newId(){ return uid(); },
 
     /* פתקים מהירים — זרם בסגנון צ׳אט. מצב: inbox (לסדר) / info / task / note */
     captures(){ return data.captures.slice().sort((a,b)=>a.createdAt-b.createdAt); },

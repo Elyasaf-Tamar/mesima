@@ -781,3 +781,17 @@ html{color-scheme:dark}*{scrollbar-width:thin;scrollbar-color:#424a57 transparen
   .creview .cm{margin:0 0 16px}
   .crev-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .desktop #capBar{padding-inline:36px}
+
+  /* ---------------- כספת ---------------- */
+  #capLock{flex:0 0 42px;height:42px;border-radius:50%;font-size:16px;display:grid;place-items:center;opacity:.55;filter:grayscale(1)}
+  #capBar.secret #capLock{opacity:1;filter:none;background:#3a2a12}
+  #capBar.secret #capInput{background:#2a2214;border:1px solid #6b5220}
+  .vintro{text-align:center;margin:8px 0 18px}.vintro .vico{font-size:34px}.vintro h2{margin:6px 0}
+  .vintro p{color:var(--muted)}.vintro ul{text-align:start;color:var(--muted);font-size:14px;line-height:1.6;padding-inline-start:18px}
+  .vform{display:flex;flex-direction:column;gap:10px;max-width:420px;margin:0 auto}
+  .verr{min-height:18px;font-size:13px;color:var(--danger,#f0857d)}
+  .vbar{display:flex;gap:8px}.vbar input{flex:1}
+  .vcode{font-family:ui-monospace,Consolas,monospace;font-size:18px;letter-spacing:1px;text-align:center;padding:14px;margin:10px 0;
+    border:1px dashed var(--line2);border-radius:var(--r2);background:var(--surface2);word-break:break-all;user-select:all}
+  .vchk{display:flex;gap:8px;align-items:center;margin-top:12px}
+  .vtext{white-space:normal;overflow-wrap:anywhere;unicode-bidi:plaintext;background:var(--surface2);border-radius:var(--r2);padding:12px;line-height:1.55}

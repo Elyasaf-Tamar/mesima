@@ -1,3 +1,4 @@
+Vault.init();
 Capture.boot();
 Capture.init();
 UI.init();

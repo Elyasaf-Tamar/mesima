@@ -12,7 +12,7 @@ fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
 const suites = [
   'ui-test.mjs', 'bridge-ui-test.mjs', 'ui-47-test.mjs', 'mobile-47-test.mjs',
   'ui-48-test.mjs', 'ui-49-test.mjs', 'ui-491-test.mjs',
-  'sync-transport-test.mjs', 'sync-native-transport-test.mjs', 'ui-review-test.mjs', 'ui-capture-test.mjs'
+  'sync-transport-test.mjs', 'sync-native-transport-test.mjs', 'ui-review-test.mjs', 'ui-capture-test.mjs', 'ui-vault-test.mjs'
 ];
 const failed = [];
 for (const name of suites) {

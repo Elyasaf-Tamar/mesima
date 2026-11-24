@@ -3,7 +3,7 @@
    so an old whole-array update cannot silently overwrite merged items.
    Firestore's pointer document remains transport schema 1. */
 const SyncModel=(()=>{
-  const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections','captures'];
+  const collections=['tasks','events','notes','lists','places','links','eventTypes','completions','reflections','captures','vaultKeys','secrets'];
   const unsafe=k=>['__proto__','constructor','prototype'].includes(k);
   const clone=x=>JSON.parse(JSON.stringify(x));
   const stable=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
@@ -144,6 +144,17 @@ const SyncModel=(()=>{
       }
     }
     for(const [key,record]of Object.entries(next.records))if(!seen.has(key)&&record.fields._alive?.value!==false){record.fields._alive={stamp:[clock,device],value:false,deleted:false};changed=true;}
+    // A deleted record keeps only its tombstone: field values are scrubbed with
+    // a newer stamp, so deleted text (e.g. a note moved to the vault) does not
+    // linger in the sync file, in localStorage or in an older peer's copy.
+    for(const [key,record]of Object.entries(next.records)){
+      if(seen.has(key)||record.fields._alive?.value!==false)continue;
+      for(const [name,f]of Object.entries(record.fields)){
+        if(name==='_alive')continue;const blank=name.startsWith('order:')?0:{type:'value',value:null};
+        if(f.deleted&&stable(f.value)===stable(blank))continue;
+        record.fields[name]={stamp:[clock,device],value:blank,deleted:true};changed=true;
+      }
+    }
     if(changed)next.clock=clock;return pruneChecks(next);
   }
   function merge(a,b){
